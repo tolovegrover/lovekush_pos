@@ -1,0 +1,884 @@
+import 'package:flutter/material.dart';
+
+import "package:firebase_core/firebase_core.dart";
+import "firebase_options.dart";
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try { await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform); } catch (e) { print(e); }
+
+  runApp(const PosApp());
+}
+
+// ==========================================
+// MOCK DATABASE (For DartPad Prototype)
+// ==========================================
+final List<String> adminEmails = [
+  "tolovegrover@gmail.com",
+  "sanjeetagrover@gmail.com",
+  "nishaankit60@gmail.com"
+];
+List<String> allowedStaffEmails = ["staff@demo.com"];
+
+class PosApp extends StatelessWidget {
+  const PosApp({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Love Kush Shopping Center',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primaryColor: Colors.black,
+        scaffoldBackgroundColor: const Color(0xFFF9FAFB), 
+        fontFamily: 'Roboto',
+      ),
+      home: const LoginScreen(), 
+    );
+  }
+}
+
+// ==========================================
+// LOGIN SCREEN (With Access Control)
+// ==========================================
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({Key? key}) : super(key: key);
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
+  
+  bool isLinkSent = false;
+  String submittedEmail = "";
+  bool isAdmin = false;
+
+  void _sendEmailLink() {
+    String email = _emailController.text.trim().toLowerCase();
+    
+    if (email.isEmpty || !email.contains("@")) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please enter a valid email.", style: TextStyle(color: Colors.white)), backgroundColor: Colors.redAccent)
+      );
+      return;
+    }
+
+    // ROLE-BASED ACCESS CONTROL CHECK
+    if (adminEmails.contains(email)) {
+      isAdmin = true;
+    } else if (allowedStaffEmails.contains(email)) {
+      isAdmin = false;
+    } else {
+      // User is not in the database! Block them.
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text("Access Denied", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+          content: Text("The email '$email' is not authorized to use the POS system. Please ask an Admin to add you."),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK"))
+          ],
+        )
+      );
+      return;
+    }
+
+    setState(() {
+      submittedEmail = email;
+      isLinkSent = true;
+    });
+  }
+
+  void _simulateEmailLinkClick() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text("Account Setup", style: TextStyle(fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("Email verified! Please enter your name for the billing receipts."),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _nameController,
+                decoration: InputDecoration(
+                  labelText: "Your Full Name",
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  prefixIcon: const Icon(Icons.person),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), 
+              onPressed: () {
+                if (_nameController.text.trim().isNotEmpty) {
+                  Navigator.pop(context); 
+                  Navigator.pushReplacement(
+                    context, 
+                    MaterialPageRoute(
+                      builder: (context) => PosScreen(
+                        userName: _nameController.text.trim(),
+                        userEmail: submittedEmail,
+                        isAdmin: isAdmin, // Pass the role to the POS screen
+                      )
+                    )
+                  );
+                }
+              },
+              child: const Text("Enter POS System", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            )
+          ],
+        );
+      }
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEFF6FF),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.storefront, size: 80, color: Color(0xFF3B82F6)),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                "LOVE KUSH\nSHOPPING CENTER", 
+                textAlign: TextAlign.center, 
+                style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 2, height: 1.2)
+              ),
+              const SizedBox(height: 8),
+              const Text("Secure Staff Portal", style: TextStyle(fontSize: 16, color: Colors.black54)),
+              const SizedBox(height: 40),
+              
+              if (!isLinkSent) ...[
+                // HINT FOR DARTPAD TESTING
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
+                  child: const Text("Test Admin Email: tolovegrover@gmail.com\nTest Staff Email: staff@demo.com", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.blue)),
+                ),
+                const SizedBox(height: 24),
+
+                TextField(
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    labelText: "Email Address",
+                    prefixIcon: const Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: _sendEmailLink,
+                    child: const Text("Send Magic Link", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ] else ...[
+                const Icon(Icons.mark_email_read, size: 80, color: Color(0xFF10B981)), 
+                const SizedBox(height: 16),
+                const Text("Check your email!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 8),
+                Text(
+                  "We sent a secure login link to:\n$submittedEmail", 
+                  textAlign: TextAlign.center, 
+                  style: const TextStyle(fontSize: 16, color: Colors.black54, height: 1.5)
+                ),
+                const SizedBox(height: 40),
+                
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.yellow.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orangeAccent),
+                  ),
+                  child: Column(
+                    children: [
+                      const Text("⚠️ DARTPAD SIMULATOR", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+                      const SizedBox(height: 12),
+                      OutlinedButton(
+                        onPressed: _simulateEmailLinkClick,
+                        child: const Text("Simulate clicking the email link ➔"),
+                      )
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 24),
+                TextButton(
+                  onPressed: () => setState(() => isLinkSent = false),
+                  child: const Text("Use a different email", style: TextStyle(color: Colors.grey)),
+                )
+              ]
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ==========================================
+// ADMIN DASHBOARD: STAFF MANAGEMENT
+// ==========================================
+class StaffManagementScreen extends StatefulWidget {
+  const StaffManagementScreen({Key? key}) : super(key: key);
+
+  @override
+  State<StaffManagementScreen> createState() => _StaffManagementScreenState();
+}
+
+class _StaffManagementScreenState extends State<StaffManagementScreen> {
+  final TextEditingController _newStaffController = TextEditingController();
+
+  void _addStaff() {
+    String newEmail = _newStaffController.text.trim().toLowerCase();
+    if (newEmail.isEmpty || !newEmail.contains("@")) return;
+
+    if (allowedStaffEmails.contains(newEmail) || adminEmails.contains(newEmail)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User already has access.")));
+      return;
+    }
+
+    setState(() {
+      allowedStaffEmails.add(newEmail);
+      _newStaffController.clear();
+    });
+  }
+
+  void _revokeAccess(String email) {
+    setState(() {
+      allowedStaffEmails.remove(email);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("MANAGE STAFF", style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
+        backgroundColor: Colors.white,
+        elevation: 1,
+        iconTheme: const IconThemeData(color: Colors.black),
+      ),
+      body: Column(
+        children: [
+          // ADD NEW STAFF BAR
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _newStaffController,
+                    decoration: InputDecoration(
+                      labelText: "New Staff Email",
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  ),
+                  onPressed: _addStaff,
+                  child: const Text("AUTHORIZE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ),
+          
+          // LIST OF ALLOWED STAFF
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                const Text("ADMINISTRATORS (Cannot be removed here)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 8),
+                ...adminEmails.map((email) => Card(
+                  color: Colors.blue.shade50,
+                  child: ListTile(
+                    leading: const Icon(Icons.admin_panel_settings, color: Colors.blue),
+                    title: Text(email, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    trailing: const Text("ADMIN", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                  ),
+                )).toList(),
+                
+                const SizedBox(height: 24),
+                const Text("AUTHORIZED STAFF", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 8),
+                
+                if (allowedStaffEmails.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Text("No staff members authorized yet.", style: TextStyle(fontStyle: FontStyle.italic)),
+                  ),
+                  
+                ...allowedStaffEmails.map((email) => Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.person, color: Colors.black54),
+                    title: Text(email),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.person_remove, color: Colors.red),
+                      onPressed: () {
+                        // Confirm deletion
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text("Revoke Access?"),
+                            content: Text("Are you sure you want to kick $email out of the system?"),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _revokeAccess(email);
+                                },
+                                child: const Text("Revoke Access", style: TextStyle(color: Colors.white)),
+                              ),
+                            ],
+                          )
+                        );
+                      },
+                    ),
+                  ),
+                )).toList(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// POS SCREEN
+// ==========================================
+class PosScreen extends StatefulWidget {
+  final String userName;
+  final String userEmail;
+  final bool isAdmin;
+  
+  const PosScreen({Key? key, required this.userName, required this.userEmail, required this.isAdmin}) : super(key: key);
+
+  @override
+  State<PosScreen> createState() => _PosScreenState();
+}
+
+class _PosScreenState extends State<PosScreen> {
+  List<Map<String, dynamic>> cart = [];
+  String rawItemCode = ""; 
+  String qty = "1"; 
+  String rate = ""; 
+  int focusedField = 0; 
+  bool isPreviewingBill = false; 
+
+  // ... (Keeping all the POS logic identical for brevity) ...
+
+  String get formattedItemCode {
+    if (rawItemCode.isEmpty) return "";
+    String result = "";
+    for (int i = 0; i < rawItemCode.length; i++) {
+      if (i == 1) result += " - "; 
+      if (i == 3) result += " - "; 
+      if (i == 4) result += " - "; 
+      if (i == 3) {
+        int? num = int.tryParse(rawItemCode[i]);
+        if (num != null && num >= 1 && num <= 9) {
+          result += String.fromCharCode(64 + num); 
+        } else {
+          result += rawItemCode[i];
+        }
+      } else {
+        result += rawItemCode[i];
+      }
+    }
+    return result;
+  }
+
+  String get totalPrice {
+    if (qty.isEmpty || rate.isEmpty) return "";
+    double q = double.tryParse(qty) ?? 0;
+    double r = double.tryParse(rate) ?? 0;
+    return (q * r).round().toString();
+  }
+
+  int get cartTotal {
+    int total = 0;
+    for (var item in cart) total += int.tryParse(item["price"]) ?? 0;
+    return total;
+  }
+
+  void addToCart() {
+    if (rawItemCode.isEmpty || rate.isEmpty) return;
+    setState(() {
+      cart.insert(0, {
+        "qty": qty.isEmpty ? "1" : qty,
+        "item": formattedItemCode,
+        "rawItemCode": rawItemCode, 
+        "rate": rate,
+        "price": totalPrice, 
+      });
+      rawItemCode = "";
+      qty = "1"; 
+      rate = "";
+      focusedField = 0; 
+    });
+  }
+
+  void editCartItem(int index) {
+    setState(() {
+      final item = cart[index];
+      rawItemCode = item["rawItemCode"];
+      qty = item["qty"];
+      rate = item["rate"];
+      focusedField = 0; 
+      cart.removeAt(index); 
+    });
+  }
+
+  void removeCartItem(int index) {
+    setState(() => cart.removeAt(index));
+  }
+
+  void onKeypadPress(String value) {
+    setState(() {
+      if (value == "ENTER") {
+        if (focusedField == 0) focusedField = 1;
+        else if (focusedField == 1) focusedField = 2;
+        else if (focusedField == 2) addToCart();
+      } 
+      else if (value == "BACK") {
+        if (focusedField == 2) focusedField = 1;
+        else if (focusedField == 1) focusedField = 0;
+      }
+      else if (value == "DEL") {
+        if (focusedField == 2) {
+          if (rate.isNotEmpty) rate = rate.substring(0, rate.length - 1);
+          else focusedField = 1; 
+        } 
+        else if (focusedField == 1) {
+          if (qty.isNotEmpty) qty = qty.substring(0, qty.length - 1);
+          else focusedField = 0; 
+        } 
+        else if (focusedField == 0) {
+          if (rawItemCode.isNotEmpty) rawItemCode = rawItemCode.substring(0, rawItemCode.length - 1);
+        }
+      } 
+      else {
+        if (focusedField == 0 && rawItemCode.length < 8) {
+          if (value != ".") rawItemCode += value;
+        }
+        if (focusedField == 1) {
+          if (value == ".") {
+            if (!qty.contains(".")) qty += value; 
+          } else if (qty == "1" && value != "0" && value != "00") {
+            qty = value; 
+          } else {
+            qty += value;
+          }
+        }
+        if (focusedField == 2) {
+          if (value == ".") {
+            if (!rate.contains(".")) rate += value;
+          } else {
+            rate += value;
+          }
+        }
+      }
+    });
+  }
+
+  void confirmPrint() {
+    setState(() {
+      cart.clear();
+      rawItemCode = "";
+      qty = "1";
+      rate = "";
+      focusedField = 0;
+      isPreviewingBill = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isPreviewingBill) return buildPrintPreviewScreen();
+
+    return Scaffold(
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            DrawerHeader(
+              decoration: const BoxDecoration(color: Color(0xFF111827)), 
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  const Icon(Icons.storefront, color: Colors.white, size: 40),
+                  const SizedBox(height: 12),
+                  const Text('LOVE KUSH SHOP', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                  Text(widget.userName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+                  Text(widget.userEmail, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                ],
+              ),
+            ),
+            
+            // ADMIN ONLY SECTION
+            if (widget.isAdmin) ...[
+              const Padding(
+                padding: EdgeInsets.only(left: 16, top: 16, bottom: 8),
+                child: Text("ADMIN CONTROLS", style: TextStyle(color: Colors.blueAccent, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.manage_accounts, color: Colors.black87),
+                title: const Text('Manage Staff Access', style: TextStyle(fontWeight: FontWeight.bold)),
+                onTap: () {
+                  Navigator.pop(context); // close drawer
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const StaffManagementScreen()));
+                },
+              ),
+              const Divider(),
+            ],
+            
+            ListTile(
+              leading: const Icon(Icons.receipt_long, color: Colors.black87),
+              title: const Text('New Bill (POS)', style: TextStyle(fontWeight: FontWeight.bold)),
+              onTap: () => Navigator.pop(context), 
+            ),
+            ListTile(
+              leading: const Icon(Icons.history, color: Colors.black54),
+              title: const Text('Past Bills'),
+              onTap: () {}, 
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.logout, color: Colors.redAccent),
+              title: const Text('Logout', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+              onTap: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const LoginScreen())),
+            ),
+          ],
+        ),
+      ),
+      appBar: AppBar(
+        title: const Text('LOVE KUSH SHOP', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
+        backgroundColor: Colors.white,
+        elevation: 1,
+        centerTitle: true,
+        iconTheme: const IconThemeData(color: Colors.black), 
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            flex: 4,
+            child: Material(
+              color: Colors.transparent,
+              child: cart.isEmpty 
+                ? Center(child: Text("Welcome, ${widget.userName}!\nReady for next customer", textAlign: TextAlign.center, style: const TextStyle(color: Colors.black38, fontSize: 18, fontWeight: FontWeight.w500)))
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: cart.length,
+                    itemBuilder: (context, index) {
+                      final item = cart[index];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade200),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+                        ),
+                        child: Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          clipBehavior: Clip.antiAlias, 
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            onTap: () => editCartItem(index),
+                            leading: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.black,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text("${item["qty"]}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
+                            ),
+                            title: Text(item["item"], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: 1.1)),
+                            subtitle: Text("@ ₹${item["rate"]} (Tap to edit)", style: const TextStyle(fontSize: 13, color: Colors.black38, fontWeight: FontWeight.w500)),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text("₹${item["price"]}", style: const TextStyle(fontSize: 22, color: Colors.black, fontWeight: FontWeight.w800)),
+                                const SizedBox(width: 12),
+                                IconButton(
+                                  icon: const Icon(Icons.close, color: Colors.black26),
+                                  onPressed: () => removeCartItem(index),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+            ),
+          ),
+          if (cart.isNotEmpty)
+            GestureDetector(
+              onTap: () => setState(() => isPreviewingBill = true),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF10B981), 
+                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, -4))],
+                ),
+                child: Text(
+                  "FINISH BILL ( ₹$cartTotal )  ➔",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 1.5),
+                ),
+              ),
+            ),
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Colors.black12, width: 1)),
+            ),
+            child: Row(
+              children: [
+                _buildInputBox("ITEM CODE", formattedItemCode, focusedField == 0, 0, flex: 8, isCode: true),
+                const SizedBox(width: 8),
+                _buildInputBox("QTY", qty.isEmpty ? "—" : qty, focusedField == 1, 1, flex: 3),
+                const SizedBox(width: 8),
+                _buildInputBox("RATE", rate.isEmpty ? "" : "₹$rate", focusedField == 2, 2, flex: 4),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 4,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF), 
+                      border: Border.all(color: Colors.blueAccent.withOpacity(0.3), width: 1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      children: [
+                        const Text("TOTAL", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.blueAccent)),
+                        const SizedBox(height: 6),
+                        Text(
+                          totalPrice.isEmpty ? "—" : "₹$totalPrice",
+                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.black),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            flex: 5,
+            child: Container(
+              color: const Color(0xFF111827), 
+              child: Column(
+                children: [
+                  _buildKeypadRow([_key("1", "A"), _key("2", "B"), _key("3", "C"), _actionKey("⌫", const Color(0xFFEF4444))]), 
+                  _buildKeypadRow([_key("4", "D"), _key("5", "E"), _key("6", "F"), _actionKey("◀", const Color(0xFFF59E0B))]),
+                  _buildKeypadRow([_key("7", "G"), _key("8", "H"), _key("9", "I"), _actionKey("ENTER", const Color(0xFF3B82F6), flex: 1, isEnter: true)]),
+                  _buildKeypadRow([_key(".", ""), _key("0", ""), _key("00", "")]),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget buildPrintPreviewScreen() {
+    return Scaffold(
+      backgroundColor: const Color(0xFF374151), 
+      body: SafeArea(
+        child: Column(
+          children: [
+            const Padding(padding: EdgeInsets.all(16.0), child: Text("PREVIEW BILL", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2))),
+            Expanded(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 24),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    children: [
+                      const Text("LOVE KUSH SHOP", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 8),
+                      const Text("Basement Counter", style: TextStyle(fontSize: 16, color: Colors.black54)),
+                      Text("Served by: ${widget.userName}", style: const TextStyle(fontSize: 14, color: Colors.black45, fontStyle: FontStyle.italic)),
+                      const SizedBox(height: 16),
+                      const Text("----------------------------------------", style: TextStyle(color: Colors.grey)),
+                      const SizedBox(height: 16),
+                      ...cart.reversed.map((item) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(flex: 3, child: Text(item["item"], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+                              Expanded(flex: 2, child: Text("${item["qty"]} x ${item["rate"]}", style: const TextStyle(fontSize: 14, color: Colors.black54), textAlign: TextAlign.center)),
+                              Expanded(flex: 2, child: Text("₹${item["price"]}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800), textAlign: TextAlign.right)),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      const SizedBox(height: 16),
+                      const Text("----------------------------------------", style: TextStyle(color: Colors.grey)),
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("GRAND TOTAL", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                          Text("₹$cartTotal", style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+                        ],
+                      ),
+                      const SizedBox(height: 40),
+                      const Text("Thank you for shopping!", style: TextStyle(fontSize: 14, fontStyle: FontStyle.italic)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(16),
+              color: Colors.white,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 20), side: const BorderSide(color: Colors.black, width: 2)),
+                      onPressed: () => setState(() => isPreviewingBill = false), 
+                      child: const Text("◀ EDIT BILL", style: TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w900)),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), padding: const EdgeInsets.symmetric(vertical: 20)),
+                      onPressed: confirmPrint, 
+                      child: const Text("🖨️ PRINT BILL", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInputBox(String label, String value, bool isFocused, int fieldIndex, {required int flex, bool isCode = false}) {
+    return Expanded(
+      flex: flex,
+      child: GestureDetector(
+        onTap: () => setState(() => focusedField = fieldIndex),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+          decoration: BoxDecoration(
+            color: isFocused ? Colors.black : Colors.white,
+            border: Border.all(color: isFocused ? Colors.black : Colors.black26, width: 2),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            children: [
+              Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: isFocused ? Colors.white70 : Colors.black45)),
+              const SizedBox(height: 6),
+              Text(value.isEmpty ? (isCode ? "—" : "") : value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: isFocused ? Colors.white : Colors.black), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKeypadRow(List<Widget> keys) {
+    return Expanded(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: keys));
+  }
+
+  Widget _key(String number, String letter) {
+    return Expanded(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => onKeypadPress(number),
+          splashColor: Colors.white24,
+          child: Container(
+            decoration: BoxDecoration(border: Border.all(color: Colors.white.withOpacity(0.05), width: 0.5)),
+            child: Stack(
+              children: [
+                Center(child: Text(number, style: const TextStyle(fontSize: 42, fontWeight: FontWeight.w300, color: Colors.white))),
+                if (letter.isNotEmpty) Positioned(top: 12, right: 16, child: Text(letter, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white.withOpacity(0.3)))),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _actionKey(String action, Color color, {int flex = 1, bool isEnter = false}) {
+    return Expanded(
+      flex: flex,
+      child: Material(
+        color: color,
+        child: InkWell(
+          onTap: () => onKeypadPress(isEnter ? "ENTER" : (action.contains("⌫") ? "DEL" : "BACK")),
+          child: Container(
+            decoration: BoxDecoration(border: Border.all(color: Colors.black26, width: 0.5)),
+            child: Center(child: Text(action, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1.2))),
+          ),
+        ),
+      ),
+    );
+  }
+}

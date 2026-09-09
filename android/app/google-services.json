@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "919136245115",
+    "project_id": "love-kush-pos",
+    "storage_bucket": "love-kush-pos.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:919136245115:android:1815e7e26dbfe477aad9de",
+        "android_client_info": {
+          "package_name": "com.lovekush.lovekush_pos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD1qGHRZjnGCY9J5nrPP8viMa1g8ZqtyW0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
