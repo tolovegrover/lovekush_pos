@@ -451,7 +451,7 @@ class _PosScreenState extends State<PosScreen> {
                 title: const Text('Manage Staff Access', style: TextStyle(fontWeight: FontWeight.bold)),
                 onTap: () {
                   Navigator.pop(context); // close drawer
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const StaffManagementScreen()));
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => StaffManagementScreen()));
                 },
               ),
               const Divider(),
