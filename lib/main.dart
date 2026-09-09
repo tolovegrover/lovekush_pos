@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
-
-import "package:firebase_core/firebase_core.dart";
-import "firebase_options.dart";
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:app_links/app_links.dart';
+import 'dart:async';
+import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -39,7 +42,7 @@ class PosApp extends StatelessWidget {
 }
 
 // ==========================================
-// LOGIN SCREEN (With Access Control)
+// LOGIN SCREEN (Real Firebase Magic Link Auth)
 // ==========================================
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -55,8 +58,50 @@ class _LoginScreenState extends State<LoginScreen> {
   bool isLinkSent = false;
   String submittedEmail = "";
   bool isAdmin = false;
+  
+  late AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
 
-  void _sendEmailLink() {
+  @override
+  void initState() {
+    super.initState();
+    _initDeepLinks();
+  }
+  
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    super.dispose();
+  }
+
+  void _initDeepLinks() async {
+    _appLinks = AppLinks();
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      _handleDeepLink(uri.toString());
+    });
+  }
+
+  void _handleDeepLink(String link) async {
+    if (FirebaseAuth.instance.isSignInWithEmailLink(link)) {
+      final prefs = await SharedPreferences.getInstance();
+      String email = prefs.getString('saved_email') ?? submittedEmail;
+      
+      if (email.isEmpty) return;
+      
+      try {
+        await FirebaseAuth.instance.signInWithEmailLink(email: email, emailLink: link);
+        // Check Admin Status
+        if (adminEmails.contains(email)) isAdmin = true;
+        else if (allowedStaffEmails.contains(email)) isAdmin = false;
+        
+        _promptForName(email);
+      } catch (e) {
+        debugPrint("Error signing in with email link: $e");
+      }
+    }
+  }
+
+  void _sendEmailLink() async {
     String email = _emailController.text.trim().toLowerCase();
     
     if (email.isEmpty || !email.contains("@")) {
@@ -66,33 +111,46 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    // ROLE-BASED ACCESS CONTROL CHECK
-    if (adminEmails.contains(email)) {
-      isAdmin = true;
-    } else if (allowedStaffEmails.contains(email)) {
-      isAdmin = false;
-    } else {
-      // User is not in the database! Block them.
+    if (!adminEmails.contains(email) && !allowedStaffEmails.contains(email)) {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text("Access Denied", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-          content: Text("The email '$email' is not authorized to use the POS system. Please ask an Admin to add you."),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK"))
-          ],
+          content: Text("The email '$email' is not authorized. Ask an Admin to add you."),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK"))],
         )
       );
       return;
     }
 
-    setState(() {
-      submittedEmail = email;
-      isLinkSent = true;
-    });
+    // REAL FIREBASE AUTH!
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('saved_email', email);
+      
+      var acs = ActionCodeSettings(
+        url: 'https://love-kush-pos.firebaseapp.com/',
+        handleCodeInApp: true,
+        androidPackageName: 'com.lovekush.lovekush_pos',
+        androidInstallApp: false,
+        androidMinimumVersion: '23'
+      );
+      
+      await FirebaseAuth.instance.sendSignInLinkToEmail(
+        email: email, 
+        actionCodeSettings: acs
+      );
+
+      setState(() {
+        submittedEmail = email;
+        isLinkSent = true;
+      });
+    } catch (e) {
+      debugPrint("Firebase Link Error: $e");
+    }
   }
 
-  void _simulateEmailLinkClick() {
+  void _promptForName(String email) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -103,7 +161,7 @@ class _LoginScreenState extends State<LoginScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text("Email verified! Please enter your name for the billing receipts."),
+              const Text("Email verified securely! Please enter your name for the billing receipts."),
               const SizedBox(height: 16),
               TextField(
                 controller: _nameController,
@@ -126,8 +184,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     MaterialPageRoute(
                       builder: (context) => PosScreen(
                         userName: _nameController.text.trim(),
-                        userEmail: submittedEmail,
-                        isAdmin: isAdmin, // Pass the role to the POS screen
+                        userEmail: email,
+                        isAdmin: isAdmin,
                       )
                     )
                   );
@@ -153,49 +211,27 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               Container(
                 padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
-                  shape: BoxShape.circle,
-                ),
+                decoration: BoxDecoration(color: const Color(0xFFEFF6FF), shape: BoxShape.circle),
                 child: const Icon(Icons.storefront, size: 80, color: Color(0xFF3B82F6)),
               ),
               const SizedBox(height: 24),
-              const Text(
-                "LOVE KUSH\nSHOPPING CENTER", 
-                textAlign: TextAlign.center, 
-                style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 2, height: 1.2)
-              ),
+              const Text("LOVE KUSH
+SHOPPING CENTER", textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 2, height: 1.2)),
               const SizedBox(height: 8),
               const Text("Secure Staff Portal", style: TextStyle(fontSize: 16, color: Colors.black54)),
               const SizedBox(height: 40),
               
               if (!isLinkSent) ...[
-                // HINT FOR DARTPAD TESTING
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
-                  child: const Text("Test Admin Email: tolovegrover@gmail.com\nTest Staff Email: staff@demo.com", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.blue)),
-                ),
-                const SizedBox(height: 24),
-
                 TextField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(
-                    labelText: "Email Address",
-                    prefixIcon: const Icon(Icons.email_outlined),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
+                  decoration: InputDecoration(labelText: "Email Address", prefixIcon: const Icon(Icons.email_outlined), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
                 ),
                 const SizedBox(height: 24),
                 SizedBox(
-                  width: double.infinity,
-                  height: 56,
+                  width: double.infinity, height: 56,
                   child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.black,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.black, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
                     onPressed: _sendEmailLink,
                     child: const Text("Send Magic Link", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                   ),
@@ -205,32 +241,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 16),
                 const Text("Check your email!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 8),
-                Text(
-                  "We sent a secure login link to:\n$submittedEmail", 
-                  textAlign: TextAlign.center, 
-                  style: const TextStyle(fontSize: 16, color: Colors.black54, height: 1.5)
-                ),
+                Text("We sent a real secure login link to:
+$submittedEmail", textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: Colors.black54, height: 1.5)),
                 const SizedBox(height: 40),
-                
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.yellow.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.orangeAccent),
-                  ),
-                  child: Column(
-                    children: [
-                      const Text("⚠️ DARTPAD SIMULATOR", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
-                      const SizedBox(height: 12),
-                      OutlinedButton(
-                        onPressed: _simulateEmailLinkClick,
-                        child: const Text("Simulate clicking the email link ➔"),
-                      )
-                    ],
-                  ),
-                ),
-                
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                const Text("Waiting for you to click the link in your email app...", style: TextStyle(color: Colors.grey)),
                 const SizedBox(height: 24),
                 TextButton(
                   onPressed: () => setState(() => isLinkSent = false),
@@ -240,145 +256,6 @@ class _LoginScreenState extends State<LoginScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-// ==========================================
-// ADMIN DASHBOARD: STAFF MANAGEMENT
-// ==========================================
-class StaffManagementScreen extends StatefulWidget {
-  const StaffManagementScreen({Key? key}) : super(key: key);
-
-  @override
-  State<StaffManagementScreen> createState() => _StaffManagementScreenState();
-}
-
-class _StaffManagementScreenState extends State<StaffManagementScreen> {
-  final TextEditingController _newStaffController = TextEditingController();
-
-  void _addStaff() {
-    String newEmail = _newStaffController.text.trim().toLowerCase();
-    if (newEmail.isEmpty || !newEmail.contains("@")) return;
-
-    if (allowedStaffEmails.contains(newEmail) || adminEmails.contains(newEmail)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User already has access.")));
-      return;
-    }
-
-    setState(() {
-      allowedStaffEmails.add(newEmail);
-      _newStaffController.clear();
-    });
-  }
-
-  void _revokeAccess(String email) {
-    setState(() {
-      allowedStaffEmails.remove(email);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("MANAGE STAFF", style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
-        backgroundColor: Colors.white,
-        elevation: 1,
-        iconTheme: const IconThemeData(color: Colors.black),
-      ),
-      body: Column(
-        children: [
-          // ADD NEW STAFF BAR
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.white,
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _newStaffController,
-                    decoration: InputDecoration(
-                      labelText: "New Staff Email",
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                  ),
-                  onPressed: _addStaff,
-                  child: const Text("AUTHORIZE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
-          ),
-          
-          // LIST OF ALLOWED STAFF
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                const Text("ADMINISTRATORS (Cannot be removed here)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                const SizedBox(height: 8),
-                ...adminEmails.map((email) => Card(
-                  color: Colors.blue.shade50,
-                  child: ListTile(
-                    leading: const Icon(Icons.admin_panel_settings, color: Colors.blue),
-                    title: Text(email, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    trailing: const Text("ADMIN", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-                  ),
-                )).toList(),
-                
-                const SizedBox(height: 24),
-                const Text("AUTHORIZED STAFF", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                const SizedBox(height: 8),
-                
-                if (allowedStaffEmails.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: Text("No staff members authorized yet.", style: TextStyle(fontStyle: FontStyle.italic)),
-                  ),
-                  
-                ...allowedStaffEmails.map((email) => Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.person, color: Colors.black54),
-                    title: Text(email),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.person_remove, color: Colors.red),
-                      onPressed: () {
-                        // Confirm deletion
-                        showDialog(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: const Text("Revoke Access?"),
-                            content: Text("Are you sure you want to kick $email out of the system?"),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                                onPressed: () {
-                                  Navigator.pop(context);
-                                  _revokeAccess(email);
-                                },
-                                child: const Text("Revoke Access", style: TextStyle(color: Colors.white)),
-                              ),
-                            ],
-                          )
-                        );
-                      },
-                    ),
-                  ),
-                )).toList(),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
