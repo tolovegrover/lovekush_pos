@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:app_links/app_links.dart';
@@ -741,7 +742,27 @@ class _PosScreenState extends State<PosScreen> {
             ),
             child: Row(
               children: [
-                _buildInputBox("ITEM CODE", formattedItemCode, focusedField == 0, 0, flex: 8, isCode: true),
+                Expanded(
+                  flex: 2,
+                  child: InkWell(
+                    onTap: () async {
+                      final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const QRScannerScreen()));
+                      if (result != null && result is String) {
+                        setState(() {
+                          rawItemCode = result.replaceAll("-", "");
+                          focusedField = 1; // auto-jump to qty
+                        });
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(8)),
+                      child: const Center(child: Icon(Icons.qr_code_scanner, color: Colors.white, size: 32)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _buildInputBox("ITEM", formattedItemCode, focusedField == 0, 0, flex: 6, isCode: true),
                 const SizedBox(width: 8),
                 _buildInputBox("QTY", qty.isEmpty ? "—" : qty, focusedField == 1, 1, flex: 3),
                 const SizedBox(width: 8),
@@ -1020,6 +1041,38 @@ class _InventoryQrScreenState extends State<InventoryQrScreen> {
             )
           ],
         ),
+      ),
+    );
+  }
+}
+
+
+// ==========================================
+// QR CAMERA SCANNER SCREEN
+// ==========================================
+class QRScannerScreen extends StatefulWidget {
+  const QRScannerScreen({Key? key}) : super(key: key);
+  @override
+  State<QRScannerScreen> createState() => _QRScannerScreenState();
+}
+
+class _QRScannerScreenState extends State<QRScannerScreen> {
+  final MobileScannerController controller = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Scan QR Label"), backgroundColor: Colors.black, foregroundColor: Colors.white),
+      body: MobileScanner(
+        controller: controller,
+        onDetect: (BarcodeCapture capture) {
+          final List<Barcode> barcodes = capture.barcodes;
+          if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+            final String code = barcodes.first.rawValue!;
+            controller.stop();
+            Navigator.pop(context, code);
+          }
+        },
       ),
     );
   }

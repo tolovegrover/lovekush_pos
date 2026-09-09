@@ -1,0 +1,140 @@
+class StaffManagementScreen extends StatefulWidget {
+  const StaffManagementScreen({Key? key}) : super(key: key);
+
+  @override
+  State<StaffManagementScreen> createState() => _StaffManagementScreenState();
+}
+
+class _StaffManagementScreenState extends State<StaffManagementScreen> {
+  final TextEditingController _newStaffController = TextEditingController();
+
+  void _addStaff() {
+    String newEmail = _newStaffController.text.trim().toLowerCase();
+    if (newEmail.isEmpty || !newEmail.contains("@")) return;
+
+    if (allowedStaffEmails.contains(newEmail) || adminEmails.contains(newEmail)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User already has access.")));
+      return;
+    }
+
+    setState(() {
+      allowedStaffEmails.add(newEmail);
+      _newStaffController.clear();
+    });
+  }
+
+  void _revokeAccess(String email) {
+    setState(() {
+      allowedStaffEmails.remove(email);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text("MANAGE STAFF", style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
+        backgroundColor: Colors.white,
+        elevation: 1,
+        iconTheme: const IconThemeData(color: Colors.black),
+      ),
+      body: Column(
+        children: [
+          // ADD NEW STAFF BAR
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _newStaffController,
+                    decoration: InputDecoration(
+                      labelText: "New Staff Email",
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                  ),
+                  onPressed: _addStaff,
+                  child: const Text("AUTHORIZE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          ),
+          
+          // LIST OF ALLOWED STAFF
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                const Text("ADMINISTRATORS (Cannot be removed here)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 8),
+                ...adminEmails.map((email) => Card(
+                  color: Colors.blue.shade50,
+                  child: ListTile(
+                    leading: const Icon(Icons.admin_panel_settings, color: Colors.blue),
+                    title: Text(email, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    trailing: const Text("ADMIN", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+                  ),
+                )).toList(),
+                
+                const SizedBox(height: 24),
+                const Text("AUTHORIZED STAFF", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 8),
+                
+                if (allowedStaffEmails.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Text("No staff members authorized yet.", style: TextStyle(fontStyle: FontStyle.italic)),
+                  ),
+                  
+                ...allowedStaffEmails.map((email) => Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.person, color: Colors.black54),
+                    title: Text(email),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.person_remove, color: Colors.red),
+                      onPressed: () {
+                        // Confirm deletion
+                        showDialog(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text("Revoke Access?"),
+                            content: Text("Are you sure you want to kick $email out of the system?"),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _revokeAccess(email);
+                                },
+                                child: const Text("Revoke Access", style: TextStyle(color: Colors.white)),
+                              ),
+                            ],
+                          )
+                        );
+                      },
+                    ),
+                  ),
+                )).toList(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// POS SCREEN
+// ==========================================
+class PosScreen extends StatefulWidget {
