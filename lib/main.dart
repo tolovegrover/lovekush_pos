@@ -28,8 +28,42 @@ List<String> allowedStaffEmails = ["staff@demo.com"];
 class PosApp extends StatelessWidget {
   const PosApp({Key? key}) : super(key: key);
 
+
+  void _deleteTab(int index) {
+    if (activeBills.length <= 1) {
+      setState(() => activeBills[0].clear());
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cleared the active bill.")));
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Customer Bill?"),
+        content: Text("Are you sure you want to permanently delete Bill ${index + 1}?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.black54))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              setState(() {
+                activeBills.removeAt(index);
+                if (currentBillIndex >= activeBills.length) {
+                  currentBillIndex = activeBills.length - 1;
+                } else if (currentBillIndex > index) {
+                  currentBillIndex--;
+                }
+              });
+              Navigator.pop(context);
+            },
+            child: const Text("DELETE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          )
+        ]
+      )
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+
     return MaterialApp(
       title: 'Love Kush Shopping Center',
       debugShowCheckedModeBanner: false,
@@ -213,8 +247,42 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+
+  void _deleteTab(int index) {
+    if (activeBills.length <= 1) {
+      setState(() => activeBills[0].clear());
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cleared the active bill.")));
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Customer Bill?"),
+        content: Text("Are you sure you want to permanently delete Bill ${index + 1}?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.black54))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              setState(() {
+                activeBills.removeAt(index);
+                if (currentBillIndex >= activeBills.length) {
+                  currentBillIndex = activeBills.length - 1;
+                } else if (currentBillIndex > index) {
+                  currentBillIndex--;
+                }
+              });
+              Navigator.pop(context);
+            },
+            child: const Text("DELETE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          )
+        ]
+      )
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: Center(
@@ -304,8 +372,42 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     });
   }
 
+
+  void _deleteTab(int index) {
+    if (activeBills.length <= 1) {
+      setState(() => activeBills[0].clear());
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cleared the active bill.")));
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Customer Bill?"),
+        content: Text("Are you sure you want to permanently delete Bill ${index + 1}?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.black54))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              setState(() {
+                activeBills.removeAt(index);
+                if (currentBillIndex >= activeBills.length) {
+                  currentBillIndex = activeBills.length - 1;
+                } else if (currentBillIndex > index) {
+                  currentBillIndex--;
+                }
+              });
+              Navigator.pop(context);
+            },
+            child: const Text("DELETE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          )
+        ]
+      )
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("MANAGE STAFF", style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
@@ -565,8 +667,42 @@ class _PosScreenState extends State<PosScreen> {
     });
   }
 
+
+  void _deleteTab(int index) {
+    if (activeBills.length <= 1) {
+      setState(() => activeBills[0].clear());
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cleared the active bill.")));
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Customer Bill?"),
+        content: Text("Are you sure you want to permanently delete Bill ${index + 1}?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.black54))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              setState(() {
+                activeBills.removeAt(index);
+                if (currentBillIndex >= activeBills.length) {
+                  currentBillIndex = activeBills.length - 1;
+                } else if (currentBillIndex > index) {
+                  currentBillIndex--;
+                }
+              });
+              Navigator.pop(context);
+            },
+            child: const Text("DELETE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          )
+        ]
+      )
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+
     if (isPreviewingBill) return buildPrintPreviewScreen();
 
     return Scaffold(
@@ -662,7 +798,9 @@ class _PosScreenState extends State<PosScreen> {
                 int itemCount = activeBills[index].length;
                 return Padding(
                   padding: const EdgeInsets.only(right: 8.0),
-                  child: ChoiceChip(
+                  child: GestureDetector(
+                    onLongPress: () => _deleteTab(index),
+                    child: ChoiceChip(
                     label: Text("Bill ${index + 1} ($itemCount items)", style: TextStyle(fontWeight: FontWeight.bold)),
                     selected: isSelected,
                     showCheckmark: false,
@@ -671,6 +809,7 @@ class _PosScreenState extends State<PosScreen> {
                     },
                     selectedColor: Colors.black,
                     labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87),
+                  ),
                   ),
                 );
               },
@@ -995,8 +1134,42 @@ class _InventoryQrScreenState extends State<InventoryQrScreen> {
   
   String get locationCode => "${_floorCtrl.text}-${_rackCtrl.text}-${_shelfCtrl.text}-${_itemCtrl.text}".toUpperCase();
 
+
+  void _deleteTab(int index) {
+    if (activeBills.length <= 1) {
+      setState(() => activeBills[0].clear());
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cleared the active bill.")));
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Customer Bill?"),
+        content: Text("Are you sure you want to permanently delete Bill ${index + 1}?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.black54))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              setState(() {
+                activeBills.removeAt(index);
+                if (currentBillIndex >= activeBills.length) {
+                  currentBillIndex = activeBills.length - 1;
+                } else if (currentBillIndex > index) {
+                  currentBillIndex--;
+                }
+              });
+              Navigator.pop(context);
+            },
+            child: const Text("DELETE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          )
+        ]
+      )
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+
     return Scaffold(
       appBar: AppBar(title: const Text("Item QR Generator"), backgroundColor: Colors.black, foregroundColor: Colors.white),
       body: Padding(
@@ -1071,8 +1244,42 @@ class QRScannerScreen extends StatefulWidget {
 class _QRScannerScreenState extends State<QRScannerScreen> {
   final MobileScannerController controller = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
 
+
+  void _deleteTab(int index) {
+    if (activeBills.length <= 1) {
+      setState(() => activeBills[0].clear());
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cleared the active bill.")));
+      return;
+    }
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Customer Bill?"),
+        content: Text("Are you sure you want to permanently delete Bill ${index + 1}?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.black54))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () {
+              setState(() {
+                activeBills.removeAt(index);
+                if (currentBillIndex >= activeBills.length) {
+                  currentBillIndex = activeBills.length - 1;
+                } else if (currentBillIndex > index) {
+                  currentBillIndex--;
+                }
+              });
+              Navigator.pop(context);
+            },
+            child: const Text("DELETE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          )
+        ]
+      )
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+
     return Scaffold(
       appBar: AppBar(title: const Text("Scan QR Label"), backgroundColor: Colors.black, foregroundColor: Colors.white),
       body: MobileScanner(
