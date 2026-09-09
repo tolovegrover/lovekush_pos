@@ -534,7 +534,8 @@ class _PosScreenState extends State<PosScreen> {
   String qty = "1"; 
   String rate = ""; 
   int focusedField = 0; 
-  bool isPreviewingBill = false; 
+  bool isPreviewingBill = false;
+  bool isScanning = false; 
 
   // ... (Keeping all the POS logic identical for brevity) ...
 
@@ -893,27 +894,7 @@ class _PosScreenState extends State<PosScreen> {
             ),
             child: Row(
               children: [
-                Expanded(
-                  flex: 2,
-                  child: InkWell(
-                    onTap: () async {
-                      final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const QRScannerScreen()));
-                      if (result != null && result is String) {
-                        setState(() {
-                          rawItemCode = result.replaceAll("-", "");
-                          focusedField = 1; // auto-jump to qty
-                        });
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(8)),
-                      child: const Center(child: Icon(Icons.qr_code_scanner, color: Colors.white, size: 32)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _buildInputBox("ITEM", formattedItemCode, focusedField == 0, 0, flex: 6, isCode: true),
+                _buildInputBox("ITEM CODE", formattedItemCode, focusedField == 0, 0, flex: 8, isCode: true),
                 const SizedBox(width: 8),
                 _buildInputBox("QTY", qty.isEmpty ? "—" : qty, focusedField == 1, 1, flex: 3),
                 const SizedBox(width: 8),
@@ -947,17 +928,47 @@ class _PosScreenState extends State<PosScreen> {
           ),
           Expanded(
             flex: 5,
-            child: Container(
-              color: const Color(0xFF111827), 
-              child: Column(
-                children: [
-                  _buildKeypadRow([_key("1", "A"), _key("2", "B"), _key("3", "C"), _actionKey("⌫", const Color(0xFFEF4444))]), 
-                  _buildKeypadRow([_key("4", "D"), _key("5", "E"), _key("6", "F"), _actionKey("◀", const Color(0xFFF59E0B))]),
-                  _buildKeypadRow([_key("7", "G"), _key("8", "H"), _key("9", "I"), _actionKey("ENTER", const Color(0xFF3B82F6), flex: 1, isEnter: true)]),
-                  _buildKeypadRow([_key(".", ""), _key("0", ""), _key("00", "")]),
-                ],
-              ),
-            ),
+            child: isScanning 
+              ? Stack(
+                  children: [
+                    MobileScanner(
+                      onDetect: (capture) {
+                        final List<Barcode> barcodes = capture.barcodes;
+                        if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+                          setState(() {
+                            rawItemCode = barcodes.first.rawValue!.replaceAll("-", "");
+                            focusedField = 1; // jump to qty
+                            isScanning = false; // instantly close camera to show keypad
+                          });
+                        }
+                      },
+                    ),
+                    Positioned(
+                      top: 16, right: 16,
+                      child: IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white, size: 32),
+                        onPressed: () => setState(() => isScanning = false),
+                      )
+                    ),
+                    const Positioned(
+                      bottom: 24, left: 0, right: 0,
+                      child: Center(
+                        child: Text("Scanning...", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, backgroundColor: Colors.black54)),
+                      )
+                    )
+                  ]
+                )
+              : Container(
+                  color: const Color(0xFF111827), 
+                  child: Column(
+                    children: [
+                      _buildKeypadRow([_key("1", "A"), _key("2", "B"), _key("3", "C"), _actionKey("⌫", const Color(0xFFEF4444))]), 
+                      _buildKeypadRow([_key("4", "D"), _key("5", "E"), _key("6", "F"), _actionKey("◀", const Color(0xFFF59E0B))]),
+                      _buildKeypadRow([_key("7", "G"), _key("8", "H"), _key("9", "I"), _actionKey("ENTER", const Color(0xFF3B82F6), flex: 1, isEnter: true)]),
+                      _buildKeypadRow([_key(".", ""), _key("0", ""), _actionKey("📷 SCAN", Colors.black, isScan: true)]),
+                    ],
+                  ),
+                ),
           ),
         ],
       ),
@@ -1099,13 +1110,19 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
-  Widget _actionKey(String action, Color color, {int flex = 1, bool isEnter = false}) {
+  Widget _actionKey(String action, Color color, {int flex = 1, bool isEnter = false, bool isScan = false}) {
     return Expanded(
       flex: flex,
       child: Material(
         color: color,
         child: InkWell(
-          onTap: () => onKeypadPress(isEnter ? "ENTER" : (action.contains("⌫") ? "DEL" : "BACK")),
+          onTap: () {
+            if (isScan) {
+              setState(() => isScanning = true);
+            } else {
+              onKeypadPress(isEnter ? "ENTER" : (action.contains("⌫") ? "DEL" : "BACK"));
+            }
+          },
           child: Container(
             decoration: BoxDecoration(border: Border.all(color: Colors.black26, width: 0.5)),
             child: Center(child: Text(action, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 1.2))),
