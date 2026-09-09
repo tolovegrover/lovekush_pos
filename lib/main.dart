@@ -178,8 +178,15 @@ class _LoginScreenState extends State<LoginScreen> {
           actions: [
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), 
-              onPressed: () {
+              onPressed: () async {
                 if (_nameController.text.trim().isNotEmpty) {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.setBool('isLoggedIn', true);
+                  await prefs.setString('userName', _nameController.text.trim());
+                  await prefs.setString('userEmail', email);
+                  await prefs.setBool('isAdmin', isAdmin);
+                  
+                  if (!mounted) return;
                   Navigator.pop(context); 
                   Navigator.pushReplacement(
                     context, 
