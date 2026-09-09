@@ -148,7 +148,12 @@ class _LoginScreenState extends State<LoginScreen> {
         isLinkSent = true;
       });
     } catch (e) {
-      debugPrint("Firebase Link Error: $e");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text("Firebase Error: $e"), 
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 10),
+      ));
     }
   }
 
