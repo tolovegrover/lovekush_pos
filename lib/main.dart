@@ -215,8 +215,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: const Icon(Icons.storefront, size: 80, color: Color(0xFF3B82F6)),
               ),
               const SizedBox(height: 24),
-              const Text("LOVE KUSH
-SHOPPING CENTER", textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 2, height: 1.2)),
+              const Text("LOVE KUSH\\nSHOPPING CENTER", textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 2, height: 1.2)),
               const SizedBox(height: 8),
               const Text("Secure Staff Portal", style: TextStyle(fontSize: 16, color: Colors.black54)),
               const SizedBox(height: 40),
@@ -241,8 +240,7 @@ SHOPPING CENTER", textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fo
                 const SizedBox(height: 16),
                 const Text("Check your email!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
                 const SizedBox(height: 8),
-                Text("We sent a real secure login link to:
-$submittedEmail", textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: Colors.black54, height: 1.5)),
+                Text("We sent a real secure login link to:\\n$submittedEmail", textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: Colors.black54, height: 1.5)),
                 const SizedBox(height: 40),
                 const CircularProgressIndicator(),
                 const SizedBox(height: 16),
