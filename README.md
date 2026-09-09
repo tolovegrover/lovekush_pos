@@ -1,17 +1,12 @@
-# lovekush_pos
+# Love Kush Shopping Center POS
 
-A new Flutter project.
+A custom, high-speed Point of Sale (POS) application built entirely in Flutter with a Firebase backend.
 
-## Getting Started
+## Features
+- **Magic Link Login:** Secure passwordless entry for staff and admins.
+- **Role-Based Access Control:** Built-in admin dashboard to manage staff emails.
+- **Lightning Fast Keypad:** Custom alphanumeric mapping for ultra-fast barcode-less entry.
+- **Smart Cart Math:** Auto-calculating totals, rounding, and decimal quantity support.
+- **Cloud-Synced:** Everything runs through Firebase so you can view it on Android, iOS, or Web.
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+*Created autonomously with AI.*
