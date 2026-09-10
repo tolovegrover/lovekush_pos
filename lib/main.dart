@@ -817,6 +817,7 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printCustom("SHOPPING CENTER", 2, 1); 
           await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
           await bluetooth.printCustom("BILL NO: $billNumber", 1, 1);
+          try { await bluetooth.printQRcode(billNumber, 200, 200, 1); } catch(e){}
           
           await bluetooth.printNewLine();
           await bluetooth.printLeftRight("Item", "Qty x Rate", 1);
@@ -1556,6 +1557,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       
       if (bNo != "N/A") {
         await bluetooth.printCustom("BILL NO: $bNo", 1, 1);
+        try { await bluetooth.printQRcode(bNo, 200, 200, 1); } catch(e){}
       }
       
       await bluetooth.printNewLine();
