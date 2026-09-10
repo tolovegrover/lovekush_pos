@@ -67,8 +67,9 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
-  String _verificationId = "";
-  final TextEditingController _otpController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool isLoginMode = true;
+  bool isLoading = false;
 
   @override
   void initState() {
@@ -89,14 +90,54 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _completeLogin(String name, String emailOrPhone, bool isAdmin) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isLoggedIn', true);
-    await prefs.setString('userName', name);
-    await prefs.setString('userEmail', emailOrPhone);
-    await prefs.setBool('isAdmin', isAdmin);
+    setState(() => isLoading = true);
+    try {
+      final emailLower = emailOrPhone.toLowerCase();
+      bool finalIsAdmin = adminEmails.contains(emailLower);
+      bool isApproved = finalIsAdmin;
+      
+      final data = await Supabase.instance.client.from('staff_users').select().eq('email', emailLower);
+      
+      if (data.isEmpty) {
+        await Supabase.instance.client.from('staff_users').insert({
+          'email': emailLower,
+          'name': name,
+          'is_approved': finalIsAdmin,
+          'is_admin': finalIsAdmin
+        });
+      } else {
+        isApproved = data[0]['is_approved'] == true;
+        if (data[0]['is_admin'] == true) finalIsAdmin = true;
+      }
+      
+      if (!isApproved) {
+        try { await FirebaseAuth.instance.signOut(); } catch(e){}
+        if (mounted) {
+          showDialog(
+            context: context, 
+            builder: (_) => AlertDialog(
+              title: const Text("Approval Pending 🕒"),
+              content: const Text("Your account has been created, but you must wait for the shop owner to approve your access."),
+              actions: [TextButton(onPressed: ()=> Navigator.pop(context), child: const Text("OK"))]
+            )
+          );
+        }
+        return;
+      }
 
-    if (mounted) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PosScreen(userName: name, userEmail: emailOrPhone, isAdmin: isAdmin)));
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      await prefs.setString('userName', name);
+      await prefs.setString('userEmail', emailLower);
+      await prefs.setBool('isAdmin', finalIsAdmin);
+
+      if (mounted) {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PosScreen(userName: name, userEmail: emailLower, isAdmin: finalIsAdmin)));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("DB Error: $e")));
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -115,75 +156,43 @@ class _LoginScreenState extends State<LoginScreen> {
       final user = userCredential.user;
       
       if (user != null && user.email != null) {
-        _completeLogin(user.displayName ?? "Staff", user.email!, adminEmails.contains(user.email!.toLowerCase()));
+        _completeLogin(user.displayName ?? user.email!.split('@')[0], user.email!, adminEmails.contains(user.email!.toLowerCase()));
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Google Sign-In Failed: $e")));
     }
   }
 
-  void _verifyPhoneNumber() async {
-    String phone = _emailController.text.trim();
-    if (phone.length == 10 && !phone.startsWith('+')) {
-      phone = '+91$phone'; // Default to India if no code
+  Future<void> _submitEmailPassword() async {
+    String email = _emailController.text.trim();
+    String password = _passwordController.text.trim();
+    
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter email and password")));
+      return;
     }
-
+    
+    setState(() => isLoading = true);
+    
     try {
-      await FirebaseAuth.instance.verifyPhoneNumber(
-        phoneNumber: phone,
-        verificationCompleted: (PhoneAuthCredential credential) async {
-          await FirebaseAuth.instance.signInWithCredential(credential);
-          _completeLogin("Staff (Phone)", phone, false);
-        },
-        verificationFailed: (FirebaseAuthException e) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? "Phone Verification Failed")));
-        },
-        codeSent: (String verificationId, int? resendToken) {
-          setState(() => _verificationId = verificationId);
-          _showOtpDialog(phone);
-        },
-        codeAutoRetrievalTimeout: (String verificationId) {},
-      );
+      UserCredential userCredential;
+      if (isLoginMode) {
+        userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: password);
+      } else {
+        userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: password);
+      }
+      
+      final user = userCredential.user;
+      if (user != null && user.email != null) {
+        _completeLogin(user.displayName ?? email.split('@')[0], user.email!, adminEmails.contains(user.email!.toLowerCase()));
+      }
+    } on FirebaseAuthException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? "Authentication failed")));
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
-  }
-
-  void _showOtpDialog(String phone) {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text("Enter OTP"),
-          content: TextField(
-            controller: _otpController,
-            keyboardType: TextInputType.number,
-            maxLength: 6,
-            decoration: const InputDecoration(hintText: "6-digit code"),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
-            ElevatedButton(
-              onPressed: () async {
-                String smsCode = _otpController.text.trim();
-                if (smsCode.length == 6) {
-                  try {
-                    PhoneAuthCredential credential = PhoneAuthProvider.credential(verificationId: _verificationId, smsCode: smsCode);
-                    await FirebaseAuth.instance.signInWithCredential(credential);
-                    if (mounted) Navigator.pop(context);
-                    _completeLogin("Staff (Phone)", phone, false);
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid OTP")));
-                  }
-                }
-              },
-              child: const Text("VERIFY"),
-            )
-          ],
-        );
-      }
-    );
   }
 
   @override
@@ -235,14 +244,26 @@ class _LoginScreenState extends State<LoginScreen> {
                     decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
                     child: Column(
                       children: [
-                        const Align(alignment: Alignment.centerLeft, child: Text("Enter Mobile Number", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54))),
+                        Align(alignment: Alignment.centerLeft, child: Text(isLoginMode ? "Email Address" : "Create Account (Email)", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54))),
                         const SizedBox(height: 10),
                         TextField(
                           controller: _emailController,
-                          keyboardType: TextInputType.phone,
+                          keyboardType: TextInputType.emailAddress,
                           decoration: InputDecoration(
-                            prefixIcon: const Icon(Icons.phone_android, color: Colors.blueAccent),
-                            hintText: "10-digit number",
+                            prefixIcon: const Icon(Icons.email, color: Colors.blueAccent),
+                            hintText: "staff@example.com",
+                            filled: true,
+                            fillColor: const Color(0xFFF3F4F6),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          controller: _passwordController,
+                          obscureText: true,
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.lock, color: Colors.blueAccent),
+                            hintText: "Password",
                             filled: true,
                             fillColor: const Color(0xFFF3F4F6),
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
@@ -254,11 +275,17 @@ class _LoginScreenState extends State<LoginScreen> {
                           height: 50,
                           child: ElevatedButton(
                             style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                            onPressed: _verifyPhoneNumber,
-                            child: const Text("SEND OTP", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                            onPressed: isLoading ? null : _submitEmailPassword,
+                            child: isLoading 
+                              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white))
+                              : Text(isLoginMode ? "SIGN IN" : "REGISTER", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        TextButton(
+                          onPressed: () => setState(() => isLoginMode = !isLoginMode),
+                          child: Text(isLoginMode ? "Create a new account" : "Already have an account? Sign In", style: const TextStyle(color: Colors.black54)),
+                        ),
+                        const SizedBox(height: 8),
                         
                         Row(
                           children: const [
@@ -279,7 +306,11 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             icon: Image.network("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/120px-Google_%22G%22_logo.svg.png", width: 24),
                             label: const Text("Continue with Google", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16)),
-                            onPressed: _signInWithGoogle,
+                            onPressed: isLoading ? null : () async {
+                              setState(() => isLoading = true);
+                              await _signInWithGoogle();
+                              if (mounted) setState(() => isLoading = false);
+                            },
                           ),
                         ),
                       ],
@@ -303,130 +334,88 @@ class StaffManagementScreen extends StatefulWidget {
 }
 
 class _StaffManagementScreenState extends State<StaffManagementScreen> {
-  final TextEditingController _newStaffController = TextEditingController();
+  bool isLoading = true;
+  List<dynamic> users = [];
 
-  void _addStaff() {
-    String newEmail = _newStaffController.text.trim().toLowerCase();
-    if (newEmail.isEmpty || !newEmail.contains("@")) return;
-
-    if (allowedStaffEmails.contains(newEmail) || adminEmails.contains(newEmail)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User already has access.")));
-      return;
-    }
-
-    setState(() {
-      allowedStaffEmails.add(newEmail);
-      _newStaffController.clear();
-    });
+  @override
+  void initState() {
+    super.initState();
+    _fetchUsers();
   }
 
-  void _revokeAccess(String email) {
-    setState(() {
-      allowedStaffEmails.remove(email);
-    });
+  void _fetchUsers() async {
+    try {
+      final data = await Supabase.instance.client.from('staff_users').select().order('created_at', ascending: false);
+      setState(() {
+        users = data;
+        isLoading = false;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching users: $e")));
+      setState(() => isLoading = false);
+    }
+  }
+
+  void _toggleApproval(String email, bool currentStatus) async {
+    try {
+      await Supabase.instance.client.from('staff_users').update({'is_approved': !currentStatus}).eq('email', email);
+      _fetchUsers();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  void _deleteUser(String email) async {
+    try {
+      await Supabase.instance.client.from('staff_users').delete().eq('email', email);
+      _fetchUsers();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("MANAGE STAFF", style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
-        backgroundColor: Colors.white,
-        elevation: 1,
-        iconTheme: const IconThemeData(color: Colors.black),
-      ),
-      body: Column(
-        children: [
-          // ADD NEW STAFF BAR
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: Colors.white,
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _newStaffController,
-                    decoration: InputDecoration(
-                      labelText: "New Staff Email",
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                  ),
-                  onPressed: _addStaff,
-                  child: const Text("AUTHORIZE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
-          ),
-          
-          // LIST OF ALLOWED STAFF
-          Expanded(
-            child: ListView(
+      appBar: AppBar(title: const Text("Manage Staff Access", style: TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF111827), iconTheme: const IconThemeData(color: Colors.white)),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView.builder(
               padding: const EdgeInsets.all(16),
-              children: [
-                const Text("ADMINISTRATORS (Cannot be removed here)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                const SizedBox(height: 8),
-                ...adminEmails.map((email) => Card(
-                  color: Colors.blue.shade50,
-                  child: ListTile(
-                    leading: const Icon(Icons.admin_panel_settings, color: Colors.blue),
-                    title: Text(email, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    trailing: const Text("ADMIN", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-                  ),
-                )).toList(),
+              itemCount: users.length,
+              itemBuilder: (context, index) {
+                final user = users[index];
+                bool isApproved = user['is_approved'] == true;
+                bool isAdmin = user['is_admin'] == true;
                 
-                const SizedBox(height: 24),
-                const Text("AUTHORIZED STAFF", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                const SizedBox(height: 8),
-                
-                if (allowedStaffEmails.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(16.0),
-                    child: Text("No staff members authorized yet.", style: TextStyle(fontStyle: FontStyle.italic)),
-                  ),
-                  
-                ...allowedStaffEmails.map((email) => Card(
+                return Card(
                   child: ListTile(
-                    leading: const Icon(Icons.person, color: Colors.black54),
-                    title: Text(email),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.person_remove, color: Colors.red),
-                      onPressed: () {
-                        // Confirm deletion
-                        showDialog(
-                          context: context,
-                          builder: (context) => AlertDialog(
-                            title: const Text("Revoke Access?"),
-                            content: Text("Are you sure you want to kick $email out of the system?"),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                                onPressed: () {
-                                  Navigator.pop(context);
-                                  _revokeAccess(email);
-                                },
-                                child: const Text("Revoke Access", style: TextStyle(color: Colors.white)),
-                              ),
-                            ],
-                          )
-                        );
-                      },
+                    leading: CircleAvatar(
+                      backgroundColor: isAdmin ? Colors.purple : (isApproved ? Colors.green : Colors.orange),
+                      child: Icon(isAdmin ? Icons.admin_panel_settings : Icons.person, color: Colors.white),
                     ),
+                    title: Text(user['name'] ?? 'Staff', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text(user['email']),
+                    trailing: isAdmin 
+                        ? const Text("ADMIN", style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold))
+                        : Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Switch(
+                                value: isApproved,
+                                activeColor: Colors.green,
+                                onChanged: (val) => _toggleApproval(user['email'], isApproved),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.redAccent),
+                                onPressed: () => _deleteUser(user['email']),
+                              )
+                            ],
+                          ),
                   ),
-                )).toList(),
-              ],
+                );
+              },
             ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -469,6 +458,9 @@ class _PosScreenState extends State<PosScreen> {
   String qty = "1"; 
   String rate = ""; 
   int focusedField = 0; 
+  String paymentMethod = "Cash";
+  String amountTendered = "";
+  String onlineAmount = "";
   String counterName = "Basement Counter";
   
   // Printer Setup
@@ -699,6 +691,15 @@ class _PosScreenState extends State<PosScreen> {
           if (rawItemCode.isNotEmpty) rawItemCode = rawItemCode.substring(0, rawItemCode.length - 1);
         }
       } 
+      else if (value == "+/-") {
+        if (focusedField == 1) {
+          if (qty.startsWith("-")) qty = qty.substring(1);
+          else qty = "-" + qty;
+        } else if (focusedField == 2) {
+          if (rate.startsWith("-")) rate = rate.substring(1);
+          else rate = "-" + rate;
+        }
+      }
       else {
         if (focusedField == 0 && rawItemCode.length < 8) {
           if (value != ".") rawItemCode += value;
@@ -796,6 +797,9 @@ class _PosScreenState extends State<PosScreen> {
         'counter_name': counterName,
         'total_amount': cartTotal,
         'items_json': cart,
+        'payment_method': paymentMethod,
+        'amount_tendered': double.tryParse(amountTendered) ?? 0.0,
+        'change_due': (paymentMethod == 'Cash' && double.tryParse(amountTendered) != null) ? ((double.tryParse(amountTendered) ?? 0.0) - cartTotal) : 0.0,
       });
     } catch (dbError) {
       print("Supabase Error: $dbError");
@@ -1185,7 +1189,7 @@ class _PosScreenState extends State<PosScreen> {
                     children: [
                       _buildKeypadRow([_key("1", "A"), _key("2", "B"), _key("3", "C"), _actionKey("⌫", const Color(0xFFEF4444))]), 
                       _buildKeypadRow([_key("4", "D"), _key("5", "E"), _key("6", "F"), _actionKey("◀", const Color(0xFFF59E0B))]),
-                      _buildKeypadRow([_key("7", "G"), _key("8", "H"), _key("9", "I"), _key("00", "")]),
+                      _buildKeypadRow([_key("7", "G"), _key("8", "H"), _key("9", "I"), _key("+/-", "RTN")]),
                       _buildKeypadRow([_actionKey("📷 SCAN", Colors.black, isScan: true), _key("0", ""), _key(".", ""), _actionKey("ENTER", const Color(0xFF3B82F6), isEnter: true)]),
                     ],
                   ),
@@ -1197,12 +1201,17 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   Widget buildPrintPreviewScreen() {
+    double changeDue = 0;
+    if (paymentMethod == 'Cash' && double.tryParse(amountTendered) != null) {
+      changeDue = double.parse(amountTendered) - cartTotal;
+    }
+    
     return Scaffold(
       backgroundColor: const Color(0xFF374151), 
       body: SafeArea(
         child: Column(
           children: [
-            const Padding(padding: EdgeInsets.all(16.0), child: Text("PREVIEW BILL", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2))),
+            const Padding(padding: EdgeInsets.all(16.0), child: Text("CHECKOUT", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2))),
             Expanded(
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 24),
@@ -1214,7 +1223,58 @@ class _PosScreenState extends State<PosScreen> {
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     children: [
-                      Image.asset('assets/logo_bw.jpg', height: 100),
+                      // 1. PAYMENT OPTIONS
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                        child: Column(
+                          children: [
+                            const Text("PAYMENT METHOD", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent, letterSpacing: 1.5)),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: ["Cash", "Online", "Hybrid"].map((method) {
+                                return ChoiceChip(
+                                  label: Text(method, style: TextStyle(color: paymentMethod == method ? Colors.white : Colors.black87, fontWeight: FontWeight.bold)),
+                                  selectedColor: Colors.blueAccent,
+                                  selected: paymentMethod == method,
+                                  onSelected: (bool selected) {
+                                    setState(() {
+                                      paymentMethod = method;
+                                      amountTendered = "";
+                                      onlineAmount = "";
+                                    });
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 16),
+                            if (paymentMethod == "Cash") ...[
+                              TextField(
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(labelText: "Cash Given (₹)", prefixIcon: Icon(Icons.money), border: OutlineInputBorder()),
+                                onChanged: (val) => setState(() => amountTendered = val),
+                              ),
+                              const SizedBox(height: 12),
+                              Text("Change Due: ₹${changeDue.toStringAsFixed(2)}", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: changeDue >= 0 ? Colors.green : Colors.red)),
+                            ],
+                            if (paymentMethod == "Hybrid") ...[
+                              Row(
+                                children: [
+                                  Expanded(child: TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Cash (₹)", border: OutlineInputBorder()), onChanged: (val) => setState(() => amountTendered = val))),
+                                  const SizedBox(width: 10),
+                                  Expanded(child: TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Online (₹)", border: OutlineInputBorder()), onChanged: (val) => setState(() => onlineAmount = val))),
+                                ],
+                              ),
+                            ]
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      const Text("RECEIPT PREVIEW", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+                      const Divider(thickness: 2),
+                      
+                      // 2. RECEIPT PREVIEW
                       const SizedBox(height: 16),
                       const Text("लव कुश शॉपिङ्ग सेण्टर", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 8),
@@ -1235,26 +1295,26 @@ class _PosScreenState extends State<PosScreen> {
                             ],
                           ),
                         );
-                      }).toList(),
+                      }),
                       const SizedBox(height: 16),
                       const Text("----------------------------------------", style: TextStyle(color: Colors.grey)),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text("GRAND TOTAL", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-                          Text("₹$cartTotal", style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900)),
+                          const Text("TOTAL", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                          Text("₹${cartTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
                         ],
                       ),
-                      const SizedBox(height: 40),
-                      const Text("Thank you for shopping!", style: TextStyle(fontSize: 14, fontStyle: FontStyle.italic)),
                     ],
                   ),
                 ),
               ),
             ),
+            
+            // ACTION BUTTONS
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(24),
               color: Colors.white,
               child: Row(
                 children: [
@@ -1276,7 +1336,7 @@ class _PosScreenState extends State<PosScreen> {
                   ),
                 ],
               ),
-            ),
+            )
           ],
         ),
       ),
@@ -1575,6 +1635,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       await bluetooth.printLeftRight("TOTAL", "₹${total.toStringAsFixed(2)}", 2); 
       await bluetooth.printNewLine();
       
+      
+      await bluetooth.printLeftRight("PAYMENT", paymentMethod.toUpperCase(), 1);
+      if (paymentMethod == "Cash" && double.tryParse(amountTendered) != null) {
+        double tendered = double.tryParse(amountTendered)!;
+        await bluetooth.printLeftRight("Tendered:", "Rs${tendered.toStringAsFixed(2)}", 1);
+        await bluetooth.printLeftRight("Change:", "Rs${(tendered - cartTotal).toStringAsFixed(2)}", 1);
+      } else if (paymentMethod == "Hybrid") {
+        await bluetooth.printLeftRight("Cash:", "Rs${amountTendered}", 1);
+        await bluetooth.printLeftRight("Online:", "Rs${onlineAmount}", 1);
+      }
+      await bluetooth.printNewLine();
+
       await bluetooth.printCustom("Thank you for shopping!", 1, 1);
       await bluetooth.printCustom("No Exchange / No Refund", 1, 1);
       await bluetooth.printCustom("*** DUPLICATE COPY ***", 1, 1);
