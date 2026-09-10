@@ -474,6 +474,107 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
 }
 
 // ==========================================
+// PRELOADED COSMETICS & ACCESSORIES DATABASE
+// ==========================================
+const List<Map<String, dynamic>> cosmeticDatabase = [
+  // Eye Makeup
+  {"name": "Lakme Eyeconic Kajal Deep Black", "price": 190.0, "category": "Eyes"},
+  {"name": "Maybelline Colossal Kajal 24HR", "price": 199.0, "category": "Eyes"},
+  {"name": "Colorbar Just Smoky Kajal", "price": 450.0, "category": "Eyes"},
+  {"name": "Elle 18 Eye Drama Kajal", "price": 100.0, "category": "Eyes"},
+  {"name": "Sugar Stroke of Genius Kohl", "price": 499.0, "category": "Eyes"},
+  {"name": "Lakme Insta Liquid Eyeliner Black", "price": 145.0, "category": "Eyes"},
+  {"name": "Maybelline Hyper Glossy Liquid Liner", "price": 325.0, "category": "Eyes"},
+  {"name": "Faces Canada Magneteyes Eyeliner", "price": 249.0, "category": "Eyes"},
+  {"name": "Swiss Beauty Gel Eyeliner & Kajal", "price": 299.0, "category": "Eyes"},
+  {"name": "Mars Waterproof Sketch Eyeliner", "price": 199.0, "category": "Eyes"},
+  {"name": "Maybelline Hypercurl Waterproof Mascara", "price": 399.0, "category": "Eyes"},
+  {"name": "Maybelline Colossal Waterproof Mascara", "price": 425.0, "category": "Eyes"},
+  {"name": "Mars Fabulash Volume Mascara", "price": 249.0, "category": "Eyes"},
+  {"name": "Swiss Beauty Precision Eyebrow Pencil", "price": 149.0, "category": "Eyes"},
+  {"name": "Miss Claire Eyebrow Cake Powder", "price": 295.0, "category": "Eyes"},
+  {"name": "Swiss Beauty 9 Colors Eyeshadow Palette", "price": 299.0, "category": "Eyes"},
+  {"name": "False Eyelashes with Glue Set", "price": 150.0, "category": "Eyes"},
+
+  // Lip Makeup
+  {"name": "Lakme Forever Matte Liquid Lipstick", "price": 349.0, "category": "Lips"},
+  {"name": "Maybelline Superstay Matte Ink Lipstick", "price": 699.0, "category": "Lips"},
+  {"name": "Maybelline Creamy Matte Lipstick", "price": 329.0, "category": "Lips"},
+  {"name": "Elle 18 Color Pops Matte Lipstick", "price": 110.0, "category": "Lips"},
+  {"name": "Colorbar Velvet Matte Lipstick", "price": 350.0, "category": "Lips"},
+  {"name": "Sugar Smudge Me Not Liquid Lipstick", "price": 499.0, "category": "Lips"},
+  {"name": "Insight Non-Transfer Matte Lipstick", "price": 130.0, "category": "Lips"},
+  {"name": "Blue Heaven Non-Transfer Lip Color", "price": 150.0, "category": "Lips"},
+  {"name": "Swiss Beauty Matte Lip Crayon", "price": 249.0, "category": "Lips"},
+  {"name": "Mars Matte Lip Liner Pencil", "price": 99.0, "category": "Lips"},
+  {"name": "Nivea Fruity Shine Strawberry Lip Balm", "price": 199.0, "category": "Lips"},
+  {"name": "Vaseline Lip Therapy Rosy Lips", "price": 120.0, "category": "Lips"},
+  {"name": "Baby Lips Moisturizing Lip Balm", "price": 175.0, "category": "Lips"},
+
+  // Face Makeup
+  {"name": "Maybelline Fit Me Matte Foundation", "price": 599.0, "category": "Face"},
+  {"name": "Lakme Invisible Finish Foundation", "price": 275.0, "category": "Face"},
+  {"name": "Lakme 9 to 5 Complexion Care CC Cream", "price": 325.0, "category": "Face"},
+  {"name": "Spinz BB Brightening Cream", "price": 95.0, "category": "Face"},
+  {"name": "Ponds White Beauty BB+ Cream", "price": 140.0, "category": "Face"},
+  {"name": "Garnier Skin Naturals BB Cream", "price": 175.0, "category": "Face"},
+  {"name": "Maybelline Fit Me Compact Powder", "price": 249.0, "category": "Face"},
+  {"name": "Lakme Sun Expert Ultra Matte Compact", "price": 299.0, "category": "Face"},
+  {"name": "White Tone Face Powder 70g", "price": 110.0, "category": "Face"},
+  {"name": "Swiss Beauty Liquid Concealer", "price": 229.0, "category": "Face"},
+  {"name": "Insight Concealer Palette 6-in-1", "price": 199.0, "category": "Face"},
+  {"name": "Lakme Absolute Blur Perfect Primer", "price": 450.0, "category": "Face"},
+  {"name": "Insight 3-in-1 Long Lasting Primer", "price": 260.0, "category": "Face"},
+  {"name": "Swiss Beauty Makeup Fixer Setting Spray", "price": 249.0, "category": "Face"},
+  {"name": "Sugar Contour De Force Mini Blush", "price": 349.0, "category": "Face"},
+  {"name": "Mars City Paradise Blusher & Highlighter", "price": 299.0, "category": "Face"},
+
+  // Nails
+  {"name": "Colorbar Luxe Nail Lacquer", "price": 250.0, "category": "Nails"},
+  {"name": "Elle 18 Nail Pops", "price": 60.0, "category": "Nails"},
+  {"name": "Insight Long Wear Nail Polish", "price": 75.0, "category": "Nails"},
+  {"name": "Lakme True Wear Color Crush", "price": 160.0, "category": "Nails"},
+  {"name": "Blue Heaven Dip Nail Polish Remover", "price": 99.0, "category": "Nails"},
+  {"name": "Envy Gel Finish Nail Polish", "price": 120.0, "category": "Nails"},
+  {"name": "Artificial Nails French Manicure (24 Pcs)", "price": 250.0, "category": "Nails"},
+
+  // Skin & Hair Care
+  {"name": "Himalaya Purifying Neem Face Wash 100ml", "price": 150.0, "category": "Skincare"},
+  {"name": "Clean & Clear Foaming Face Wash 100ml", "price": 175.0, "category": "Skincare"},
+  {"name": "Garnier Micellar Cleansing Water 125ml", "price": 225.0, "category": "Skincare"},
+  {"name": "Dabur Gulabari Premium Rose Water 120ml", "price": 85.0, "category": "Skincare"},
+  {"name": "Ponds Super Light Gel Moisturizer 100g", "price": 190.0, "category": "Skincare"},
+  {"name": "Nivea Soft Light Moisturizing Cream 100ml", "price": 180.0, "category": "Skincare"},
+  {"name": "Lakme Peach Milk Soft Cream 100g", "price": 165.0, "category": "Skincare"},
+  {"name": "Lotus Herbals Safe Sun SPF 50 Sunscreen", "price": 395.0, "category": "Skincare"},
+  {"name": "Biotique Bio Dandelion Ageless Serum", "price": 230.0, "category": "Skincare"},
+  {"name": "Streax Hair Serum with Walnut Oil 100ml", "price": 240.0, "category": "Hair"},
+  {"name": "L'Oreal Extraordinary Oil Hair Serum 100ml", "price": 549.0, "category": "Hair"},
+  {"name": "Bajaj Almond Drops Hair Oil 100ml", "price": 75.0, "category": "Hair"},
+
+  // Bangles, Jewelry & Accessories
+  {"name": "Red Velvet Bangles Set (Size 2.4)", "price": 200.0, "category": "Bangles"},
+  {"name": "Red Velvet Bangles Set (Size 2.6)", "price": 200.0, "category": "Bangles"},
+  {"name": "Red Velvet Bangles Set (Size 2.8)", "price": 200.0, "category": "Bangles"},
+  {"name": "Maroon Velvet Bangles Set (Size 2.6)", "price": 200.0, "category": "Bangles"},
+  {"name": "Multicolor Glass Bangles Set (2 Dozen)", "price": 160.0, "category": "Bangles"},
+  {"name": "Gold Plated Kada Bangles (Pair)", "price": 350.0, "category": "Bangles"},
+  {"name": "Bridal Latkan Chuda Set", "price": 850.0, "category": "Bangles"},
+  {"name": "Velvet Bindi Packet (Maroon/Red)", "price": 40.0, "category": "Accessories"},
+  {"name": "Shilpa Fancy Stone Bindi Book", "price": 80.0, "category": "Accessories"},
+  {"name": "Round Golden Bindi Pack", "price": 50.0, "category": "Accessories"},
+  {"name": "Premium Pearl Stud Earrings", "price": 120.0, "category": "Jewelry"},
+  {"name": "Kundan Jhumka Traditional Earrings", "price": 280.0, "category": "Jewelry"},
+  {"name": "Oxidised Silver Boho Jhumki", "price": 150.0, "category": "Jewelry"},
+  {"name": "Metal Hair Clutchers Pack of 6", "price": 99.0, "category": "Accessories"},
+  {"name": "Satin Silk Scrunchies Pack of 3", "price": 80.0, "category": "Accessories"},
+  {"name": "Korean Hair Pins Pack of 4", "price": 120.0, "category": "Accessories"},
+  {"name": "Makeup Beauty Blender Sponge", "price": 60.0, "category": "Accessories"},
+  {"name": "Professional Makeup Brush Set (7 Pcs)", "price": 299.0, "category": "Accessories"},
+  {"name": "Safety Pins Golden Pack of 12", "price": 30.0, "category": "Accessories"},
+];
+
+// ==========================================
 // ITEM CODES & RATES (INVENTORY MAPPING)
 // ==========================================
 class ItemCatalogScreen extends StatefulWidget {
@@ -489,10 +590,27 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
   List<Map<String, dynamic>> items = [];
   String searchQuery = "";
 
+  // Last used code components for rapid sequential shelf entry
+  static String _lastRack = "01";
+  static String _lastCol = "03";
+  static String _lastRow = "C";
+  static int _lastItemNum = 134;
+
   @override
   void initState() {
     super.initState();
+    _loadLastUsedCode();
     _fetchInventory();
+  }
+
+  void _loadLastUsedCode() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _lastRack = prefs.getString('last_rack') ?? "01";
+      _lastCol = prefs.getString('last_col') ?? "03";
+      _lastRow = prefs.getString('last_row') ?? "C";
+      _lastItemNum = prefs.getInt('last_item_num') ?? 134;
+    });
   }
 
   void _fetchInventory() async {
@@ -518,9 +636,45 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         'item_name': name,
         'price': price,
       });
+
+      // Update last used components
+      final parts = code.split('-');
+      if (parts.length >= 4) {
+        _lastRack = parts[0];
+        _lastCol = parts[1];
+        _lastRow = parts[2];
+        final numPart = int.tryParse(parts[3]);
+        if (numPart != null) _lastItemNum = numPart;
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('last_rack', _lastRack);
+        await prefs.setString('last_col', _lastCol);
+        await prefs.setString('last_row', _lastRow);
+        await prefs.setInt('last_item_num', _lastItemNum);
+      }
+
       _fetchInventory();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Saved: $code ($name)")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Saved: $code ($name)"),
+            action: SnackBarAction(
+              label: "PRINT LABEL",
+              textColor: Colors.amberAccent,
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => BarcodeLabelPrinterScreen(
+                      initialCode: code,
+                      initialName: name,
+                      initialPrice: price,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -543,17 +697,223 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     }
   }
 
-  void _showAddEditDialog([Map<String, dynamic>? existing]) {
+  // Fast Barcode Scanning for Editing or Adding
+  void _scanBarcodeToEditOrAdd() async {
+    final scannedCode = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const QRScannerScreen()),
+    );
+    if (scannedCode != null && scannedCode is String && scannedCode.isNotEmpty) {
+      final clean = scannedCode.trim();
+      Map<String, dynamic>? match;
+      for (var it in items) {
+        if ((it['item_code'] ?? '').toString().toUpperCase() == clean.toUpperCase()) {
+          match = it;
+          break;
+        }
+      }
+      if (match != null) {
+        _showAddEditDialog(match);
+      } else {
+        _showAddEditDialog(null, clean);
+      }
+    }
+  }
+
+  // Cosmetics Database Dialog (Browse & 1-tap Use / Batch Import)
+  void _showCosmeticsCatalogDialog() {
+    String filterCategory = "All";
+    String search = "";
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setModalState) {
+          final categories = ["All", "Eyes", "Lips", "Face", "Nails", "Skincare", "Hair", "Bangles", "Jewelry", "Accessories"];
+          final filteredList = cosmeticDatabase.where((item) {
+            final matchCat = filterCategory == "All" || item["category"] == filterCategory;
+            final matchSearch = search.isEmpty || item["name"].toString().toLowerCase().contains(search.toLowerCase());
+            return matchCat && matchSearch;
+          }).toList();
+
+          return AlertDialog(
+            title: Row(
+              children: const [
+                Icon(Icons.auto_awesome, color: Colors.pinkAccent),
+                SizedBox(width: 8),
+                Text("Cosmetics Catalog", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 480,
+              child: Column(
+                children: [
+                  TextField(
+                    decoration: InputDecoration(
+                      hintText: "Search cosmetics, kajal, bangles...",
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      isDense: true,
+                    ),
+                    onChanged: (val) => setModalState(() => search = val),
+                  ),
+                  const SizedBox(height: 8),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: categories.map((cat) {
+                        bool sel = filterCategory == cat;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 6.0),
+                          child: ChoiceChip(
+                            label: Text(cat, style: TextStyle(fontSize: 12, color: sel ? Colors.white : Colors.black87)),
+                            selected: sel,
+                            selectedColor: Colors.pinkAccent,
+                            onSelected: (_) => setModalState(() => filterCategory = cat),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const Divider(),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: filteredList.length,
+                      itemBuilder: (context, idx) {
+                        final it = filteredList[idx];
+                        return ListTile(
+                          dense: true,
+                          title: Text(it["name"], style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text("${it["category"]} • MRP ₹${it["price"]}"),
+                          trailing: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.pinkAccent,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              minimumSize: Size.zero,
+                            ),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _showAddEditDialog(
+                                null,
+                                null,
+                                it["name"] as String,
+                                (it["price"] as num).toDouble(),
+                              );
+                            },
+                            child: const Text("USE", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("CLOSE"),
+              ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.cloud_upload, size: 16),
+                label: const Text("IMPORT ALL (65+ ITEMS)"),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF111827), foregroundColor: Colors.white),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  _batchImportCosmetics();
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _batchImportCosmetics() async {
+    setState(() => isLoading = true);
+    try {
+      int imported = 0;
+      int currentNum = _lastItemNum;
+      for (var item in cosmeticDatabase) {
+        String name = item["name"];
+        double price = (item["price"] as num).toDouble();
+        bool exists = items.any((it) => (it["item_name"] ?? '').toString().toLowerCase() == name.toLowerCase());
+        if (!exists) {
+          currentNum++;
+          String code = "${_lastRack.padLeft(2, '0')}-${_lastCol.padLeft(2, '0')}-${_lastRow.toUpperCase()}-$currentNum";
+          await Supabase.instance.client.from('inventory').upsert({
+            'item_code': code,
+            'item_name': name,
+            'price': price,
+          });
+          imported++;
+        }
+      }
+      _lastItemNum = currentNum;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('last_item_num', _lastItemNum);
+      _fetchInventory();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Imported $imported cosmetics into inventory!")),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Import error: $e")));
+      }
+    } finally {
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  void _showAddEditDialog([
+    Map<String, dynamic>? existing,
+    String? prefilledCode,
+    String? prefilledName,
+    double? prefilledPrice,
+  ]) {
     final bool isEdit = existing != null;
     
-    final rackCtrl = TextEditingController(text: "01");
-    final colCtrl = TextEditingController(text: "03");
-    final rowCtrl = TextEditingController(text: "C");
-    final itemCtrl = TextEditingController(text: "134");
+    // Components: Rack, Col, Row, Item (uses last used position if adding)
+    String defaultRack = _lastRack;
+    String defaultCol = _lastCol;
+    String defaultRow = _lastRow;
+    String defaultItem = (_lastItemNum + 1).toString();
+
+    if (isEdit) {
+      final parts = (existing['item_code'] ?? '').toString().split('-');
+      if (parts.isNotEmpty) defaultRack = parts[0];
+      if (parts.length > 1) defaultCol = parts[1];
+      if (parts.length > 2) defaultRow = parts[2];
+      if (parts.length > 3) defaultItem = parts[3];
+    } else if (prefilledCode != null && prefilledCode.contains('-')) {
+      final parts = prefilledCode.split('-');
+      if (parts.isNotEmpty) defaultRack = parts[0];
+      if (parts.length > 1) defaultCol = parts[1];
+      if (parts.length > 2) defaultRow = parts[2];
+      if (parts.length > 3) defaultItem = parts[3];
+    }
+
+    final rackCtrl = TextEditingController(text: defaultRack);
+    final colCtrl = TextEditingController(text: defaultCol);
+    final rowCtrl = TextEditingController(text: defaultRow);
+    final itemCtrl = TextEditingController(text: defaultItem);
     
-    final codeCtrl = TextEditingController(text: isEdit ? existing['item_code'] : "01-03-C-134");
-    final nameCtrl = TextEditingController(text: isEdit ? (existing['item_name'] ?? '') : '');
-    final priceCtrl = TextEditingController(text: isEdit ? (existing['price']?.toString() ?? '') : '');
+    String initialCode = isEdit
+        ? existing['item_code']
+        : (prefilledCode ?? "${defaultRack.padLeft(2, '0')}-${defaultCol.padLeft(2, '0')}-${defaultRow.toUpperCase()}-$defaultItem");
+
+    final codeCtrl = TextEditingController(text: initialCode);
+    final nameCtrl = TextEditingController(text: isEdit ? (existing['item_name'] ?? '') : (prefilledName ?? ''));
+    final priceCtrl = TextEditingController(
+      text: isEdit
+          ? (existing['price']?.toString() ?? '')
+          : (prefilledPrice != null ? (prefilledPrice % 1 == 0 ? prefilledPrice.toInt().toString() : prefilledPrice.toString()) : ''),
+    );
+
+    List<Map<String, dynamic>> suggestions = [];
 
     void updateGeneratedCode(void Function(void Function()) setDialogState) {
       setDialogState(() {
@@ -565,14 +925,39 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       context: context,
       builder: (dialogCtx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: Text(isEdit ? "Edit Item Code & Rate" : "Add New Item Mapping", style: const TextStyle(fontWeight: FontWeight.bold)),
+          title: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(isEdit ? "Edit Code & Rate" : "Add Item Mapping", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              if (!isEdit)
+                IconButton(
+                  icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent),
+                  tooltip: "Scan Barcode / QR",
+                  onPressed: () async {
+                    final scanned = await Navigator.push(context, MaterialPageRoute(builder: (_) => const QRScannerScreen()));
+                    if (scanned != null && scanned is String && scanned.isNotEmpty) {
+                      setDialogState(() {
+                        codeCtrl.text = scanned.trim().toUpperCase();
+                        if (scanned.contains('-')) {
+                          final parts = scanned.split('-');
+                          if (parts.isNotEmpty) rackCtrl.text = parts[0];
+                          if (parts.length > 1) colCtrl.text = parts[1];
+                          if (parts.length > 2) rowCtrl.text = parts[2];
+                          if (parts.length > 3) itemCtrl.text = parts[3];
+                        }
+                      });
+                    }
+                  },
+                )
+            ],
+          ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (!isEdit) ...[
-                  const Text("Location Code Components:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueAccent)),
+                  const Text("Location Code (Last Used Preserved):", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueAccent)),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -595,7 +980,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                       Expanded(
                         child: TextField(
                           controller: rowCtrl,
-                          decoration: const InputDecoration(labelText: "Row (A-I)", border: OutlineInputBorder(), isDense: true),
+                          decoration: const InputDecoration(labelText: "Row (C)", border: OutlineInputBorder(), isDense: true),
                           onChanged: (_) => updateGeneratedCode(setDialogState),
                         ),
                       ),
@@ -626,10 +1011,44 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                 TextField(
                   controller: nameCtrl,
                   decoration: const InputDecoration(
-                    labelText: "Item Name (e.g. Red Velvet Bangles)",
+                    labelText: "Item Name",
+                    hintText: "Type name (e.g. Lakme, Kajal...)",
                     border: OutlineInputBorder(),
                   ),
+                  onChanged: (val) {
+                    setDialogState(() {
+                      if (val.trim().length >= 2) {
+                        suggestions = cosmeticDatabase
+                            .where((c) => c["name"].toString().toLowerCase().contains(val.toLowerCase()))
+                            .take(3)
+                            .toList();
+                      } else {
+                        suggestions = [];
+                      }
+                    });
+                  },
                 ),
+                if (suggestions.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: suggestions.map((s) => ActionChip(
+                      backgroundColor: Colors.pink.shade50,
+                      side: const BorderSide(color: Colors.pinkAccent),
+                      avatar: const Icon(Icons.auto_awesome, size: 14, color: Colors.pinkAccent),
+                      label: Text("${s['name']} (₹${s['price']})", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.pinkAccent)),
+                      onPressed: () {
+                        setDialogState(() {
+                          nameCtrl.text = s['name'];
+                          double p = (s['price'] as num).toDouble();
+                          priceCtrl.text = p % 1 == 0 ? p.toInt().toString() : p.toString();
+                          suggestions = [];
+                        });
+                      },
+                    )).toList(),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 TextField(
                   controller: priceCtrl,
@@ -687,17 +1106,41 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            tooltip: "Scan Barcode to Edit/Add",
+            onPressed: _scanBarcodeToEditOrAdd,
+          ),
+          IconButton(
+            icon: const Icon(Icons.auto_awesome, color: Colors.pinkAccent),
+            tooltip: "Cosmetics Catalog",
+            onPressed: _showCosmeticsCatalogDialog,
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: "Refresh from cloud",
             onPressed: _fetchInventory,
           )
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: const Color(0xFF3B82F6),
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text("Add Code", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        onPressed: () => _showAddEditDialog(),
+      floatingActionButton: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          FloatingActionButton.extended(
+            heroTag: "fab_cosmetics",
+            backgroundColor: Colors.pinkAccent,
+            icon: const Icon(Icons.auto_awesome, color: Colors.white),
+            label: const Text("Cosmetics", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            onPressed: _showCosmeticsCatalogDialog,
+          ),
+          const SizedBox(width: 10),
+          FloatingActionButton.extended(
+            heroTag: "fab_add_code",
+            backgroundColor: const Color(0xFF3B82F6),
+            icon: const Icon(Icons.add, color: Colors.white),
+            label: const Text("Add Code", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            onPressed: () => _showAddEditDialog(),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -708,12 +1151,21 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
               decoration: InputDecoration(
                 hintText: "Search by code (e.g. 01-03) or item name...",
                 prefixIcon: const Icon(Icons.search),
-                suffixIcon: searchQuery.isNotEmpty
-                    ? IconButton(
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (searchQuery.isNotEmpty)
+                      IconButton(
                         icon: const Icon(Icons.clear),
                         onPressed: () => setState(() => searchQuery = ""),
-                      )
-                    : null,
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent),
+                      tooltip: "Scan Barcode to Find/Edit",
+                      onPressed: _scanBarcodeToEditOrAdd,
+                    ),
+                  ],
+                ),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
               ),
@@ -734,7 +1186,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                               const SizedBox(height: 16),
                               Text(searchQuery.isEmpty ? "No Items Mapped Yet" : "No matching items found", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                               const SizedBox(height: 8),
-                              const Text("Tap '+ Add Code' to map your first rack code to a product name and rate.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                              const Text("Tap '+ Add Code' or 'Cosmetics' to map shelf codes to products and rates.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
                             ],
                           ),
                         ),
@@ -776,7 +1228,23 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Text("₹${price.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.green)),
-                                  const SizedBox(width: 8),
+                                  const SizedBox(width: 4),
+                                  IconButton(
+                                    icon: const Icon(Icons.print, size: 20, color: Colors.green),
+                                    tooltip: "Print Label",
+                                    onPressed: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => BarcodeLabelPrinterScreen(
+                                            initialCode: code,
+                                            initialName: name,
+                                            initialPrice: price,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
                                   IconButton(
                                     icon: const Icon(Icons.edit, size: 20, color: Colors.blueAccent),
                                     onPressed: () => _showAddEditDialog(item),
@@ -1477,6 +1945,15 @@ class _PosScreenState extends State<PosScreen> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.qr_code_2, color: Colors.indigo),
+              title: const Text('Print Barcode Labels', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+              subtitle: const Text('3 Print Sizes: Large, Medium, Compact'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const BarcodeLabelPrinterScreen()));
+              },
+            ),
+            ListTile(
               leading: Icon(Icons.print, color: _printerConnected ? Colors.green : Colors.black87),
               title: Text(_printerConnected ? 'Printer Connected' : 'Connect Printer', style: TextStyle(fontWeight: FontWeight.bold, color: _printerConnected ? Colors.green : Colors.black87)),
               onTap: () {
@@ -1987,84 +2464,399 @@ class _PosScreenState extends State<PosScreen> {
 
 
 // ==========================================
-// INVENTORY QR LABEL PRINTER
+// BARCODE & QR LABEL PRINTER (3 SIZES)
 // ==========================================
-class InventoryQrScreen extends StatefulWidget {
-  const InventoryQrScreen({Key? key}) : super(key: key);
+class BarcodeLabelPrinterScreen extends StatefulWidget {
+  final String? initialCode;
+  final String? initialName;
+  final double? initialPrice;
+
+  const BarcodeLabelPrinterScreen({
+    Key? key,
+    this.initialCode,
+    this.initialName,
+    this.initialPrice,
+  }) : super(key: key);
+
   @override
-  State<InventoryQrScreen> createState() => _InventoryQrScreenState();
+  State<BarcodeLabelPrinterScreen> createState() => _BarcodeLabelPrinterScreenState();
 }
 
-class _InventoryQrScreenState extends State<InventoryQrScreen> {
-  final TextEditingController _rackCtrl = TextEditingController(text: "01");
-  final TextEditingController _colCtrl = TextEditingController(text: "03");
-  final TextEditingController _rowCtrl = TextEditingController(text: "C");
-  final TextEditingController _itemCtrl = TextEditingController(text: "134");
-  
+class _BarcodeLabelPrinterScreenState extends State<BarcodeLabelPrinterScreen> {
+  late TextEditingController _rackCtrl;
+  late TextEditingController _colCtrl;
+  late TextEditingController _rowCtrl;
+  late TextEditingController _itemCtrl;
+  late TextEditingController _nameCtrl;
+  late TextEditingController _priceCtrl;
+
+  // 0: Big Print (Detailed), 1: Medium (Standard), 2: Smallest (Barcode Only)
+  int _selectedFormat = 1;
+  // 'qr' or 'barcode'
+  String _codeType = 'qr';
+
+  BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
+  bool _printerConnected = false;
+  List<BluetoothDevice> _devices = [];
+  BluetoothDevice? _selectedDevice;
+
+  @override
+  void initState() {
+    super.initState();
+    String r = "01", c = "03", row = "C", item = "134";
+    if (widget.initialCode != null && widget.initialCode!.contains('-')) {
+      final parts = widget.initialCode!.split('-');
+      if (parts.isNotEmpty) r = parts[0];
+      if (parts.length > 1) c = parts[1];
+      if (parts.length > 2) row = parts[2];
+      if (parts.length > 3) item = parts[3];
+    }
+    _rackCtrl = TextEditingController(text: r);
+    _colCtrl = TextEditingController(text: c);
+    _rowCtrl = TextEditingController(text: row);
+    _itemCtrl = TextEditingController(text: item);
+    _nameCtrl = TextEditingController(text: widget.initialName ?? "Cosmetic Item");
+    _priceCtrl = TextEditingController(
+      text: widget.initialPrice != null && widget.initialPrice! > 0
+          ? (widget.initialPrice! % 1 == 0 ? widget.initialPrice!.toInt().toString() : widget.initialPrice!.toString())
+          : "250",
+    );
+    _checkPrinter();
+  }
+
+  void _checkPrinter() async {
+    try {
+      bool? connected = await bluetooth.isConnected;
+      List<BluetoothDevice> bonded = await bluetooth.getBondedDevices();
+      setState(() {
+        _printerConnected = connected == true;
+        _devices = bonded;
+      });
+    } catch (_) {}
+  }
+
+  void _showPrinterDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text("Select Bluetooth Printer"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_devices.isEmpty)
+                const Text("No paired devices found. Please pair your thermal printer in Android Bluetooth settings first."),
+              if (_devices.isNotEmpty)
+                DropdownButton<BluetoothDevice>(
+                  hint: const Text("Choose Printer"),
+                  value: _selectedDevice,
+                  isExpanded: true,
+                  items: _devices.map((d) => DropdownMenuItem(value: d, child: Text(d.name ?? "Device"))).toList(),
+                  onChanged: (d) => setDialogState(() => _selectedDevice = d),
+                ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCEL")),
+            if (_selectedDevice != null)
+              ElevatedButton(
+                onPressed: () async {
+                  try {
+                    await bluetooth.connect(_selectedDevice!);
+                    setState(() => _printerConnected = true);
+                    if (mounted) Navigator.pop(ctx);
+                  } catch (e) {
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Connect failed: $e")));
+                  }
+                },
+                child: const Text("CONNECT"),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String get locationCode => "${_rackCtrl.text.padLeft(2, '0')}-${_colCtrl.text.padLeft(2, '0')}-${_rowCtrl.text.toUpperCase()}-${_itemCtrl.text}".toUpperCase();
+
+  void _printLabel() async {
+    try {
+      bool? isConnected = await bluetooth.isConnected;
+      if (isConnected != true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Printer not connected. Please connect printer.")),
+          );
+        }
+        return;
+      }
+
+      String code = locationCode;
+      String name = _nameCtrl.text.trim();
+      String price = _priceCtrl.text.trim();
+
+      if (_selectedFormat == 0) {
+        // 1. BIG PRINT (A lot of info, big print)
+        await bluetooth.printNewLine();
+        await bluetooth.printCustom("LOVE KUSH SHOPPING", 2, 1);
+        await bluetooth.printCustom("--------------------------------", 1, 1);
+        if (name.isNotEmpty) {
+          await bluetooth.printCustom(name.toUpperCase(), 2, 1);
+        }
+        await bluetooth.printCustom("LOC: $code", 2, 1);
+        await bluetooth.printNewLine();
+        await bluetooth.printQRcode(code, 220, 220, 1);
+        await bluetooth.printNewLine();
+        if (price.isNotEmpty) {
+          await bluetooth.printCustom("MRP: Rs $price", 3, 1);
+        }
+        await bluetooth.printCustom("--------------------------------", 1, 1);
+        await bluetooth.printNewLine();
+        await bluetooth.printNewLine();
+        await bluetooth.paperCut();
+      } else if (_selectedFormat == 1) {
+        // 2. MEDIUM PRINT (Medium info, medium size)
+        await bluetooth.printNewLine();
+        if (name.isNotEmpty) {
+          String displayName = name.length > 20 ? name.substring(0, 20) : name;
+          await bluetooth.printCustom(displayName.toUpperCase(), 1, 1);
+        }
+        await bluetooth.printCustom(code, 1, 1);
+        await bluetooth.printQRcode(code, 170, 170, 1);
+        if (price.isNotEmpty) {
+          await bluetooth.printCustom("Rs $price", 2, 1);
+        }
+        await bluetooth.printNewLine();
+        await bluetooth.paperCut();
+      } else {
+        // 3. SMALLEST PRINT (Just barcode, smallest print)
+        await bluetooth.printQRcode(code, 120, 120, 1);
+        String label = price.isNotEmpty ? "$code  Rs $price" : code;
+        await bluetooth.printCustom(label, 0, 1);
+        await bluetooth.printNewLine();
+        await bluetooth.paperCut();
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Label Printed!")));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Print Error: $e")));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    String code = locationCode;
+    String name = _nameCtrl.text.trim();
+    String price = _priceCtrl.text.trim();
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Item QR Generator"), backgroundColor: Colors.black, foregroundColor: Colors.white),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
+      appBar: AppBar(
+        title: const Text("Barcode & Label Printer", style: TextStyle(color: Colors.white)),
+        backgroundColor: const Color(0xFF111827),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          TextButton.icon(
+            icon: Icon(Icons.circle, size: 12, color: _printerConnected ? Colors.greenAccent : Colors.redAccent),
+            label: Text(_printerConnected ? "Connected" : "Connect", style: const TextStyle(color: Colors.white, fontSize: 12)),
+            onPressed: _showPrinterDialog,
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("Enter Location Code Parts", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            const SizedBox(height: 16),
+            // Format Selector: 3 Options
+            const Text("1. Select Label Size & Info Level:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            const SizedBox(height: 8),
             Row(
               children: [
-                Expanded(child: TextField(controller: _rackCtrl, decoration: const InputDecoration(labelText: "Rack (01)"), onChanged: (_) => setState((){}))),
-                const SizedBox(width: 8),
-                Expanded(child: TextField(controller: _colCtrl, decoration: const InputDecoration(labelText: "Col (03)"), onChanged: (_) => setState((){}))),
-                const SizedBox(width: 8),
-                Expanded(child: TextField(controller: _rowCtrl, decoration: const InputDecoration(labelText: "Row (A-I)"), onChanged: (_) => setState((){}))),
-                const SizedBox(width: 8),
-                Expanded(child: TextField(controller: _itemCtrl, decoration: const InputDecoration(labelText: "Item (134)"), onChanged: (_) => setState((){}))),
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text("Big (Full Info)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    selected: _selectedFormat == 0,
+                    selectedColor: Colors.blueAccent,
+                    labelStyle: TextStyle(color: _selectedFormat == 0 ? Colors.white : Colors.black87),
+                    onSelected: (val) => setState(() => _selectedFormat = 0),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text("Medium (Standard)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    selected: _selectedFormat == 1,
+                    selectedColor: Colors.green,
+                    labelStyle: TextStyle(color: _selectedFormat == 1 ? Colors.white : Colors.black87),
+                    onSelected: (val) => setState(() => _selectedFormat = 1),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Text("Small (Barcode Only)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                    selected: _selectedFormat == 2,
+                    selectedColor: Colors.orange,
+                    labelStyle: TextStyle(color: _selectedFormat == 2 ? Colors.white : Colors.black87),
+                    onSelected: (val) => setState(() => _selectedFormat = 2),
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 40),
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.black12, width: 2),
-                boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10)]
-              ),
-              child: Column(
-                children: [
-                  Text("Item Location", style: const TextStyle(fontSize: 16, color: Colors.black54)),
-                  Text(locationCode, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 2)),
-                  const SizedBox(height: 24),
-                  QrImageView(
-                    data: locationCode,
-                    version: QrVersions.auto,
-                    size: 200.0,
-                    backgroundColor: Colors.white,
+            const SizedBox(height: 12),
+
+            // Barcode Type Selector
+            Row(
+              children: [
+                const Text("Code Type: ", style: TextStyle(fontWeight: FontWeight.bold)),
+                ChoiceChip(
+                  label: const Text("2D QR Code"),
+                  selected: _codeType == 'qr',
+                  onSelected: (_) => setState(() => _codeType = 'qr'),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text("1D Barcode (Code128)"),
+                  selected: _codeType == 'barcode',
+                  onSelected: (_) => setState(() => _codeType = 'barcode'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+
+            // Location Code Breakdown
+            const Text("2. Code & Product Details:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(child: TextField(controller: _rackCtrl, decoration: const InputDecoration(labelText: "Rack (01)", border: OutlineInputBorder(), isDense: true), onChanged: (_) => setState((){}))),
+                const SizedBox(width: 6),
+                Expanded(child: TextField(controller: _colCtrl, decoration: const InputDecoration(labelText: "Col (03)", border: OutlineInputBorder(), isDense: true), onChanged: (_) => setState((){}))),
+                const SizedBox(width: 6),
+                Expanded(child: TextField(controller: _rowCtrl, decoration: const InputDecoration(labelText: "Row (C)", border: OutlineInputBorder(), isDense: true), onChanged: (_) => setState((){}))),
+                const SizedBox(width: 6),
+                Expanded(child: TextField(controller: _itemCtrl, decoration: const InputDecoration(labelText: "Item (134)", border: OutlineInputBorder(), isDense: true), onChanged: (_) => setState((){}))),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextField(
+                    controller: _nameCtrl,
+                    decoration: const InputDecoration(labelText: "Item Name", border: OutlineInputBorder(), isDense: true),
+                    onChanged: (_) => setState((){}),
                   ),
-                ],
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 2,
+                  child: TextField(
+                    controller: _priceCtrl,
+                    decoration: const InputDecoration(labelText: "Price (₹)", prefixText: "₹", border: OutlineInputBorder(), isDense: true),
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => setState((){}),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Live Visual Preview
+            const Text("Live Label Preview:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+            const SizedBox(height: 8),
+            Center(
+              child: Container(
+                width: _selectedFormat == 0 ? 320 : (_selectedFormat == 1 ? 260 : 200),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.black26, width: 2),
+                  boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_selectedFormat == 0) ...[
+                      const Text("LOVE KUSH SHOPPING", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1.1)),
+                      const Divider(thickness: 1.5, color: Colors.black54),
+                      Text(name.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15), textAlign: TextAlign.center),
+                      const SizedBox(height: 4),
+                      Text("LOC: $code", style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: Colors.blueAccent)),
+                      const SizedBox(height: 12),
+                    ] else if (_selectedFormat == 1) ...[
+                      Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      const SizedBox(height: 2),
+                      Text(code, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.black54)),
+                      const SizedBox(height: 8),
+                    ],
+
+                    // Code Rendering
+                    if (_codeType == 'qr')
+                      QrImageView(
+                        data: code,
+                        version: QrVersions.auto,
+                        size: _selectedFormat == 0 ? 160.0 : (_selectedFormat == 1 ? 120.0 : 80.0),
+                        backgroundColor: Colors.white,
+                      )
+                    else
+                      SizedBox(
+                        height: _selectedFormat == 0 ? 70 : (_selectedFormat == 1 ? 55 : 40),
+                        width: double.infinity,
+                        child: bw.BarcodeWidget(
+                          barcode: bw.Barcode.code128(),
+                          data: code,
+                          drawText: false,
+                        ),
+                      ),
+                    
+                    const SizedBox(height: 6),
+                    if (_selectedFormat == 0) ...[
+                      Text("MRP: ₹$price", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: Colors.green)),
+                      const Divider(thickness: 1.5, color: Colors.black54),
+                    ] else if (_selectedFormat == 1) ...[
+                      Text("₹$price", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: Colors.green)),
+                    ] else ...[
+                      Text("$code  ₹$price", style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 10)),
+                    ],
+                  ],
+                ),
               ),
             ),
-            const Spacer(),
+            const SizedBox(height: 24),
+
+            // Print Button
             SizedBox(
-              width: double.infinity, height: 56,
+              width: double.infinity,
+              height: 54,
               child: ElevatedButton.icon(
-                icon: const Icon(Icons.print),
-                label: const Text("PRINT QR LABEL", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), foregroundColor: Colors.white),
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sending to Bluetooth/USB Printer...")));
-                },
+                icon: const Icon(Icons.print, size: 24),
+                label: Text(
+                  _selectedFormat == 0 ? "PRINT BIG LABEL (FULL INFO)" : (_selectedFormat == 1 ? "PRINT MEDIUM LABEL" : "PRINT COMPACT BARCODE"),
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _selectedFormat == 0 ? Colors.blueAccent : (_selectedFormat == 1 ? Colors.green : Colors.orange.shade800),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: _printLabel,
               ),
-            )
+            ),
           ],
         ),
       ),
     );
   }
 }
+
+typedef InventoryQrScreen = BarcodeLabelPrinterScreen;
 
 
 // ==========================================

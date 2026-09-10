@@ -46,8 +46,6 @@ dependencies:
   supabase_flutter: ^2.17.2
 
 dev_dependencies:
-  google_sign_in: ^6.2.1
-  barcode_widget: ^2.0.4
   flutter_test:
     sdk: flutter
 
