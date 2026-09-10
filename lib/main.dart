@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:barcode_widget/barcode_widget.dart';
+import 'package:barcode_widget/barcode_widget.dart' as bw;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -1641,7 +1641,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   Text(bill['counter_name'].toString().toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 10),
                   if (bNo != "N/A") ...[
-                    BarcodeWidget(barcode: Barcode.code128(), data: bNo, width: 200, height: 60, drawText: false),
+                    bw.BarcodeWidget(barcode: bw.Barcode.code128(), data: bNo, width: 200, height: 60, drawText: false),
                     const SizedBox(height: 4),
                     Text("BILL NO: $bNo", style: const TextStyle(fontWeight: FontWeight.bold)),
                   ],
