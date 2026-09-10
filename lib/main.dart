@@ -2815,6 +2815,7 @@ class _PosScreenState extends State<PosScreen> {
   }
   bool isPreviewingBill = false;
   bool isScanning = false; 
+  Map<String, dynamic>? _lastCompletedBill;
 
   // ... (Keeping all the POS logic identical for brevity) ...
 
@@ -3195,17 +3196,21 @@ class _PosScreenState extends State<PosScreen> {
     }
 
     // 1. Save to Supabase
+    final savedBillRecord = {
+      'bill_number': billNumber,
+      'staff_name': widget.userName,
+      'counter_name': counterName,
+      'total_amount': cartTotal,
+      'items_json': List<Map<String, dynamic>>.from(cart.map((e) => Map<String, dynamic>.from(e))),
+      'payment_method': dbPaymentMethod,
+      'amount_tendered': paidMoney,
+      'change_due': finalChangeDue,
+      'created_at': DateTime.now().toIso8601String(),
+    };
+
     try {
-      await Supabase.instance.client.from('bills').insert({
-        'bill_number': billNumber,
-        'staff_name': widget.userName,
-        'counter_name': counterName,
-        'total_amount': cartTotal,
-        'items_json': cart,
-        'payment_method': dbPaymentMethod,
-        'amount_tendered': paidMoney,
-        'change_due': finalChangeDue,
-      });
+      await Supabase.instance.client.from('bills').insert(savedBillRecord);
+      _lastCompletedBill = savedBillRecord;
     } catch (dbError) {
       print("Supabase Error: $dbError");
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Cloud Sync Failed: $dbError")));
@@ -3270,7 +3275,17 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printNewLine();
           await bluetooth.printNewLine();
           await bluetooth.paperCut();
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill Saved & Printed!")));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text("Bill Saved & Printed!"),
+              duration: const Duration(seconds: 6),
+              action: SnackBarAction(
+                label: "REPRINT",
+                textColor: Colors.amberAccent,
+                onPressed: () => _openReprintPreview(savedBillRecord),
+              ),
+            ),
+          );
         } else {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Printer lost connection. Bill Saved to Cloud Only.")));
         }
@@ -3278,11 +3293,65 @@ class _PosScreenState extends State<PosScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Printer Error: $e. Bill Saved to Cloud Only.")));
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill Saved to Cloud Only")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text("Bill Saved to Cloud Only"),
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(
+            label: "REPRINT",
+            textColor: Colors.amberAccent,
+            onPressed: () => _openReprintPreview(savedBillRecord),
+          ),
+        ),
+      );
     }
 
     // 3. Clear Cart
     confirmPrint();
+  }
+
+  void _reprintBill(Map<String, dynamic> bill) {
+    executeReprintThermalBill(context: context, bluetooth: bluetooth, bill: bill);
+  }
+
+  void _openReprintPreview(Map<String, dynamic> bill) {
+    showReceiptPreviewDialog(
+      context: context,
+      bill: bill,
+      onPrint: () => _reprintBill(bill),
+    );
+  }
+
+  Future<void> _openReprintLastBillPreview() async {
+    if (_lastCompletedBill != null) {
+      _openReprintPreview(_lastCompletedBill!);
+      return;
+    }
+    try {
+      final res = await Supabase.instance.client
+          .from('bills')
+          .select()
+          .order('created_at', ascending: false)
+          .limit(1);
+      if (res.isNotEmpty) {
+        _lastCompletedBill = Map<String, dynamic>.from(res.first);
+        if (mounted) {
+          _openReprintPreview(_lastCompletedBill!);
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("No previous bills found to reprint.")),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error fetching last bill: $e")),
+        );
+      }
+    }
   }
 
   @override
@@ -3386,6 +3455,24 @@ class _PosScreenState extends State<PosScreen> {
               onTap: () => Navigator.pop(context), 
             ),
             ListTile(
+              leading: const Icon(Icons.print_outlined, color: Colors.black87),
+              title: const Text('Reprint Last Bill', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Preview receipt first & print duplicate copy'),
+              onTap: () {
+                Navigator.pop(context);
+                _openReprintLastBillPreview();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.history, color: Colors.black87),
+              title: const Text('Past Bills & Reprint', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Browse sales, view preview & reprint'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.price_change_outlined, color: Colors.blueAccent),
               title: const Text('Item Codes & Rates', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
               subtitle: const Text('Lookup, edit, and map item rates'),
@@ -3454,6 +3541,11 @@ class _PosScreenState extends State<PosScreen> {
                 onPressed: _openItemCatalog,
               ),
             ),
+          IconButton(
+            tooltip: "Reprint Last Bill (Preview First)",
+            icon: const Icon(Icons.print_outlined, color: Colors.black87),
+            onPressed: _openReprintLastBillPreview,
+          ),
           IconButton(
             tooltip: "Item Codes & Rates",
             icon: const Icon(Icons.menu_book, color: Colors.blueAccent),
@@ -4726,6 +4818,386 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   }
 }
 
+Future<void> executeReprintThermalBill({
+  required BuildContext context,
+  required BlueThermalPrinter bluetooth,
+  required Map<String, dynamic> bill,
+}) async {
+  bool? isConnected = await bluetooth.isConnected;
+  if (isConnected != true) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please connect printer first!")));
+    }
+    return;
+  }
+
+  try {
+    final items = (bill['items_json'] as List<dynamic>?) ?? [];
+    String bNo = (bill['bill_number'] ?? "N/A").toString();
+    String counterName = (bill['counter_name'] ?? "Basement Counter").toString();
+    double total = (bill['total_amount'] as num?)?.toDouble() ?? 0.0;
+
+    try {
+      ByteData bytesAsset = await rootBundle.load("assets/logo_bw.jpg");
+      Uint8List imageBytes = bytesAsset.buffer.asUint8List();
+      await bluetooth.printImageBytes(imageBytes);
+    } catch (_) {}
+
+    await bluetooth.printNewLine();
+    await bluetooth.printCustom("LOVE KUSH", 3, 1);
+    await bluetooth.printCustom("SHOPPING CENTER", 2, 1);
+    await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
+
+    if (bNo != "N/A" && bNo.isNotEmpty) {
+      await bluetooth.printCustom("BILL NO: $bNo", 1, 1);
+      try {
+        await bluetooth.printQRcode(bNo, 200, 200, 1);
+      } catch (_) {}
+    }
+
+    await bluetooth.printNewLine();
+    await bluetooth.printLeftRight("Item", "Qty x Rate", 1);
+    await bluetooth.printCustom("--------------------------------", 1, 1);
+
+    for (var item in items) {
+      String name = (item['itemName'] != null && item['itemName'].toString().isNotEmpty)
+          ? item['itemName'].toString()
+          : (item['item'] ?? '').toString();
+      if (name.contains("\n")) name = name.split("\n")[0];
+      if (name.length > 20) name = name.substring(0, 20);
+      String details = "${item['qty'] ?? 1} x ₹${item['rate'] ?? 0}";
+      await bluetooth.printLeftRight(name, details, 1);
+    }
+
+    await bluetooth.printCustom("--------------------------------", 1, 1);
+    await bluetooth.printLeftRight("TOTAL", "₹${total.toStringAsFixed(2)}", 2);
+    await bluetooth.printNewLine();
+
+    String pMethod = (bill['payment_method'] ?? "Cash").toString();
+    double pTendered = double.tryParse(bill['amount_tendered']?.toString() ?? "0") ?? total;
+    double pChange = double.tryParse(bill['change_due']?.toString() ?? "0") ?? (pTendered > total ? (pTendered - total) : 0.0);
+    await bluetooth.printLeftRight("PAYMENT", pMethod.toUpperCase(), 1);
+    await bluetooth.printLeftRight("Paid Money:", "Rs${pTendered.toStringAsFixed(2)}", 1);
+    if (pChange > 0) {
+      await bluetooth.printLeftRight("Change Given:", "Rs${pChange.toStringAsFixed(2)}", 1);
+    }
+    await bluetooth.printNewLine();
+
+    await bluetooth.printCustom("Thank you for shopping!", 1, 1);
+    await bluetooth.printCustom("No Exchange / No Refund", 1, 1);
+    await bluetooth.printCustom("*** DUPLICATE COPY ***", 1, 1);
+    await bluetooth.printNewLine();
+    await bluetooth.printNewLine();
+    await bluetooth.paperCut();
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Duplicate Bill Reprinted!")));
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Print Error: $e")));
+    }
+  }
+}
+
+void showReceiptPreviewDialog({
+  required BuildContext context,
+  required Map<String, dynamic> bill,
+  required VoidCallback onPrint,
+}) {
+  final items = (bill['items_json'] as List<dynamic>?) ?? [];
+  final String bNo = (bill['bill_number'] ?? "N/A").toString();
+  final String counterName = (bill['counter_name'] ?? "Basement Counter").toString();
+  final double total = (bill['total_amount'] as num?)?.toDouble() ?? 0.0;
+  final String pMethod = (bill['payment_method'] ?? "Cash").toString();
+  final double pTendered = double.tryParse(bill['amount_tendered']?.toString() ?? "0") ?? total;
+  final double pChange = double.tryParse(bill['change_due']?.toString() ?? "0") ?? (pTendered > total ? (pTendered - total) : 0.0);
+  final String staffName = (bill['staff_name'] ?? "Staff").toString();
+  DateTime billDate = DateTime.now();
+  if (bill['created_at'] != null) {
+    try {
+      billDate = DateTime.parse(bill['created_at']).toLocal();
+    } catch (_) {}
+  }
+  final String formattedDate = billDate.toString().split('.')[0];
+
+  showDialog(
+    context: context,
+    builder: (dialogContext) {
+      return Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Dialog Header bar
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF1F2937),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.receipt_long, color: Colors.amberAccent, size: 22),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        "Receipt Preview (Duplicate)",
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.amberAccent,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        "PREVIEW",
+                        style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w900, fontSize: 10, letterSpacing: 0.8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Scrollable receipt body styled like thermal receipt paper
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: Colors.grey.shade300, width: 1),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 4)),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Store branding
+                        const Text(
+                          "लव कुश शॉपिङ्ग सेण्टर",
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.black),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          "LOVE KUSH SHOPPING CENTER",
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87, letterSpacing: 0.8),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          counterName.toUpperCase(),
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54),
+                        ),
+                        const SizedBox(height: 10),
+
+                        // Bill Number & Barcode
+                        if (bNo != "N/A" && bNo.isNotEmpty) ...[
+                          bw.BarcodeWidget(
+                            barcode: bw.Barcode.code128(),
+                            data: bNo,
+                            width: 220,
+                            height: 48,
+                            drawText: false,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            "BILL NO: $bNo",
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, letterSpacing: 1),
+                          ),
+                        ],
+                        const SizedBox(height: 10),
+                        const Text(
+                          "----------------------------------------",
+                          style: TextStyle(color: Colors.grey, letterSpacing: 1.5),
+                        ),
+
+                        // Column headers
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: const [
+                            Text("ITEM", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text("QTY x RATE", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          ],
+                        ),
+                        const Text(
+                          "----------------------------------------",
+                          style: TextStyle(color: Colors.grey, letterSpacing: 1.5),
+                        ),
+
+                        // Items list
+                        ...items.map((item) {
+                          String name = (item['itemName'] != null && item['itemName'].toString().isNotEmpty)
+                              ? item['itemName'].toString()
+                              : (item['item'] ?? '').toString();
+                          if (name.contains("\n")) name = name.split("\n")[0];
+                          final qty = item['qty'] ?? 1;
+                          final rate = item['rate'] ?? 0;
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 3),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    name,
+                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  "$qty x ₹$rate",
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+
+                        const Text(
+                          "----------------------------------------",
+                          style: TextStyle(color: Colors.grey, letterSpacing: 1.5),
+                        ),
+
+                        // Total
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text("TOTAL", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                              Text("₹${total.toStringAsFixed(2)}", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                            ],
+                          ),
+                        ),
+
+                        const Text(
+                          "----------------------------------------",
+                          style: TextStyle(color: Colors.grey, letterSpacing: 1.5),
+                        ),
+
+                        // Payment Details Box
+                        Container(
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF9FAFB),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.black12),
+                          ),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text("Payment Method:", style: TextStyle(color: Colors.black54, fontSize: 13, fontWeight: FontWeight.w600)),
+                                  Text(pMethod.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text("Paid Money:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                  Text("₹${pTendered.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.blueAccent)),
+                                ],
+                              ),
+                              if (pChange > 0) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text("Change Given:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF047857))),
+                                    Text("₹${pChange.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Color(0xFF047857))),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text("Staff: $staffName", style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                            Text("Date: $formattedDate", style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        const Text("Thank you for shopping!", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+                        const Text("No Exchange / No Refund", style: TextStyle(fontSize: 11, color: Colors.black45)),
+                        const SizedBox(height: 4),
+                        const Text("*** DUPLICATE COPY ***", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.2, color: Colors.redAccent)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              // Footer Action Buttons
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(16),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          side: const BorderSide(color: Colors.black45),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text("CLOSE", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.print, color: Colors.white, size: 20),
+                        label: const Text("🖨️ PRINT COPY", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2563EB),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          onPrint();
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({Key? key}) : super(key: key);
   @override
@@ -4790,180 +5262,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
 
-  void _reprintBill(Map<String, dynamic> bill) async {
-    bool? isConnected = await bluetooth.isConnected;
-    if (isConnected != true) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please connect printer first!")));
-      return;
-    }
-    
-    try {
-      final items = bill['items_json'] as List<dynamic>;
-      String bNo = bill['bill_number'] ?? "N/A";
-      String counterName = bill['counter_name'].toString();
-      double total = (bill['total_amount'] as num).toDouble();
-      
-      ByteData bytesAsset = await rootBundle.load("assets/logo_bw.jpg");
-      Uint8List imageBytes = bytesAsset.buffer.asUint8List();
-      await bluetooth.printImageBytes(imageBytes);
-      
-      await bluetooth.printNewLine();
-      await bluetooth.printCustom("LOVE KUSH", 3, 1); 
-      await bluetooth.printCustom("SHOPPING CENTER", 2, 1); 
-      await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
-      
-      if (bNo != "N/A") {
-        await bluetooth.printCustom("BILL NO: $bNo", 1, 1);
-        try { await bluetooth.printQRcode(bNo, 200, 200, 1); } catch(e){}
-      }
-      
-      await bluetooth.printNewLine();
-      await bluetooth.printLeftRight("Item", "Qty x Rate", 1);
-      await bluetooth.printCustom("--------------------------------", 1, 1);
-      
-      for (var item in items) {
-        String name = (item['itemName'] != null && item['itemName'].toString().isNotEmpty)
-            ? item['itemName'].toString()
-            : item['item'].toString();
-        if (name.contains("\n")) name = name.split("\n")[0];
-        if (name.length > 20) name = name.substring(0, 20);
-        String details = "${item['qty']} x ₹${item['rate']}";
-        await bluetooth.printLeftRight(name, details, 1);
-      }
-      
-      await bluetooth.printCustom("--------------------------------", 1, 1);
-      await bluetooth.printLeftRight("TOTAL", "₹${total.toStringAsFixed(2)}", 2); 
-      await bluetooth.printNewLine();
-      
-      
-      String pMethod = bill['payment_method']?.toString() ?? "Cash";
-      double pTendered = double.tryParse(bill['amount_tendered']?.toString() ?? "0") ?? total;
-      double pChange = double.tryParse(bill['change_due']?.toString() ?? "0") ?? (pTendered > total ? (pTendered - total) : 0.0);
-      await bluetooth.printLeftRight("PAYMENT", pMethod.toUpperCase(), 1);
-      await bluetooth.printLeftRight("Paid Money:", "Rs${pTendered.toStringAsFixed(2)}", 1);
-      if (pChange > 0) {
-        await bluetooth.printLeftRight("Change Given:", "Rs${pChange.toStringAsFixed(2)}", 1);
-      }
-      await bluetooth.printNewLine();
-
-      await bluetooth.printCustom("Thank you for shopping!", 1, 1);
-      await bluetooth.printCustom("No Exchange / No Refund", 1, 1);
-      await bluetooth.printCustom("*** DUPLICATE COPY ***", 1, 1);
-      await bluetooth.printNewLine();
-      await bluetooth.printNewLine();
-      await bluetooth.paperCut();
-      
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill Reprinted!")));
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Print Error: $e")));
-    }
+  void _reprintBill(Map<String, dynamic> bill) {
+    executeReprintThermalBill(context: context, bluetooth: bluetooth, bill: bill);
   }
 
   void _showBillPreview(Map<String, dynamic> bill) {
-    showDialog(
+    showReceiptPreviewDialog(
       context: context,
-      builder: (context) {
-        final items = bill['items_json'] as List<dynamic>;
-        String bNo = bill['bill_number'] ?? "N/A";
-        
-        return AlertDialog(
-          contentPadding: const EdgeInsets.all(16),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text("LOVE KUSH", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
-                  const Text("SHOPPING CENTER", style: TextStyle(fontSize: 16)),
-                  Text(bill['counter_name'].toString().toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 10),
-                  if (bNo != "N/A") ...[
-                    bw.BarcodeWidget(barcode: bw.Barcode.code128(), data: bNo, width: 200, height: 60, drawText: false),
-                    const SizedBox(height: 4),
-                    Text("BILL NO: $bNo", style: const TextStyle(fontWeight: FontWeight.bold)),
-                  ],
-                  const SizedBox(height: 10),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: const [Text("Item", style: TextStyle(fontWeight: FontWeight.bold)), Text("Qty x Rate", style: TextStyle(fontWeight: FontWeight.bold))]),
-                  const Divider(color: Colors.black, thickness: 1),
-                  ...items.map((item) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(child: Text(item['item'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                          Text("${item['qty']} x ₹${item['rate']}"),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                  const Divider(color: Colors.black, thickness: 1),
-                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("TOTAL", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)), Text("₹${bill['total_amount']}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18))]),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF3F4F6),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text("Payment Method:", style: TextStyle(color: Colors.black54, fontWeight: FontWeight.w600)),
-                            Text("${bill['payment_method'] ?? 'Cash'}", style: const TextStyle(fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text("Paid Money:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                            Text(
-                              "₹${bill['amount_tendered'] ?? bill['total_amount']}",
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blueAccent),
-                            ),
-                          ],
-                        ),
-                        if ((bill['change_due'] as num?)?.toDouble() != null && (bill['change_due'] as num).toDouble() > 0) ...[
-                          const SizedBox(height: 6),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text("Change Given:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF047857))),
-                              Text(
-                                "₹${bill['change_due']}",
-                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Color(0xFF047857)),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text("Staff: ${bill['staff_name']}", style: const TextStyle(color: Colors.black54)),
-                  Text("Date: ${DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0]}", style: const TextStyle(color: Colors.black54)),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            ElevatedButton.icon(
-              icon: const Icon(Icons.print, color: Colors.white),
-              label: const Text("REPRINT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
-              onPressed: () {
-                Navigator.pop(context);
-                _reprintBill(bill);
-              },
-            ),
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text("CLOSE"))
-          ],
-        );
-      }
+      bill: bill,
+      onPrint: () => _reprintBill(bill),
     );
   }
 
@@ -5042,10 +5349,31 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   final bill = pastBills[index];
                   String bNo = bill['bill_number'] ?? "N/A";
                   return ListTile(
-                    leading: CircleAvatar(backgroundColor: Colors.black12, child: const Icon(Icons.receipt, color: Colors.black)),
+                    leading: const CircleAvatar(backgroundColor: Colors.black12, child: Icon(Icons.receipt, color: Colors.black)),
                     title: Text("₹${bill['total_amount']}  (No: $bNo)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     subtitle: Text("Paid: ₹${bill['amount_tendered'] ?? bill['total_amount']} • Change: ₹${bill['change_due'] ?? 0} (${bill['payment_method'] ?? 'Cash'})\nStaff: ${bill['staff_name']} • Counter: ${bill['counter_name']}"),
-                    trailing: Text(DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0].substring(11), style: const TextStyle(color: Colors.black54)),
+                    trailing: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0].substring(11),
+                          style: const TextStyle(color: Colors.black54, fontSize: 12),
+                        ),
+                        const SizedBox(height: 4),
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.print, size: 14, color: Colors.white),
+                          label: const Text("Reprint", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: () => _showBillPreview(bill),
+                        ),
+                      ],
+                    ),
                     onTap: () => _showBillPreview(bill),
                   );
                 },
