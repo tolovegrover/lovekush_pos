@@ -562,6 +562,7 @@ class _PosScreenState extends State<PosScreen> {
     super.initState();
     _loadCounterName();
     _initBluetooth();
+    _syncInventoryFromCloud();
   }
 
   void _initBluetooth() async {
@@ -1511,6 +1512,95 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
           }
         },
       ),
+    );
+  }
+}
+
+class AdminDashboardScreen extends StatefulWidget {
+  const AdminDashboardScreen({Key? key}) : super(key: key);
+  @override
+  _AdminDashboardScreenState createState() => _AdminDashboardScreenState();
+}
+
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+  bool isLoading = true;
+  double todaysCollection = 0.0;
+  List<dynamic> pastBills = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDashboardData();
+  }
+
+  void _fetchDashboardData() async {
+    try {
+      final now = DateTime.now();
+      final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+
+      // Fetch today's bills
+      final data = await Supabase.instance.client
+          .from('bills')
+          .select()
+          .gte('created_at', startOfDay)
+          .order('created_at', ascending: false);
+
+      double total = 0;
+      for (var row in data) {
+        total += (row['total_amount'] as num).toDouble();
+      }
+
+      setState(() {
+        todaysCollection = total;
+        pastBills = data;
+        isLoading = false;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching data: $e")));
+      setState(() => isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text("Admin Dashboard", style: TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF111827), iconTheme: const IconThemeData(color: Colors.white)),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(24),
+                  color: Colors.blueAccent.withOpacity(0.1),
+                  child: Column(
+                    children: [
+                      const Text("TODAY'S COLLECTION", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black54, letterSpacing: 1.5)),
+                      const SizedBox(height: 8),
+                      Text("₹${todaysCollection.toStringAsFixed(2)}", style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: Colors.blueAccent)),
+                    ],
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Align(alignment: Alignment.centerLeft, child: Text("TODAY'S BILLS", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: pastBills.length,
+                    itemBuilder: (context, index) {
+                      final bill = pastBills[index];
+                      return ListTile(
+                        leading: CircleAvatar(backgroundColor: Colors.black12, child: const Icon(Icons.receipt, color: Colors.black)),
+                        title: Text("₹${bill['total_amount']}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                        subtitle: Text("Staff: ${bill['staff_name']} • Counter: ${bill['counter_name']}"),
+                        trailing: Text(DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0].substring(11), style: const TextStyle(color: Colors.black54)),
+                      );
+                    },
+                  ),
+                )
+              ],
+            ),
     );
   }
 }
