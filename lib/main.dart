@@ -1,3 +1,4 @@
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter/material.dart';
 import 'package:barcode_widget/barcode_widget.dart' as bw;
 import 'package:firebase_core/firebase_core.dart';
@@ -66,73 +67,58 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
-  bool isPhoneMode = false;
   String _verificationId = "";
   final TextEditingController _otpController = TextEditingController();
-  
-  final Map<String, Map<String, dynamic>> phoneAuth = {
-    "8800452769": {"name": "Love Kush", "email": "tolovegrover@gmail.com", "isAdmin": true},
-    "8130550842": {"name": "Sanjeeta", "email": "sanjeetagrover@gmail.com", "isAdmin": true},
-    "9716839756": {"name": "Ved Prakash", "email": "vedprakash@demo.com", "isAdmin": true},
-    "9205809074": {"name": "Nisha", "email": "nishaankit60@gmail.com", "isAdmin": true},
-  };
-  final TextEditingController _nameController = TextEditingController();
-  
-  bool isLinkSent = false;
-  String submittedEmail = "";
-  bool isAdmin = false;
-  
-  late AppLinks _appLinks;
-  StreamSubscription<Uri>? _linkSubscription;
 
   @override
   void initState() {
     super.initState();
-    _checkExistingLogin();
-    _initDeepLinks();
+    _checkLoginStatus();
   }
 
-  void _checkExistingLogin() async {
+  void _checkLoginStatus() async {
     final prefs = await SharedPreferences.getInstance();
     bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    
     if (isLoggedIn && mounted) {
-      String userName = prefs.getString('userName') ?? "Staff";
-      String userEmail = prefs.getString('userEmail') ?? "";
+      String name = prefs.getString('userName') ?? "Staff";
+      String emailOrPhone = prefs.getString('userEmail') ?? "";
       bool isAdmin = prefs.getBool('isAdmin') ?? false;
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PosScreen(userName: userName, userEmail: userEmail, isAdmin: isAdmin)));
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PosScreen(userName: name, userEmail: emailOrPhone, isAdmin: isAdmin)));
     }
   }
-  
-  @override
-  void dispose() {
-    _linkSubscription?.cancel();
-    super.dispose();
+
+  void _completeLogin(String name, String emailOrPhone, bool isAdmin) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isLoggedIn', true);
+    await prefs.setString('userName', name);
+    await prefs.setString('userEmail', emailOrPhone);
+    await prefs.setBool('isAdmin', isAdmin);
+
+    if (mounted) {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PosScreen(userName: name, userEmail: emailOrPhone, isAdmin: isAdmin)));
+    }
   }
 
-  void _initDeepLinks() async {
-    _appLinks = AppLinks();
-    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
-      _handleDeepLink(uri.toString());
-    });
-  }
+  Future<void> _signInWithGoogle() async {
+    try {
+      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      if (googleUser == null) return; 
 
-  void _handleDeepLink(String link) async {
-    if (FirebaseAuth.instance.isSignInWithEmailLink(link)) {
-      final prefs = await SharedPreferences.getInstance();
-      String email = prefs.getString('saved_email') ?? submittedEmail;
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+      final user = userCredential.user;
       
-      if (email.isEmpty) return;
-      
-      try {
-        await FirebaseAuth.instance.signInWithEmailLink(email: email, emailLink: link);
-        // Check Admin Status
-        if (adminEmails.contains(email)) isAdmin = true;
-        else if (allowedStaffEmails.contains(email)) isAdmin = false;
-        
-        _promptForName(email);
-      } catch (e) {
-        debugPrint("Error signing in with email link: $e");
+      if (user != null && user.email != null) {
+        _completeLogin(user.displayName ?? "Staff", user.email!, adminEmails.contains(user.email!.toLowerCase()));
       }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Google Sign-In Failed: $e")));
     }
   }
 
@@ -167,158 +153,32 @@ class _LoginScreenState extends State<LoginScreen> {
     showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (context) => AlertDialog(
-        title: const Text("Enter SMS OTP"),
-        content: TextField(
-          controller: _otpController,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: "6-digit OTP"),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.black54))),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.black),
-            onPressed: () async {
-              try {
-                PhoneAuthCredential credential = PhoneAuthProvider.credential(
-                  verificationId: _verificationId,
-                  smsCode: _otpController.text.trim(),
-                );
-                await FirebaseAuth.instance.signInWithCredential(credential);
-                if (mounted) Navigator.pop(context);
-                _completeLogin("Staff (Phone)", phone, false);
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid OTP")));
-              }
-            },
-            child: const Text("VERIFY", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          )
-        ],
-      )
-    );
-  }
-
-  void _completeLogin(String name, String emailOrPhone, bool isAdmin) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isLoggedIn', true);
-    await prefs.setString('userName', name);
-    await prefs.setString('userEmail', emailOrPhone);
-    await prefs.setBool('isAdmin', isAdmin);
-    if (mounted) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PosScreen(userName: name, userEmail: emailOrPhone, isAdmin: isAdmin)));
-    }
-  }
-
-  void _sendEmailLink() async {
-    if (isPhoneMode) {
-      _verifyPhoneNumber();
-      return;
-    }
-    String input = _emailController.text.trim().toLowerCase();
-    
-
-
-    String email = input;
-    if (email.isEmpty || !email.contains("@")) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter a valid email.", style: TextStyle(color: Colors.white)), backgroundColor: Colors.redAccent)
-      );
-      return;
-    }
-
-    if (!adminEmails.contains(email) && !allowedStaffEmails.contains(email)) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text("Access Denied", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-          content: Text("The email '$email' is not authorized. Ask an Admin to add you."),
-          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text("OK"))],
-        )
-      );
-      return;
-    }
-
-    // REAL FIREBASE AUTH!
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('saved_email', email);
-      
-      var acs = ActionCodeSettings(
-        url: 'https://love-kush-pos.firebaseapp.com/',
-        handleCodeInApp: true,
-        androidPackageName: 'com.lovekush.lovekush_pos',
-        androidInstallApp: false,
-        androidMinimumVersion: '23'
-      );
-      
-      await FirebaseAuth.instance.sendSignInLinkToEmail(
-        email: email, 
-        actionCodeSettings: acs
-      );
-
-      setState(() {
-        submittedEmail = email;
-        isLinkSent = true;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text("Firebase Error: $e"), 
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 10),
-      ));
-    }
-  }
-
-  void _promptForName(String email) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Text("Account Setup", style: TextStyle(fontWeight: FontWeight.bold)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text("Email verified securely! Please enter your name for the billing receipts."),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: "Your Full Name",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  prefixIcon: const Icon(Icons.person),
-                ),
-              ),
-            ],
+          title: const Text("Enter OTP"),
+          content: TextField(
+            controller: _otpController,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            decoration: const InputDecoration(hintText: "6-digit code"),
           ),
           actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), 
               onPressed: () async {
-                if (_nameController.text.trim().isNotEmpty) {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.setBool('isLoggedIn', true);
-                  await prefs.setString('userName', _nameController.text.trim());
-                  await prefs.setString('userEmail', email);
-                  await prefs.setBool('isAdmin', isAdmin);
-                  
-                  if (!mounted) return;
-                  Navigator.pop(context); 
-                  Navigator.pushReplacement(
-                    context, 
-                    MaterialPageRoute(
-                      builder: (context) => PosScreen(
-                        userName: _nameController.text.trim(),
-                        userEmail: email,
-                        isAdmin: isAdmin,
-                      )
-                    )
-                  );
+                String smsCode = _otpController.text.trim();
+                if (smsCode.length == 6) {
+                  try {
+                    PhoneAuthCredential credential = PhoneAuthProvider.credential(verificationId: _verificationId, smsCode: smsCode);
+                    await FirebaseAuth.instance.signInWithCredential(credential);
+                    if (mounted) Navigator.pop(context);
+                    _completeLogin("Staff (Phone)", phone, false);
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid OTP")));
+                  }
                 }
               },
-              child: const Text("Enter POS System", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              child: const Text("VERIFY"),
             )
           ],
         );
@@ -328,57 +188,106 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(color: const Color(0xFFEFF6FF), shape: BoxShape.circle),
-                child: const Icon(Icons.storefront, size: 80, color: Color(0xFF3B82F6)),
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        final shouldExit = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            icon: const Icon(Icons.exit_to_app, color: Colors.redAccent, size: 40),
+            title: const Text('Exit App?'),
+            content: const Text('Are you sure you want to close the Love Kush POS app?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('STAY')),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+                onPressed: () => SystemNavigator.pop(), 
+                child: const Text('EXIT')
               ),
-              const SizedBox(height: 24),
-              const Text("लव कुश शॉपिङ्ग सेण्टर", textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 2, height: 1.2)),
-              const SizedBox(height: 8),
-              const Text("Secure Staff Portal", style: TextStyle(fontSize: 16, color: Colors.black54)),
-              const SizedBox(height: 40),
-              
-              if (!isLinkSent) ...[
-                TextField(
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(labelText: "Email or Phone Number", prefixIcon: const Icon(Icons.email_outlined), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity, height: 56,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.black, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                    onPressed: _sendEmailLink,
-                    child: const Text("Send Magic Link", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            ]
+          )
+        );
+        if (shouldExit == true) SystemNavigator.pop();
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF111827),
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.blueAccent.withOpacity(0.3), blurRadius: 20, spreadRadius: 5)]),
+                    child: ClipOval(child: Image.asset('assets/logo_bw.jpg', width: 100, height: 100, fit: BoxFit.cover)),
                   ),
-                ),
-              ] else ...[
-                const Icon(Icons.mark_email_read, size: 80, color: Color(0xFF10B981)), 
-                const SizedBox(height: 16),
-                const Text("Check your email!", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 8),
-                Text("We sent a real secure login link to:\n$submittedEmail", textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: Colors.black54, height: 1.5)),
-                const SizedBox(height: 40),
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-                const Text("Waiting for you to click the link in your email app...", style: TextStyle(color: Colors.grey)),
-                const SizedBox(height: 24),
-                TextButton(
-                  onPressed: () => setState(() => isLinkSent = false),
-                  child: const Text("Use a different email", style: TextStyle(color: Colors.grey)),
-                )
-              ]
-            ],
+                  const SizedBox(height: 24),
+                  const Text("लव कुश शॉपिङ्ग सेण्टर", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1.2)),
+                  const SizedBox(height: 8),
+                  const Text("STAFF LOGIN", style: TextStyle(color: Colors.blueAccent, letterSpacing: 2, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 40),
+                  
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+                    child: Column(
+                      children: [
+                        const Align(alignment: Alignment.centerLeft, child: Text("Enter Mobile Number", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black54))),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.phone,
+                          decoration: InputDecoration(
+                            prefixIcon: const Icon(Icons.phone_android, color: Colors.blueAccent),
+                            hintText: "10-digit number",
+                            filled: true,
+                            fillColor: const Color(0xFFF3F4F6),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                            onPressed: _verifyPhoneNumber,
+                            child: const Text("SEND OTP", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        
+                        Row(
+                          children: const [
+                            Expanded(child: Divider(color: Colors.black26)),
+                            Padding(padding: EdgeInsets.symmetric(horizontal: 16), child: Text("OR", style: TextStyle(color: Colors.black54, fontWeight: FontWeight.bold))),
+                            Expanded(child: Divider(color: Colors.black26)),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Colors.black12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))
+                            ),
+                            icon: Image.network("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Google_%22G%22_logo.svg/120px-Google_%22G%22_logo.svg.png", width: 24),
+                            label: const Text("Continue with Google", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16)),
+                            onPressed: _signInWithGoogle,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
