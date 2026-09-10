@@ -11,6 +11,8 @@ import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
+import 'dart:io';
+import 'dart:convert';
 import 'firebase_options.dart';
 
 void main() async {
@@ -575,6 +577,162 @@ const List<Map<String, dynamic>> cosmeticDatabase = [
 ];
 
 // ==========================================
+// SHELF CODE BREAKDOWN & AUTO-DASH FORMATTER
+// ==========================================
+class ShelfCodeBreakdown {
+  final String shelfLocation; // e.g. "01-03-C"
+  final String itemNumber;    // e.g. "134" or ""
+  final String fullCode;      // e.g. "01-03-C-134" or "01-03-C"
+  final bool isShelfOnly;
+
+  ShelfCodeBreakdown({
+    required this.shelfLocation,
+    required this.itemNumber,
+    required this.fullCode,
+    required this.isShelfOnly,
+  });
+
+  static ShelfCodeBreakdown parse(String input) {
+    String clean = input.replaceAll(' ', '').trim().toUpperCase();
+    if (clean.isEmpty) {
+      return ShelfCodeBreakdown(shelfLocation: "", itemNumber: "", fullCode: "", isShelfOnly: true);
+    }
+
+    if (clean.contains('-')) {
+      final parts = clean.split('-');
+      if (parts.length >= 4) {
+        String shelf = "${parts[0]}-${parts[1]}-${parts[2]}";
+        String item = parts.sublist(3).join('-');
+        return ShelfCodeBreakdown(
+          shelfLocation: shelf,
+          itemNumber: item,
+          fullCode: clean,
+          isShelfOnly: item.isEmpty,
+        );
+      } else if (parts.length == 3) {
+        String shelf = "${parts[0]}-${parts[1]}-${parts[2]}";
+        return ShelfCodeBreakdown(
+          shelfLocation: shelf,
+          itemNumber: "",
+          fullCode: shelf,
+          isShelfOnly: true,
+        );
+      } else {
+        return ShelfCodeBreakdown(
+          shelfLocation: clean,
+          itemNumber: "",
+          fullCode: clean,
+          isShelfOnly: true,
+        );
+      }
+    }
+
+    // Format raw digits
+    String f = '';
+    for (int i = 0; i < clean.length; i++) {
+      if (i == 2 || i == 4 || i == 5) f += '-';
+      if (i == 4) {
+        int? d = int.tryParse(clean[i]);
+        f += (d != null && d >= 1 && d <= 9) ? String.fromCharCode(64 + d) : clean[i];
+      } else {
+        f += clean[i];
+      }
+    }
+
+    final parts = f.split('-');
+    if (parts.length >= 4) {
+      String shelf = "${parts[0]}-${parts[1]}-${parts[2]}";
+      String item = parts.sublist(3).join('-');
+      return ShelfCodeBreakdown(
+        shelfLocation: shelf,
+        itemNumber: item,
+        fullCode: f,
+        isShelfOnly: item.isEmpty,
+      );
+    } else if (parts.length == 3) {
+      return ShelfCodeBreakdown(
+        shelfLocation: f,
+        itemNumber: "",
+        fullCode: f,
+        isShelfOnly: true,
+      );
+    } else {
+      return ShelfCodeBreakdown(
+        shelfLocation: f,
+        itemNumber: "",
+        fullCode: f,
+        isShelfOnly: true,
+      );
+    }
+  }
+}
+
+class ShelfCodeInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (newValue.text.length < oldValue.text.length) {
+      return newValue;
+    }
+
+    String raw = newValue.text.replaceAll('-', '').replaceAll(' ', '').trim().toUpperCase();
+    if (raw.isEmpty) return newValue;
+
+    String formatted = '';
+    for (int i = 0; i < raw.length; i++) {
+      if (i == 2) formatted += '-';
+      if (i == 4) formatted += '-';
+      if (i == 5) formatted += '-';
+
+      if (i == 4) {
+        int? d = int.tryParse(raw[i]);
+        if (d != null && d >= 1 && d <= 9) {
+          formatted += String.fromCharCode(64 + d);
+        } else {
+          formatted += raw[i];
+        }
+      } else {
+        formatted += raw[i];
+      }
+    }
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
+
+Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
+  try {
+    final client = HttpClient();
+    client.connectionTimeout = const Duration(seconds: 4);
+    final uri = Uri.parse("https://world.openbeautyfacts.org/api/v0/product/$barcode.json");
+    final request = await client.getUrl(uri);
+    final response = await request.close().timeout(const Duration(seconds: 4));
+    if (response.statusCode == 200) {
+      final body = await response.transform(utf8.decoder).join();
+      final data = json.decode(body);
+      if (data is Map && data['status'] == 1 && data['product'] != null) {
+        final prod = data['product'];
+        String name = (prod['product_name'] ?? prod['product_name_en'] ?? '').toString().trim();
+        String brand = (prod['brands'] ?? '').toString().trim();
+        String category = (prod['categories'] ?? '').toString().trim();
+        if (name.isNotEmpty) {
+          if (brand.isNotEmpty && !name.toLowerCase().contains(brand.toLowerCase())) {
+            name = "$brand $name";
+          }
+          return {'name': name, 'brand': brand, 'category': category};
+        }
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+// ==========================================
 // ITEM CODES & RATES (INVENTORY MAPPING)
 // ==========================================
 class ItemCatalogScreen extends StatefulWidget {
@@ -629,28 +787,65 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     }
   }
 
-  void _saveOrUpdateItem({required String code, required String name, required double price}) async {
+  void _saveOrUpdateItem({
+    required String code,
+    required String name,
+    required double price,
+    String? companyBarcode,
+    String? shelfLocation,
+    String? itemNumber,
+    String? category,
+    double? mrp,
+    int? stockQty,
+    bool isOnline = true,
+  }) async {
     try {
-      await Supabase.instance.client.from('inventory').upsert({
+      final Map<String, dynamic> fullData = {
         'item_code': code,
         'item_name': name,
         'price': price,
-      });
+        'company_barcode': companyBarcode ?? '',
+        'shelf_location': shelfLocation ?? '',
+        'item_number': itemNumber ?? '',
+        'category': category ?? 'Cosmetics',
+        'mrp': mrp ?? price,
+        'stock_qty': stockQty ?? 10,
+        'is_online': isOnline,
+      };
+
+      try {
+        await Supabase.instance.client.from('inventory').upsert(fullData);
+      } catch (_) {
+        // Fallback if schema migration hasn't been run yet
+        await Supabase.instance.client.from('inventory').upsert({
+          'item_code': code,
+          'item_name': name,
+          'price': price,
+        });
+      }
 
       // Update last used components
-      final parts = code.split('-');
-      if (parts.length >= 4) {
-        _lastRack = parts[0];
-        _lastCol = parts[1];
-        _lastRow = parts[2];
-        final numPart = int.tryParse(parts[3]);
-        if (numPart != null) _lastItemNum = numPart;
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('last_rack', _lastRack);
-        await prefs.setString('last_col', _lastCol);
-        await prefs.setString('last_row', _lastRow);
-        await prefs.setInt('last_item_num', _lastItemNum);
+      if (shelfLocation != null && shelfLocation.contains('-')) {
+        final parts = shelfLocation.split('-');
+        if (parts.isNotEmpty) _lastRack = parts[0];
+        if (parts.length > 1) _lastCol = parts[1];
+        if (parts.length > 2) _lastRow = parts[2];
+      } else {
+        final parts = code.split('-');
+        if (parts.isNotEmpty) _lastRack = parts[0];
+        if (parts.length > 1) _lastCol = parts[1];
+        if (parts.length > 2) _lastRow = parts[2];
       }
+      if (itemNumber != null && itemNumber.isNotEmpty) {
+        final numPart = int.tryParse(itemNumber);
+        if (numPart != null) _lastItemNum = numPart;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('last_rack', _lastRack);
+      await prefs.setString('last_col', _lastCol);
+      await prefs.setString('last_row', _lastRow);
+      await prefs.setInt('last_item_num', _lastItemNum);
 
       _fetchInventory();
       if (mounted) {
@@ -707,7 +902,10 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       final clean = scannedCode.trim();
       Map<String, dynamic>? match;
       for (var it in items) {
-        if ((it['item_code'] ?? '').toString().toUpperCase() == clean.toUpperCase()) {
+        final itCode = (it['item_code'] ?? '').toString().toUpperCase();
+        final itBar = (it['company_barcode'] ?? '').toString().toUpperCase();
+        final itShelf = (it['shelf_location'] ?? '').toString().toUpperCase();
+        if (itCode == clean.toUpperCase() || itBar == clean.toUpperCase() || itShelf == clean.toUpperCase()) {
           match = it;
           break;
         }
@@ -715,7 +913,20 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       if (match != null) {
         _showAddEditDialog(match);
       } else {
-        _showAddEditDialog(null, clean);
+        // Check if commercial barcode (8 to 14 digits)
+        final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
+        if (clean.length >= 8 && digitsOnly.length == clean.length) {
+          // Commercial barcode: query Open Beauty Facts in background
+          String? fetchedName;
+          final obf = await fetchOpenBeautyFacts(clean);
+          if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
+            fetchedName = obf['name'];
+          }
+          _showAddEditDialog(null, null, fetchedName, null, clean);
+        } else {
+          // Shelf location code (e.g. 01-03-C-134 or 01-03-C)
+          _showAddEditDialog(null, clean);
+        }
       }
     }
   }
@@ -728,19 +939,21 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) {
-          final categories = ["All", "Eyes", "Lips", "Face", "Nails", "Skincare", "Hair", "Bangles", "Jewelry", "Accessories"];
-          final filteredList = cosmeticDatabase.where((item) {
-            final matchCat = filterCategory == "All" || item["category"] == filterCategory;
-            final matchSearch = search.isEmpty || item["name"].toString().toLowerCase().contains(search.toLowerCase());
+          final cats = ["All", "Eyes", "Lips", "Face", "Nails", "Skincare", "Hair", "Bangles", "Jewelry", "Accessories"];
+          final filteredCosmetics = cosmeticDatabase.where((c) {
+            final matchCat = filterCategory == "All" || c["category"] == filterCategory;
+            final matchSearch = search.isEmpty || c["name"].toString().toLowerCase().contains(search.toLowerCase());
             return matchCat && matchSearch;
           }).toList();
 
           return AlertDialog(
             title: Row(
-              children: const [
-                Icon(Icons.auto_awesome, color: Colors.pinkAccent),
-                SizedBox(width: 8),
-                Text("Cosmetics Catalog", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              children: [
+                const Icon(Icons.auto_awesome, color: Colors.pinkAccent),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text("Cosmetics & Daily Database", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                ),
               ],
             ),
             content: SizedBox(
@@ -752,35 +965,34 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                     decoration: InputDecoration(
                       hintText: "Search cosmetics, kajal, bangles...",
                       prefixIcon: const Icon(Icons.search),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       isDense: true,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    onChanged: (val) => setModalState(() => search = val),
+                    onChanged: (val) => setModalState(() => search = val.trim()),
                   ),
                   const SizedBox(height: 8),
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
-                      children: categories.map((cat) {
-                        bool sel = filterCategory == cat;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 6.0),
-                          child: ChoiceChip(
-                            label: Text(cat, style: TextStyle(fontSize: 12, color: sel ? Colors.white : Colors.black87)),
-                            selected: sel,
-                            selectedColor: Colors.pinkAccent,
-                            onSelected: (_) => setModalState(() => filterCategory = cat),
-                          ),
-                        );
-                      }).toList(),
+                      children: cats.map((cat) => Padding(
+                        padding: const EdgeInsets.only(right: 4.0),
+                        child: ChoiceChip(
+                          label: Text(cat, style: const TextStyle(fontSize: 12)),
+                          selected: filterCategory == cat,
+                          selectedColor: Colors.pinkAccent.withOpacity(0.2),
+                          onSelected: (sel) {
+                            if (sel) setModalState(() => filterCategory = cat);
+                          },
+                        ),
+                      )).toList(),
                     ),
                   ),
                   const Divider(),
                   Expanded(
                     child: ListView.builder(
-                      itemCount: filteredList.length,
-                      itemBuilder: (context, idx) {
-                        final it = filteredList[idx];
+                      itemCount: filteredCosmetics.length,
+                      itemBuilder: (context, i) {
+                        final it = filteredCosmetics[i];
                         return ListTile(
                           dense: true,
                           title: Text(it["name"], style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -841,12 +1053,28 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         bool exists = items.any((it) => (it["item_name"] ?? '').toString().toLowerCase() == name.toLowerCase());
         if (!exists) {
           currentNum++;
-          String code = "${_lastRack.padLeft(2, '0')}-${_lastCol.padLeft(2, '0')}-${_lastRow.toUpperCase()}-$currentNum";
-          await Supabase.instance.client.from('inventory').upsert({
+          String shelfLoc = "${_lastRack.padLeft(2, '0')}-${_lastCol.padLeft(2, '0')}-${_lastRow.toUpperCase()}";
+          String code = "$shelfLoc-$currentNum";
+          final Map<String, dynamic> rowData = {
             'item_code': code,
             'item_name': name,
             'price': price,
-          });
+            'shelf_location': shelfLoc,
+            'item_number': currentNum.toString(),
+            'category': item['category'] ?? 'Cosmetics',
+            'mrp': price,
+            'stock_qty': 10,
+            'is_online': true,
+          };
+          try {
+            await Supabase.instance.client.from('inventory').upsert(rowData);
+          } catch (_) {
+            await Supabase.instance.client.from('inventory').upsert({
+              'item_code': code,
+              'item_name': name,
+              'price': price,
+            });
+          }
           imported++;
         }
       }
@@ -873,219 +1101,414 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     String? prefilledCode,
     String? prefilledName,
     double? prefilledPrice,
+    String? prefilledCompanyBarcode,
   ]) {
     final bool isEdit = existing != null;
-    
-    // Components: Rack, Col, Row, Item (uses last used position if adding)
-    String defaultRack = _lastRack;
-    String defaultCol = _lastCol;
-    String defaultRow = _lastRow;
-    String defaultItem = (_lastItemNum + 1).toString();
 
+    String initialCompanyBarcode = isEdit
+        ? (existing['company_barcode'] ?? '')
+        : (prefilledCompanyBarcode ?? '');
+
+    String initialShelfCode = "";
     if (isEdit) {
-      final parts = (existing['item_code'] ?? '').toString().split('-');
-      if (parts.isNotEmpty) defaultRack = parts[0];
-      if (parts.length > 1) defaultCol = parts[1];
-      if (parts.length > 2) defaultRow = parts[2];
-      if (parts.length > 3) defaultItem = parts[3];
-    } else if (prefilledCode != null && prefilledCode.contains('-')) {
-      final parts = prefilledCode.split('-');
-      if (parts.isNotEmpty) defaultRack = parts[0];
-      if (parts.length > 1) defaultCol = parts[1];
-      if (parts.length > 2) defaultRow = parts[2];
-      if (parts.length > 3) defaultItem = parts[3];
+      String shelf = existing['shelf_location'] ?? '';
+      String num = existing['item_number'] ?? '';
+      if (shelf.isNotEmpty) {
+        initialShelfCode = num.isNotEmpty ? "$shelf-$num" : shelf;
+      } else {
+        initialShelfCode = existing['item_code'] ?? '';
+      }
+    } else if (prefilledCode != null && prefilledCode.isNotEmpty) {
+      initialShelfCode = prefilledCode;
+    } else {
+      initialShelfCode = "${_lastRack.padLeft(2, '0')}-${_lastCol.padLeft(2, '0')}-${_lastRow.toUpperCase()}-${_lastItemNum + 1}";
     }
 
-    final rackCtrl = TextEditingController(text: defaultRack);
-    final colCtrl = TextEditingController(text: defaultCol);
-    final rowCtrl = TextEditingController(text: defaultRow);
-    final itemCtrl = TextEditingController(text: defaultItem);
-    
-    String initialCode = isEdit
-        ? existing['item_code']
-        : (prefilledCode ?? "${defaultRack.padLeft(2, '0')}-${defaultCol.padLeft(2, '0')}-${defaultRow.toUpperCase()}-$defaultItem");
-
-    final codeCtrl = TextEditingController(text: initialCode);
+    final companyBarcodeCtrl = TextEditingController(text: initialCompanyBarcode);
+    final shelfCodeCtrl = TextEditingController(text: initialShelfCode);
     final nameCtrl = TextEditingController(text: isEdit ? (existing['item_name'] ?? '') : (prefilledName ?? ''));
     final priceCtrl = TextEditingController(
       text: isEdit
           ? (existing['price']?.toString() ?? '')
           : (prefilledPrice != null ? (prefilledPrice % 1 == 0 ? prefilledPrice.toInt().toString() : prefilledPrice.toString()) : ''),
     );
+    final mrpCtrl = TextEditingController(
+      text: isEdit
+          ? (existing['mrp']?.toString() ?? existing['price']?.toString() ?? '')
+          : (prefilledPrice != null ? (prefilledPrice % 1 == 0 ? prefilledPrice.toInt().toString() : prefilledPrice.toString()) : ''),
+    );
+    final stockCtrl = TextEditingController(
+      text: isEdit ? (existing['stock_qty']?.toString() ?? '10') : '10',
+    );
+    String selectedCategory = isEdit ? (existing['category'] ?? 'Cosmetics') : 'Cosmetics';
+    bool isOnline = isEdit ? (existing['is_online'] ?? true) : true;
+    bool isFetchingObf = false;
 
     List<Map<String, dynamic>> suggestions = [];
-
-    void updateGeneratedCode(void Function(void Function()) setDialogState) {
-      setDialogState(() {
-        codeCtrl.text = "${rackCtrl.text.padLeft(2, '0')}-${colCtrl.text.padLeft(2, '0')}-${rowCtrl.text.toUpperCase()}-${itemCtrl.text}".toUpperCase();
-      });
-    }
 
     showDialog(
       context: context,
       builder: (dialogCtx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(isEdit ? "Edit Code & Rate" : "Add Item Mapping", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-              if (!isEdit)
-                IconButton(
-                  icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent),
-                  tooltip: "Scan Barcode / QR",
-                  onPressed: () async {
-                    final scanned = await Navigator.push(context, MaterialPageRoute(builder: (_) => const QRScannerScreen()));
-                    if (scanned != null && scanned is String && scanned.isNotEmpty) {
+        builder: (ctx, setDialogState) {
+          final breakdown = ShelfCodeBreakdown.parse(shelfCodeCtrl.text);
+
+          return AlertDialog(
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  isEdit ? "Edit Item & Rate" : "Add Item (Dual Barcodes)",
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blueAccent),
+                  ),
+                  child: const Text("Retail + Online", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                ),
+              ],
+            ),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 1. COMPANY BARCODE (Optional / Commercial EAN-13)
+                  TextField(
+                    controller: companyBarcodeCtrl,
+                    decoration: InputDecoration(
+                      labelText: "Company Barcode (Optional)",
+                      hintText: "e.g. 8901030732585 (from box)",
+                      helperText: "Leave blank for unbranded items (bangles/loose)",
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                      suffixIcon: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isFetchingObf)
+                            const Padding(
+                              padding: EdgeInsets.all(12.0),
+                              child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                            )
+                          else
+                            IconButton(
+                              icon: const Icon(Icons.cloud_download, color: Colors.teal, size: 20),
+                              tooltip: "Fetch Name from Open Beauty Facts",
+                              onPressed: () async {
+                                final bar = companyBarcodeCtrl.text.trim();
+                                if (bar.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter barcode first to fetch details")));
+                                  return;
+                                }
+                                setDialogState(() => isFetchingObf = true);
+                                final obf = await fetchOpenBeautyFacts(bar);
+                                setDialogState(() {
+                                  isFetchingObf = false;
+                                  if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
+                                    nameCtrl.text = obf['name']!;
+                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Fetched: ${obf['name']}")));
+                                  } else {
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No match on Open Beauty Facts. Enter name manually.")));
+                                  }
+                                });
+                              },
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent, size: 20),
+                            tooltip: "Scan Box Barcode",
+                            onPressed: () async {
+                              final scanned = await Navigator.push(context, MaterialPageRoute(builder: (_) => const QRScannerScreen()));
+                              if (scanned != null && scanned is String && scanned.isNotEmpty) {
+                                setDialogState(() => companyBarcodeCtrl.text = scanned.trim());
+                                // Attempt auto-fetch name
+                                setDialogState(() => isFetchingObf = true);
+                                final obf = await fetchOpenBeautyFacts(scanned.trim());
+                                setDialogState(() {
+                                  isFetchingObf = false;
+                                  if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
+                                    nameCtrl.text = obf['name']!;
+                                  }
+                                });
+                              }
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 2. UNIFIED SHELF LOCATION & ITEM CODE (Automatic dashes!)
+                  TextField(
+                    controller: shelfCodeCtrl,
+                    inputFormatters: [ShelfCodeInputFormatter()],
+                    onChanged: (_) => setDialogState(() {}),
+                    decoration: InputDecoration(
+                      labelText: "Shelf Location & Item Code",
+                      hintText: "e.g. 01-03-C-134 or 01-03-C",
+                      helperText: "Format: Rack(01)-Col(03)-Row(C)-Item#(134)",
+                      isDense: true,
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.qr_code, color: Colors.indigo),
+                        tooltip: "Scan Shelf Sticker",
+                        onPressed: () async {
+                          final scanned = await Navigator.push(context, MaterialPageRoute(builder: (_) => const QRScannerScreen()));
+                          if (scanned != null && scanned is String && scanned.isNotEmpty) {
+                            setDialogState(() => shelfCodeCtrl.text = scanned.trim().toUpperCase());
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+
+                  // Live Breakdown Banner (Shelf Location vs Item #)
+                  Container(
+                    margin: const EdgeInsets.only(top: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: breakdown.itemNumber.isNotEmpty ? Colors.green.shade50 : Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: breakdown.itemNumber.isNotEmpty ? Colors.green.shade300 : Colors.blue.shade300),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          breakdown.itemNumber.isNotEmpty ? Icons.shelves : Icons.inventory_2,
+                          size: 16,
+                          color: breakdown.itemNumber.isNotEmpty ? Colors.green.shade800 : Colors.blue.shade800,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            breakdown.itemNumber.isNotEmpty
+                                ? "📍 Shelf: ${breakdown.shelfLocation}  |  🏷️ Item #: ${breakdown.itemNumber}"
+                                : "📍 Shelf: ${breakdown.shelfLocation.isNotEmpty ? breakdown.shelfLocation : 'N/A'}  |  📦 Shelf Only (Item # Blank)",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: breakdown.itemNumber.isNotEmpty ? Colors.green.shade900 : Colors.blue.shade900,
+                            ),
+                          ),
+                        ),
+                        if (breakdown.itemNumber.isNotEmpty)
+                          InkWell(
+                            onTap: () {
+                              setDialogState(() {
+                                shelfCodeCtrl.text = breakdown.shelfLocation;
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.grey.shade400),
+                              ),
+                              child: const Text("Clear #", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black87)),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 3. ITEM NAME (with cosmetic autocomplete chips)
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: "Item Name",
+                      hintText: "Type product name (e.g. Lakme, Kajal...)",
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (val) {
                       setDialogState(() {
-                        codeCtrl.text = scanned.trim().toUpperCase();
-                        if (scanned.contains('-')) {
-                          final parts = scanned.split('-');
-                          if (parts.isNotEmpty) rackCtrl.text = parts[0];
-                          if (parts.length > 1) colCtrl.text = parts[1];
-                          if (parts.length > 2) rowCtrl.text = parts[2];
-                          if (parts.length > 3) itemCtrl.text = parts[3];
+                        if (val.trim().length >= 2) {
+                          suggestions = cosmeticDatabase
+                              .where((c) => c["name"].toString().toLowerCase().contains(val.toLowerCase()))
+                              .take(3)
+                              .toList();
+                        } else {
+                          suggestions = [];
                         }
                       });
-                    }
-                  },
-                )
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (!isEdit) ...[
-                  const Text("Location Code (Last Used Preserved):", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueAccent)),
-                  const SizedBox(height: 8),
+                    },
+                  ),
+                  if (suggestions.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: suggestions.map((s) => ActionChip(
+                        backgroundColor: Colors.pink.shade50,
+                        side: const BorderSide(color: Colors.pinkAccent),
+                        avatar: const Icon(Icons.auto_awesome, size: 14, color: Colors.pinkAccent),
+                        label: Text("${s['name']} (₹${s['price']})", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.pinkAccent)),
+                        onPressed: () {
+                          setDialogState(() {
+                            nameCtrl.text = s['name'];
+                            double p = (s['price'] as num).toDouble();
+                            priceCtrl.text = p % 1 == 0 ? p.toInt().toString() : p.toString();
+                            mrpCtrl.text = priceCtrl.text;
+                            selectedCategory = s['category'] ?? selectedCategory;
+                            suggestions = [];
+                          });
+                        },
+                      )).toList(),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+
+                  // 4. PRICING: Selling Price & MRP
                   Row(
                     children: [
                       Expanded(
                         child: TextField(
-                          controller: rackCtrl,
-                          decoration: const InputDecoration(labelText: "Rack (01)", border: OutlineInputBorder(), isDense: true),
-                          onChanged: (_) => updateGeneratedCode(setDialogState),
+                          controller: priceCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: "Selling Price (₹)",
+                            prefixText: "₹ ",
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                          ),
+                          onChanged: (v) {
+                            if (mrpCtrl.text.isEmpty) mrpCtrl.text = v;
+                          },
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: TextField(
-                          controller: colCtrl,
-                          decoration: const InputDecoration(labelText: "Col (03)", border: OutlineInputBorder(), isDense: true),
-                          onChanged: (_) => updateGeneratedCode(setDialogState),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: TextField(
-                          controller: rowCtrl,
-                          decoration: const InputDecoration(labelText: "Row (C)", border: OutlineInputBorder(), isDense: true),
-                          onChanged: (_) => updateGeneratedCode(setDialogState),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: TextField(
-                          controller: itemCtrl,
-                          decoration: const InputDecoration(labelText: "Item (134)", border: OutlineInputBorder(), isDense: true),
-                          onChanged: (_) => updateGeneratedCode(setDialogState),
+                          controller: mrpCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          decoration: const InputDecoration(
+                            labelText: "MRP Price (₹)",
+                            prefixText: "₹ ",
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                          ),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
+
+                  // 5. E-COMMERCE & ONLINE STORE SETTINGS
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("Online Store & Inventory Details", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black87)),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: DropdownButtonFormField<String>(
+                                value: selectedCategory,
+                                isDense: true,
+                                decoration: const InputDecoration(labelText: "Category", border: OutlineInputBorder(), isDense: true),
+                                items: ["Cosmetics", "Eyes", "Lips", "Face", "Nails", "Skincare", "Hair", "Bangles", "Jewelry", "Accessories", "General"]
+                                    .map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 13))))
+                                    .toList(),
+                                onChanged: (v) {
+                                  if (v != null) setDialogState(() => selectedCategory = v);
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              flex: 2,
+                              child: TextField(
+                                controller: stockCtrl,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(labelText: "Stock Qty", isDense: true, border: OutlineInputBorder()),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text("Sell on Online Shop", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                            Switch(
+                              value: isOnline,
+                              activeColor: Colors.blueAccent,
+                              onChanged: (v) => setDialogState(() => isOnline = v),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
-                TextField(
-                  controller: codeCtrl,
-                  readOnly: isEdit,
-                  decoration: InputDecoration(
-                    labelText: "Item Code",
-                    helperText: "Format: 01(Rack)-03(Col)-C(Row)-134(Item)",
-                    border: const OutlineInputBorder(),
-                    filled: isEdit,
-                    fillColor: isEdit ? Colors.grey.shade100 : null,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: "Item Name",
-                    hintText: "Type name (e.g. Lakme, Kajal...)",
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (val) {
-                    setDialogState(() {
-                      if (val.trim().length >= 2) {
-                        suggestions = cosmeticDatabase
-                            .where((c) => c["name"].toString().toLowerCase().contains(val.toLowerCase()))
-                            .take(3)
-                            .toList();
-                      } else {
-                        suggestions = [];
-                      }
-                    });
-                  },
-                ),
-                if (suggestions.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 4,
-                    children: suggestions.map((s) => ActionChip(
-                      backgroundColor: Colors.pink.shade50,
-                      side: const BorderSide(color: Colors.pinkAccent),
-                      avatar: const Icon(Icons.auto_awesome, size: 14, color: Colors.pinkAccent),
-                      label: Text("${s['name']} (₹${s['price']})", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.pinkAccent)),
-                      onPressed: () {
-                        setDialogState(() {
-                          nameCtrl.text = s['name'];
-                          double p = (s['price'] as num).toDouble();
-                          priceCtrl.text = p % 1 == 0 ? p.toInt().toString() : p.toString();
-                          suggestions = [];
-                        });
-                      },
-                    )).toList(),
-                  ),
-                ],
-                const SizedBox(height: 12),
-                TextField(
-                  controller: priceCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: "Rate / Price (₹)",
-                    prefixText: "₹ ",
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogCtx),
-              child: const Text("CANCEL", style: TextStyle(color: Colors.black54)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6)),
-              onPressed: () {
-                final code = codeCtrl.text.trim().toUpperCase();
-                final name = nameCtrl.text.trim();
-                final price = double.tryParse(priceCtrl.text.trim()) ?? 0.0;
-                if (code.isEmpty || name.isEmpty || price <= 0) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Please fill Code, Name, and valid Rate")),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogCtx),
+                child: const Text("CANCEL", style: TextStyle(color: Colors.black54)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6)),
+                onPressed: () {
+                  final bd = ShelfCodeBreakdown.parse(shelfCodeCtrl.text);
+                  final companyBar = companyBarcodeCtrl.text.trim();
+                  final name = nameCtrl.text.trim();
+                  final price = double.tryParse(priceCtrl.text.trim()) ?? 0.0;
+                  final mrp = double.tryParse(mrpCtrl.text.trim()) ?? price;
+                  final stock = int.tryParse(stockCtrl.text.trim()) ?? 10;
+
+                  if (name.isEmpty || price <= 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text("Please fill Item Name and valid Rate")),
+                    );
+                    return;
+                  }
+
+                  // Determine primary code:
+                  String primaryCode;
+                  if (bd.itemNumber.isNotEmpty) {
+                    primaryCode = bd.fullCode;
+                  } else if (companyBar.isNotEmpty) {
+                    primaryCode = companyBar;
+                  } else if (bd.shelfLocation.isNotEmpty) {
+                    primaryCode = bd.shelfLocation;
+                  } else {
+                    primaryCode = "${_lastRack}-${_lastCol}-${_lastRow}-${_lastItemNum + 1}";
+                  }
+
+                  Navigator.pop(dialogCtx);
+                  _saveOrUpdateItem(
+                    code: primaryCode,
+                    name: name,
+                    price: price,
+                    companyBarcode: companyBar,
+                    shelfLocation: bd.shelfLocation,
+                    itemNumber: bd.itemNumber,
+                    category: selectedCategory,
+                    mrp: mrp,
+                    stockQty: stock,
+                    isOnline: isOnline,
                   );
-                  return;
-                }
-                Navigator.pop(dialogCtx);
-                _saveOrUpdateItem(code: code, name: name, price: price);
-              },
-              child: Text(isEdit ? "UPDATE RATE" : "SAVE TO CLOUD", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
+                },
+                child: Text(isEdit ? "UPDATE RATE" : "SAVE TO CLOUD", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1199,6 +1622,16 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                           final code = item['item_code']?.toString() ?? '';
                           final name = item['item_name']?.toString() ?? '';
                           final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+                          final mrp = (item['mrp'] as num?)?.toDouble() ?? price;
+                          final companyBar = (item['company_barcode'] ?? '').toString();
+                          final shelfLoc = (item['shelf_location'] ?? '').toString();
+                          final itemNum = (item['item_number'] ?? '').toString();
+                          final isOnline = item['is_online'] == true;
+                          final category = (item['category'] ?? '').toString();
+
+                          String displayLoc = shelfLoc.isNotEmpty
+                              ? (itemNum.isNotEmpty ? "$shelfLoc-$itemNum" : "$shelfLoc (Shelf Only)")
+                              : code;
 
                           return Card(
                             elevation: 1.5,
@@ -1218,16 +1651,47 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  code.length >= 2 ? code.substring(0, 2) : "##",
+                                  displayLoc.length >= 2 ? displayLoc.substring(0, 2) : "##",
                                   style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.blueAccent, fontSize: 16),
                                 ),
                               ),
-                              title: Text(name.isNotEmpty ? name : "Unnamed Item", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                              subtitle: Text("Code: $code", style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
+                              title: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(name.isNotEmpty ? name : "Unnamed Item", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                  ),
+                                  if (isOnline)
+                                    Container(
+                                      margin: const EdgeInsets.only(left: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.green.shade300)),
+                                      child: const Text("ONLINE", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.green)),
+                                    ),
+                                ],
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 2),
+                                  Text("📍 Shelf: $displayLoc", style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.indigo, fontSize: 12)),
+                                  if (companyBar.isNotEmpty)
+                                    Text("🏭 Barcode: $companyBar", style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade700, fontSize: 11)),
+                                  if (category.isNotEmpty && category != "General")
+                                    Text("🏷️ Category: $category", style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade600, fontSize: 11)),
+                                ],
+                              ),
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text("₹${price.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.green)),
+                                  Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    children: [
+                                      Text("₹${price.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.green)),
+                                      if (mrp > price)
+                                        Text("MRP ₹${mrp.toStringAsFixed(0)}", style: const TextStyle(decoration: TextDecoration.lineThrough, color: Colors.grey, fontSize: 10)),
+                                    ],
+                                  ),
                                   const SizedBox(width: 4),
                                   IconButton(
                                     icon: const Icon(Icons.print, size: 20, color: Colors.green),
@@ -1295,6 +1759,13 @@ class _PosScreenState extends State<PosScreen> {
               'item_code': code,
               'item_name': item['item_name']?.toString() ?? '',
               'price': (item['price'] as num?)?.toDouble() ?? 0.0,
+              'company_barcode': item['company_barcode']?.toString() ?? '',
+              'shelf_location': item['shelf_location']?.toString() ?? '',
+              'item_number': item['item_number']?.toString() ?? '',
+              'category': item['category']?.toString() ?? '',
+              'mrp': (item['mrp'] as num?)?.toDouble() ?? 0.0,
+              'stock_qty': (item['stock_qty'] as num?)?.toInt() ?? 10,
+              'is_online': item['is_online'] == true,
             };
           }
         });
@@ -1306,6 +1777,10 @@ class _PosScreenState extends State<PosScreen> {
 
   String _canonicalCode(String s) {
     String clean = s.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+    String digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
+    if (clean.length >= 8 && digitsOnly.length == clean.length) {
+      return clean; // Pure numeric commercial barcode - preserve exactly!
+    }
     if (clean.length >= 5) {
       int? d = int.tryParse(clean[4]);
       if (d != null && d >= 1 && d <= 9) {
@@ -1317,17 +1792,58 @@ class _PosScreenState extends State<PosScreen> {
 
   Map<String, dynamic>? _lookupItem(String query) {
     if (query.isEmpty) return null;
-    String qCanon = _canonicalCode(query);
-    if (qCanon.isEmpty) return null;
-    for (var entry in cloudInventory.entries) {
-      if (_canonicalCode(entry.key) == qCanon) return entry.value;
+    String cleanRaw = query.replaceAll(' ', '').trim().toUpperCase();
+
+    // 1. Direct match on company_barcode (e.g. 8901030732585)
+    for (var it in cloudInventory.values) {
+      String cb = (it['company_barcode'] ?? '').toString().trim().toUpperCase();
+      if (cb.isNotEmpty && cb == cleanRaw) return it;
     }
-    String fCanon = _canonicalCode(formattedItemCode);
-    if (fCanon.isNotEmpty && fCanon != qCanon) {
-      for (var entry in cloudInventory.entries) {
-        if (_canonicalCode(entry.key) == fCanon) return entry.value;
+
+    // 2. Direct match on item_code (exact)
+    for (var it in cloudInventory.values) {
+      String code = (it['item_code'] ?? '').toString().trim().toUpperCase();
+      if (code == cleanRaw) return it;
+    }
+
+    // 3. Match on shelf location + item number (e.g. 01-03-C-134 or 01-03-C)
+    for (var it in cloudInventory.values) {
+      String shelf = (it['shelf_location'] ?? '').toString().trim().toUpperCase();
+      String itemNum = (it['item_number'] ?? '').toString().trim().toUpperCase();
+      String fullShelf = itemNum.isNotEmpty ? "$shelf-$itemNum" : shelf;
+      if (fullShelf.isNotEmpty && (fullShelf == cleanRaw || fullShelf.replaceAll('-', '') == cleanRaw.replaceAll('-', ''))) {
+        return it;
+      }
+      if (shelf.isNotEmpty && (shelf == cleanRaw || shelf.replaceAll('-', '') == cleanRaw.replaceAll('-', ''))) {
+        return it;
       }
     }
+
+    // 4. Canonical match
+    String qCanon = _canonicalCode(query);
+    if (qCanon.isNotEmpty) {
+      for (var it in cloudInventory.values) {
+        String code = (it['item_code'] ?? '').toString();
+        if (_canonicalCode(code) == qCanon) return it;
+        String shelf = (it['shelf_location'] ?? '').toString();
+        String itemNum = (it['item_number'] ?? '').toString();
+        String fullShelf = itemNum.isNotEmpty ? "$shelf-$itemNum" : shelf;
+        if (_canonicalCode(fullShelf) == qCanon) return it;
+      }
+    }
+
+    // 5. Match against formattedItemCode
+    String fCanon = _canonicalCode(formattedItemCode);
+    if (fCanon.isNotEmpty && fCanon != qCanon) {
+      for (var it in cloudInventory.values) {
+        if (_canonicalCode(it['item_code']?.toString() ?? '') == fCanon) return it;
+        String shelf = (it['shelf_location'] ?? '').toString();
+        String itemNum = (it['item_number'] ?? '').toString();
+        String fullShelf = itemNum.isNotEmpty ? "$shelf-$itemNum" : shelf;
+        if (_canonicalCode(fullShelf) == fCanon) return it;
+      }
+    }
+
     return null;
   }
 
@@ -1350,6 +1866,10 @@ class _PosScreenState extends State<PosScreen> {
 
   String _parseToRaw(String code) {
     String clean = code.replaceAll("-", "").replaceAll(" ", "").trim().toUpperCase();
+    String digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
+    if (clean.length >= 8 && digitsOnly.length == clean.length) {
+      return clean; // Pure numeric commercial barcode - preserve exactly!
+    }
     if (clean.length >= 5) {
       String rowChar = clean[4];
       int codeUnit = rowChar.codeUnitAt(0);
@@ -1513,6 +2033,10 @@ class _PosScreenState extends State<PosScreen> {
 
   String get formattedItemCode {
     if (rawItemCode.isEmpty) return "";
+    String digitsOnly = rawItemCode.replaceAll(RegExp(r'[^0-9]'), '');
+    if (rawItemCode.length >= 8 && digitsOnly.length == rawItemCode.length) {
+      return rawItemCode; // Pure numeric commercial barcode - preserve as-is!
+    }
     String result = "";
     for (int i = 0; i < rawItemCode.length; i++) {
       if (i == 2) result += " - "; // After Rack (2 digits: 0, 1)
