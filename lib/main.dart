@@ -831,6 +831,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
   bool isLoading = true;
   List<Map<String, dynamic>> items = [];
   String searchQuery = "";
+  String stockFilter = "all"; // 'all', 'low', 'out'
 
   // Scanned items waiting for shelf assignment (never lost!)
   List<Map<String, dynamic>> get pendingScannedItems => PendingItemsManager.items;
@@ -985,6 +986,138 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Delete Error: $e")));
       }
     }
+  }
+
+  void _updateStock(String code, int newQty) async {
+    if (newQty < 0) newQty = 0;
+    setState(() {
+      final idx = items.indexWhere((it) => it['item_code'] == code);
+      if (idx != -1) {
+        items[idx]['stock_qty'] = newQty;
+      }
+    });
+    try {
+      await Supabase.instance.client
+          .from('inventory')
+          .update({'stock_qty': newQty})
+          .eq('item_code', code);
+    } catch (_) {}
+  }
+
+  void _showQuickStockDialog(Map<String, dynamic> item) {
+    final code = item['item_code']?.toString() ?? '';
+    final name = item['item_name']?.toString() ?? 'Item';
+    final currentQty = (item['stock_qty'] as num?)?.toInt() ?? 0;
+    final ctrl = TextEditingController(text: currentQty.toString());
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.inventory_2, color: Colors.blueAccent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                name,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("📍 Shelf / Code: $code", style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.indigo, fontSize: 13)),
+            const SizedBox(height: 4),
+            Text("Current Stock: $currentQty pcs", style: const TextStyle(color: Colors.black54, fontSize: 13)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: ctrl,
+              keyboardType: TextInputType.number,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: "Total Stock Quantity (pcs)",
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.numbers),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text("Quick Add to Stock:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.black54)),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                ActionChip(
+                  label: const Text("+1 pc"),
+                  backgroundColor: Colors.blue.shade50,
+                  onPressed: () {
+                    final val = (int.tryParse(ctrl.text) ?? currentQty) + 1;
+                    ctrl.text = val.toString();
+                  },
+                ),
+                ActionChip(
+                  label: const Text("+5 pcs"),
+                  backgroundColor: Colors.blue.shade50,
+                  onPressed: () {
+                    final val = (int.tryParse(ctrl.text) ?? currentQty) + 5;
+                    ctrl.text = val.toString();
+                  },
+                ),
+                ActionChip(
+                  label: const Text("+10 pcs"),
+                  backgroundColor: Colors.blue.shade50,
+                  onPressed: () {
+                    final val = (int.tryParse(ctrl.text) ?? currentQty) + 10;
+                    ctrl.text = val.toString();
+                  },
+                ),
+                ActionChip(
+                  label: const Text("+25 (Carton)"),
+                  backgroundColor: Colors.amber.shade50,
+                  onPressed: () {
+                    final val = (int.tryParse(ctrl.text) ?? currentQty) + 25;
+                    ctrl.text = val.toString();
+                  },
+                ),
+                ActionChip(
+                  label: const Text("+50 (Box)"),
+                  backgroundColor: Colors.green.shade50,
+                  onPressed: () {
+                    final val = (int.tryParse(ctrl.text) ?? currentQty) + 50;
+                    ctrl.text = val.toString();
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCEL")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2563EB),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              final newQty = int.tryParse(ctrl.text.trim()) ?? currentQty;
+              Navigator.pop(ctx);
+              _updateStock(code, newQty);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Updated stock for $name: $newQty pcs")),
+                );
+              }
+            },
+            child: const Text("SAVE STOCK"),
+          ),
+        ],
+      ),
+    );
   }
 
   // Fast Barcode Scanning with Master Catalog Recognition
@@ -1946,11 +2079,26 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final lowStockItems = items.where((it) {
+      final qty = (it['stock_qty'] as num?)?.toInt() ?? 0;
+      return qty > 0 && qty <= 5;
+    }).toList();
+    final outOfStockItems = items.where((it) {
+      final qty = (it['stock_qty'] as num?)?.toInt() ?? 0;
+      return qty <= 0;
+    }).toList();
+
     final filtered = items.where((it) {
       final q = searchQuery.toLowerCase();
       final code = (it['item_code'] ?? '').toString().toLowerCase();
       final name = (it['item_name'] ?? '').toString().toLowerCase();
-      return code.contains(q) || name.contains(q);
+      final matchesQuery = code.contains(q) || name.contains(q);
+      if (!matchesQuery) return false;
+
+      final qty = (it['stock_qty'] as num?)?.toInt() ?? 0;
+      if (stockFilter == "low") return qty > 0 && qty <= 5;
+      if (stockFilter == "out") return qty <= 0;
+      return true;
     }).toList();
 
     return Scaffold(
@@ -2026,9 +2174,44 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
               onChanged: (val) => setState(() => searchQuery = val),
             ),
           ),
+          // Stock Filters (All, Low Stock <=5, Out of Stock = 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            color: Colors.white,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  ChoiceChip(
+                    label: Text("All (${items.length})"),
+                    selected: stockFilter == "all",
+                    selectedColor: Colors.blueAccent,
+                    labelStyle: TextStyle(color: stockFilter == "all" ? Colors.white : Colors.black87, fontWeight: FontWeight.bold, fontSize: 12),
+                    onSelected: (_) => setState(() => stockFilter = "all"),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: Text("⚠️ Low Stock (${lowStockItems.length})"),
+                    selected: stockFilter == "low",
+                    selectedColor: Colors.amber.shade700,
+                    labelStyle: TextStyle(color: stockFilter == "low" ? Colors.white : Colors.black87, fontWeight: FontWeight.bold, fontSize: 12),
+                    onSelected: (_) => setState(() => stockFilter = "low"),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: Text("🚫 Out of Stock (${outOfStockItems.length})"),
+                    selected: stockFilter == "out",
+                    selectedColor: Colors.redAccent,
+                    labelStyle: TextStyle(color: stockFilter == "out" ? Colors.white : Colors.black87, fontWeight: FontWeight.bold, fontSize: 12),
+                    onSelected: (_) => setState(() => stockFilter = "out"),
+                  ),
+                ],
+              ),
+            ),
+          ),
           if (pendingScannedItems.isNotEmpty)
             Container(
-              margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              margin: const EdgeInsets.fromLTRB(12, 6, 12, 10),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: const Color(0xFFFFFBEB),
@@ -2128,6 +2311,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                           final itemNum = (item['item_number'] ?? '').toString();
                           final isOnline = item['is_online'] == true;
                           final category = (item['category'] ?? '').toString();
+                          final stockQty = (item['stock_qty'] as num?)?.toInt() ?? 10;
 
                           String displayLoc = shelfLoc.isNotEmpty
                               ? (itemNum.isNotEmpty ? "$shelfLoc-$itemNum" : "$shelfLoc (Shelf Only)")
@@ -2136,86 +2320,178 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                           return Card(
                             elevation: 1.5,
                             margin: const EdgeInsets.only(bottom: 8),
-                            child: ListTile(
-                              onTap: () {
-                                if (widget.selectMode) {
-                                  Navigator.pop(context, item);
-                                } else {
-                                  _showAddEditDialog(item);
-                                }
-                              },
-                              leading: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: Colors.blueAccent.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  displayLoc.length >= 2 ? displayLoc.substring(0, 2) : "##",
-                                  style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.blueAccent, fontSize: 16),
-                                ),
-                              ),
-                              title: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(name.isNotEmpty ? name : "Unnamed Item", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                  ),
-                                  if (isOnline)
-                                    Container(
-                                      margin: const EdgeInsets.only(left: 4),
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.green.shade300)),
-                                      child: const Text("ONLINE", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.green)),
-                                    ),
-                                ],
-                              ),
-                              subtitle: Column(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const SizedBox(height: 2),
-                                  Text("📍 Shelf: $displayLoc", style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.indigo, fontSize: 12)),
-                                  if (companyBar.isNotEmpty)
-                                    Text("🏭 Barcode: $companyBar", style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade700, fontSize: 11)),
-                                  if (category.isNotEmpty && category != "General")
-                                    Text("🏷️ Category: $category", style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade600, fontSize: 11)),
-                                ],
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text("₹${price.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.green)),
-                                      if (mrp > price)
-                                        Text("MRP ₹${mrp.toStringAsFixed(0)}", style: const TextStyle(decoration: TextDecoration.lineThrough, color: Colors.grey, fontSize: 10)),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blueAccent.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          displayLoc.length >= 2 ? displayLoc.substring(0, 2) : "##",
+                                          style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.blueAccent, fontSize: 16),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    name.isNotEmpty ? name : "Unnamed Item",
+                                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                                  ),
+                                                ),
+                                                if (isOnline)
+                                                  Container(
+                                                    margin: const EdgeInsets.only(left: 4),
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                                    decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.green.shade300)),
+                                                    child: const Text("ONLINE", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.green)),
+                                                  ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text("📍 Shelf: $displayLoc", style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.indigo, fontSize: 12)),
+                                            if (companyBar.isNotEmpty)
+                                              Text("🏭 Barcode: $companyBar", style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade700, fontSize: 11)),
+                                            if (category.isNotEmpty && category != "General")
+                                              Text("🏷️ Category: $category", style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade600, fontSize: 11)),
+                                          ],
+                                        ),
+                                      ),
+                                      Column(
+                                        crossAxisAlignment: CrossAxisAlignment.end,
+                                        children: [
+                                          Text("₹${price.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.green)),
+                                          if (mrp > price)
+                                            Text("MRP ₹${mrp.toStringAsFixed(0)}", style: const TextStyle(decoration: TextDecoration.lineThrough, color: Colors.grey, fontSize: 10)),
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(Icons.print, size: 18, color: Colors.green),
+                                                padding: EdgeInsets.zero,
+                                                constraints: const BoxConstraints(),
+                                                tooltip: "Print Label",
+                                                onPressed: () {
+                                                  Navigator.push(
+                                                    context,
+                                                    MaterialPageRoute(
+                                                      builder: (_) => BarcodeLabelPrinterScreen(
+                                                        initialCode: code,
+                                                        initialName: name,
+                                                        initialPrice: price,
+                                                      ),
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                              const SizedBox(width: 8),
+                                              IconButton(
+                                                icon: const Icon(Icons.edit, size: 18, color: Colors.blueAccent),
+                                                padding: EdgeInsets.zero,
+                                                constraints: const BoxConstraints(),
+                                                onPressed: () => _showAddEditDialog(item),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              IconButton(
+                                                icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                                                padding: EdgeInsets.zero,
+                                                constraints: const BoxConstraints(),
+                                                onPressed: () => _deleteItem(code),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
                                     ],
                                   ),
-                                  const SizedBox(width: 4),
-                                  IconButton(
-                                    icon: const Icon(Icons.print, size: 20, color: Colors.green),
-                                    tooltip: "Print Label",
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (_) => BarcodeLabelPrinterScreen(
-                                            initialCode: code,
-                                            initialName: name,
-                                            initialPrice: price,
+
+                                  // Quick Interactive Stock Adjustment Bar
+                                  Container(
+                                    margin: const EdgeInsets.only(top: 8),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade50,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: Colors.grey.shade200),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        InkWell(
+                                          onTap: () => _showQuickStockDialog(item),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: stockQty <= 0
+                                                  ? Colors.red.shade50
+                                                  : (stockQty <= 5 ? Colors.amber.shade50 : Colors.green.shade50),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: stockQty <= 0
+                                                    ? Colors.red.shade400
+                                                    : (stockQty <= 5 ? Colors.amber.shade600 : Colors.green.shade600),
+                                              ),
+                                            ),
+                                            child: Text(
+                                              "Stock: $stockQty pcs ✏️",
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w900,
+                                                color: stockQty <= 0
+                                                    ? Colors.red.shade800
+                                                    : (stockQty <= 5 ? Colors.amber.shade900 : Colors.green.shade900),
+                                              ),
+                                            ),
                                           ),
                                         ),
-                                      );
-                                    },
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.edit, size: 20, color: Colors.blueAccent),
-                                    onPressed: () => _showAddEditDialog(item),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
-                                    onPressed: () => _deleteItem(code),
+                                        const Spacer(),
+                                        IconButton(
+                                          icon: const Icon(Icons.remove_circle_outline, size: 18, color: Colors.redAccent),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          tooltip: "-1 pc",
+                                          onPressed: () => _updateStock(code, (stockQty - 1).clamp(0, 99999)),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          icon: const Icon(Icons.add_circle_outline, size: 18, color: Colors.green),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          tooltip: "+1 pc",
+                                          onPressed: () => _updateStock(code, stockQty + 1),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        ActionChip(
+                                          label: const Text("+5", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                          padding: EdgeInsets.zero,
+                                          visualDensity: VisualDensity.compact,
+                                          backgroundColor: Colors.blue.shade50,
+                                          side: BorderSide(color: Colors.blue.shade200),
+                                          onPressed: () => _updateStock(code, stockQty + 5),
+                                        ),
+                                        const SizedBox(width: 4),
+                                        ActionChip(
+                                          label: const Text("+10", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                                          padding: EdgeInsets.zero,
+                                          visualDensity: VisualDensity.compact,
+                                          backgroundColor: Colors.blue.shade50,
+                                          side: BorderSide(color: Colors.blue.shade200),
+                                          onPressed: () => _updateStock(code, stockQty + 10),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ),
@@ -4530,9 +4806,9 @@ class _BarcodeLabelPrinterScreenState extends State<BarcodeLabelPrinterScreen> {
   late TextEditingController _priceCtrl;
 
   // 0: Big Print (Detailed), 1: Medium (Standard), 2: Smallest (Barcode Only)
-  int _selectedFormat = 1;
-  // 'qr' or 'barcode'
-  String _codeType = 'qr';
+  int _selectedFormat = 2; // Default to Smallest (1D Barcode Shelf Label)
+  // 'barcode' (1D) or 'qr' (2D)
+  String _codeType = 'barcode'; // Default to 1D Barcode!
 
   BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
   bool _printerConnected = false;
@@ -4634,46 +4910,95 @@ class _BarcodeLabelPrinterScreenState extends State<BarcodeLabelPrinterScreen> {
       String name = _nameCtrl.text.trim();
       String price = _priceCtrl.text.trim();
 
-      if (_selectedFormat == 0) {
-        // 1. BIG PRINT (A lot of info, big print)
-        await bluetooth.printNewLine();
-        await bluetooth.printCustom("LOVE KUSH SHOPPING", 2, 1);
-        await bluetooth.printCustom("--------------------------------", 1, 1);
-        if (name.isNotEmpty) {
-          await bluetooth.printCustom(name.toUpperCase(), 2, 1);
+      if (_codeType == 'barcode') {
+        if (_selectedFormat == 0) {
+          // 1. BIG 1D BARCODE PRINT
+          await bluetooth.printNewLine();
+          await bluetooth.printCustom("LOVE KUSH SHOPPING", 2, 1);
+          await bluetooth.printCustom("--------------------------------", 1, 1);
+          if (name.isNotEmpty) {
+            await bluetooth.printCustom(name.toUpperCase(), 2, 1);
+          }
+          final barcodeBytes = await generateBarcodeImageBytes(code, width: 340, height: 60);
+          if (barcodeBytes != null) {
+            await bluetooth.printImageBytes(barcodeBytes);
+          }
+          await bluetooth.printCustom("LOC: $code", 1, 1);
+          if (price.isNotEmpty) {
+            await bluetooth.printCustom("MRP: Rs $price", 2, 1);
+          }
+          await bluetooth.printCustom("--------------------------------", 1, 1);
+          await bluetooth.printNewLine();
+          await bluetooth.paperCut();
+        } else if (_selectedFormat == 1) {
+          // 2. MEDIUM 1D BARCODE PRINT
+          await bluetooth.printNewLine();
+          if (name.isNotEmpty) {
+            String displayName = name.length > 20 ? name.substring(0, 20) : name;
+            await bluetooth.printCustom(displayName.toUpperCase(), 1, 1);
+          }
+          final barcodeBytes = await generateBarcodeImageBytes(code, width: 320, height: 50);
+          if (barcodeBytes != null) {
+            await bluetooth.printImageBytes(barcodeBytes);
+          }
+          String line = price.isNotEmpty ? "$code   Rs $price" : code;
+          await bluetooth.printCustom(line, 1, 1);
+          await bluetooth.printNewLine();
+          await bluetooth.paperCut();
+        } else {
+          // 3. SMALLEST 1D BARCODE (Default - Compact Shelf Label)
+          final barcodeBytes = await generateBarcodeImageBytes(code, width: 300, height: 44);
+          if (barcodeBytes != null) {
+            await bluetooth.printImageBytes(barcodeBytes);
+          }
+          String label = price.isNotEmpty ? "$code  Rs $price" : code;
+          await bluetooth.printCustom(label, 0, 1);
+          await bluetooth.printNewLine();
+          await bluetooth.paperCut();
         }
-        await bluetooth.printCustom("LOC: $code", 2, 1);
-        await bluetooth.printNewLine();
-        await bluetooth.printQRcode(code, 220, 220, 1);
-        await bluetooth.printNewLine();
-        if (price.isNotEmpty) {
-          await bluetooth.printCustom("MRP: Rs $price", 3, 1);
-        }
-        await bluetooth.printCustom("--------------------------------", 1, 1);
-        await bluetooth.printNewLine();
-        await bluetooth.printNewLine();
-        await bluetooth.paperCut();
-      } else if (_selectedFormat == 1) {
-        // 2. MEDIUM PRINT (Medium info, medium size)
-        await bluetooth.printNewLine();
-        if (name.isNotEmpty) {
-          String displayName = name.length > 20 ? name.substring(0, 20) : name;
-          await bluetooth.printCustom(displayName.toUpperCase(), 1, 1);
-        }
-        await bluetooth.printCustom(code, 1, 1);
-        await bluetooth.printQRcode(code, 170, 170, 1);
-        if (price.isNotEmpty) {
-          await bluetooth.printCustom("Rs $price", 2, 1);
-        }
-        await bluetooth.printNewLine();
-        await bluetooth.paperCut();
       } else {
-        // 3. SMALLEST PRINT (Just barcode, smallest print)
-        await bluetooth.printQRcode(code, 120, 120, 1);
-        String label = price.isNotEmpty ? "$code  Rs $price" : code;
-        await bluetooth.printCustom(label, 0, 1);
-        await bluetooth.printNewLine();
-        await bluetooth.paperCut();
+        // 2D QR Code mode
+        if (_selectedFormat == 0) {
+          // 1. BIG PRINT (A lot of info, big print)
+          await bluetooth.printNewLine();
+          await bluetooth.printCustom("LOVE KUSH SHOPPING", 2, 1);
+          await bluetooth.printCustom("--------------------------------", 1, 1);
+          if (name.isNotEmpty) {
+            await bluetooth.printCustom(name.toUpperCase(), 2, 1);
+          }
+          await bluetooth.printCustom("LOC: $code", 2, 1);
+          await bluetooth.printNewLine();
+          await bluetooth.printQRcode(code, 220, 220, 1);
+          await bluetooth.printNewLine();
+          if (price.isNotEmpty) {
+            await bluetooth.printCustom("MRP: Rs $price", 3, 1);
+          }
+          await bluetooth.printCustom("--------------------------------", 1, 1);
+          await bluetooth.printNewLine();
+          await bluetooth.printNewLine();
+          await bluetooth.paperCut();
+        } else if (_selectedFormat == 1) {
+          // 2. MEDIUM PRINT (Medium info, medium size)
+          await bluetooth.printNewLine();
+          if (name.isNotEmpty) {
+            String displayName = name.length > 20 ? name.substring(0, 20) : name;
+            await bluetooth.printCustom(displayName.toUpperCase(), 1, 1);
+          }
+          await bluetooth.printCustom(code, 1, 1);
+          await bluetooth.printQRcode(code, 170, 170, 1);
+          if (price.isNotEmpty) {
+            await bluetooth.printCustom("Rs $price", 2, 1);
+          }
+          await bluetooth.printNewLine();
+          await bluetooth.paperCut();
+        } else {
+          // 3. SMALLEST PRINT (Just QR, smallest print)
+          await bluetooth.printQRcode(code, 120, 120, 1);
+          String label = price.isNotEmpty ? "$code  Rs $price" : code;
+          await bluetooth.printCustom(label, 0, 1);
+          await bluetooth.printNewLine();
+          await bluetooth.paperCut();
+        }
       }
 
       if (mounted) {
@@ -4717,11 +5042,11 @@ class _BarcodeLabelPrinterScreenState extends State<BarcodeLabelPrinterScreen> {
               children: [
                 Expanded(
                   child: ChoiceChip(
-                    label: const Text("Big (Full Info)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                    selected: _selectedFormat == 0,
-                    selectedColor: Colors.blueAccent,
-                    labelStyle: TextStyle(color: _selectedFormat == 0 ? Colors.white : Colors.black87),
-                    onSelected: (val) => setState(() => _selectedFormat = 0),
+                    label: const Text("Small (1D Barcode)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                    selected: _selectedFormat == 2,
+                    selectedColor: Colors.orange,
+                    labelStyle: TextStyle(color: _selectedFormat == 2 ? Colors.white : Colors.black87),
+                    onSelected: (val) => setState(() => _selectedFormat = 2),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -4737,11 +5062,11 @@ class _BarcodeLabelPrinterScreenState extends State<BarcodeLabelPrinterScreen> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: ChoiceChip(
-                    label: const Text("Small (Barcode Only)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-                    selected: _selectedFormat == 2,
-                    selectedColor: Colors.orange,
-                    labelStyle: TextStyle(color: _selectedFormat == 2 ? Colors.white : Colors.black87),
-                    onSelected: (val) => setState(() => _selectedFormat = 2),
+                    label: const Text("Big (Full Info)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                    selected: _selectedFormat == 0,
+                    selectedColor: Colors.blueAccent,
+                    labelStyle: TextStyle(color: _selectedFormat == 0 ? Colors.white : Colors.black87),
+                    onSelected: (val) => setState(() => _selectedFormat = 0),
                   ),
                 ),
               ],
@@ -4753,15 +5078,19 @@ class _BarcodeLabelPrinterScreenState extends State<BarcodeLabelPrinterScreen> {
               children: [
                 const Text("Code Type: ", style: TextStyle(fontWeight: FontWeight.bold)),
                 ChoiceChip(
-                  label: const Text("2D QR Code"),
-                  selected: _codeType == 'qr',
-                  onSelected: (_) => setState(() => _codeType = 'qr'),
+                  label: const Text("1D Barcode (Default)"),
+                  selected: _codeType == 'barcode',
+                  selectedColor: Colors.blueAccent,
+                  labelStyle: TextStyle(color: _codeType == 'barcode' ? Colors.white : Colors.black87),
+                  onSelected: (_) => setState(() => _codeType = 'barcode'),
                 ),
                 const SizedBox(width: 8),
                 ChoiceChip(
-                  label: const Text("1D Barcode (Code128)"),
-                  selected: _codeType == 'barcode',
-                  onSelected: (_) => setState(() => _codeType = 'barcode'),
+                  label: const Text("2D QR Code"),
+                  selected: _codeType == 'qr',
+                  selectedColor: Colors.blueAccent,
+                  labelStyle: TextStyle(color: _codeType == 'qr' ? Colors.white : Colors.black87),
+                  onSelected: (_) => setState(() => _codeType = 'qr'),
                 ),
               ],
             ),
@@ -5417,9 +5746,43 @@ class AdminDashboardScreen extends StatefulWidget {
   _AdminDashboardScreenState createState() => _AdminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+class IndianFestiveEvent {
+  final String name;
+  final String hindiName;
+  final int approxMonth; // 1-12
+  final int approxDay;
+  final double demandMultiplier;
+  final String focusCategories;
+  final String distributorAdvice;
+  final IconData icon;
+
+  const IndianFestiveEvent({
+    required this.name,
+    required this.hindiName,
+    required this.approxMonth,
+    required this.approxDay,
+    required this.demandMultiplier,
+    required this.focusCategories,
+    required this.distributorAdvice,
+    required this.icon,
+  });
+
+  DateTime nextOccurrence(DateTime from) {
+    var candidate = DateTime(from.year, approxMonth, approxDay);
+    if (candidate.isBefore(DateTime(from.year, from.month, from.day))) {
+      candidate = DateTime(from.year + 1, approxMonth, approxDay);
+    }
+    return candidate;
+  }
+}
+
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
   bool isLoading = true;
   double collection = 0.0;
+  double cashCollection = 0.0;
+  double upiCollection = 0.0;
+  int billsCount = 0;
   List<dynamic> pastBills = [];
   BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
   
@@ -5427,10 +5790,111 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   DateTime? customStart;
   DateTime? customEnd;
 
+  // Master Indian Retail Festive & Season Calendar
+  final List<IndianFestiveEvent> festiveCalendar = const [
+    IndianFestiveEvent(
+      name: "Sharad Navratri & Durga Puja",
+      hindiName: "शारदीय नवरात्रि एवं दुर्गा पूजा",
+      approxMonth: 9,
+      approxDay: 28,
+      demandMultiplier: 2.6,
+      focusCategories: "Festive Makeup, Sindoor, Kajal, Compact Powder, Lipsticks, Nail Enamel",
+      distributorAdvice: "Order stock 2 weeks early (by Sept 14). High footfall for cosmetics.",
+      icon: Icons.celebration,
+    ),
+    IndianFestiveEvent(
+      name: "Karwa Chauth & Ahoi Ashtami",
+      hindiName: "करवा चौथ एवं अहोई अष्टमी",
+      approxMonth: 10,
+      approxDay: 19,
+      demandMultiplier: 3.8,
+      focusCategories: "Bangles, Mehendi Cones, Bridal Lipsticks, Waterproof Kajal, Facial Kits, Bindi",
+      distributorAdvice: "PEAK COSMETICS RUSH! Order stock 3-4 weeks prior (by Sept 25) to prevent shortages.",
+      icon: Icons.favorite,
+    ),
+    IndianFestiveEvent(
+      name: "Dhanteras & Diwali Festival",
+      hindiName: "धनतेरस एवं दीपावली महापर्व",
+      approxMonth: 11,
+      approxDay: 1,
+      demandMultiplier: 4.5,
+      focusCategories: "Gift Baskets, Luxury Perfumes, Skin Care Hampers, Creams, Premium Cosmetics",
+      distributorAdvice: "Year's Biggest Turnover! Distributor orders must arrive and be shelved by Oct 15.",
+      icon: Icons.auto_awesome,
+    ),
+    IndianFestiveEvent(
+      name: "Winter Wedding Season (Lagun)",
+      hindiName: "शीतकालीन विवाह सीजन (शादी-ब्याह)",
+      approxMonth: 11,
+      approxDay: 20,
+      demandMultiplier: 3.2,
+      focusCategories: "Bridal Makeup, Foundations, Concealers, Eyelashes, Hair Sprays, Artificial Jewelry",
+      distributorAdvice: "Heavy continuous demand through mid-December. Keep backup cartons in basement.",
+      icon: Icons.diversity_1,
+    ),
+    IndianFestiveEvent(
+      name: "Winter Skincare Peak & New Year",
+      hindiName: "सर्दियों की स्किनकेयर एवं नव वर्ष",
+      approxMonth: 12,
+      approxDay: 20,
+      demandMultiplier: 2.5,
+      focusCategories: "Pond's Cold Cream, Nivea Body Lotions, Vaseline Petroleum Jelly, Lip Balms, Glycerin",
+      distributorAdvice: "Ensure bulk cases of 100ml & 200ml cold creams and moisturizing lotions are stocked.",
+      icon: Icons.ac_unit,
+    ),
+    IndianFestiveEvent(
+      name: "Spring Wedding Season (Jan-Feb)",
+      hindiName: "वसंत विवाह मुहूर्त सीजन",
+      approxMonth: 1,
+      approxDay: 20,
+      demandMultiplier: 2.8,
+      focusCategories: "Party Makeup, Waterproof Mascara, Highlighters, Bangles, Deodorants, Perfumes",
+      distributorAdvice: "Restock post-Diwali inventory depletion by first week of January.",
+      icon: Icons.loyalty,
+    ),
+    IndianFestiveEvent(
+      name: "Holi & Spring Care Transition",
+      hindiName: "होली महापर्व एवं त्वचा सुरक्षा",
+      approxMonth: 3,
+      approxDay: 15,
+      demandMultiplier: 2.2,
+      focusCategories: "Hair Oils (Coconut/Mustard/Almond), Face Cleansers, Mild Soaps, Post-color Skin Creams",
+      distributorAdvice: "Transition off heavy cold creams to light summer face washes and skin shields.",
+      icon: Icons.color_lens,
+    ),
+    IndianFestiveEvent(
+      name: "Summer Rush & Chaitra Navratri",
+      hindiName: "ग्रीष्मकालीन दैनिक उत्पाद एवं चैत्र नवरात्रि",
+      approxMonth: 4,
+      approxDay: 10,
+      demandMultiplier: 2.0,
+      focusCategories: "Prickly Heat Powders (Dermicool/Nycil), Summer Talcs, Deodorants, Sunscreens SPF 30/50",
+      distributorAdvice: "High summer volume. Stock cooling talc and roll-ons in front counter trays.",
+      icon: Icons.wb_sunny,
+    ),
+    IndianFestiveEvent(
+      name: "Hariyali Teej & Raksha Bandhan",
+      hindiName: "हरियाली तीज एवं रक्षाबंधन",
+      approxMonth: 8,
+      approxDay: 10,
+      demandMultiplier: 2.9,
+      focusCategories: "Green Bangles, Mehendi Cones, Festive Lip Colors, Sister Gift Sets, Nail Paints",
+      distributorAdvice: "Place orders by July 20. Huge crowd for mehendi and bangles 2 days prior to Teej.",
+      icon: Icons.card_giftcard,
+    ),
+  ];
+
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _fetchDashboardData();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   void _fetchDashboardData() async {
@@ -5459,21 +5923,34 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           .order('created_at', ascending: false);
 
       double total = 0;
+      double cash = 0;
+      double upi = 0;
       for (var row in data) {
-        total += (row['total_amount'] as num).toDouble();
+        double amt = (row['total_amount'] as num).toDouble();
+        total += amt;
+        String method = (row['payment_method'] ?? 'Cash').toString().toLowerCase();
+        if (method.contains('upi') || method.contains('online') || method.contains('scanner')) {
+          upi += amt;
+        } else {
+          cash += amt;
+        }
       }
 
       setState(() {
         collection = total;
+        cashCollection = cash;
+        upiCollection = upi;
+        billsCount = data.length;
         pastBills = data;
         isLoading = false;
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching data: $e")));
-      setState(() => isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching data: $e")));
+        setState(() => isLoading = false);
+      }
     }
   }
-
 
   void _reprintBill(Map<String, dynamic> bill) {
     executeReprintThermalBill(context: context, bluetooth: bluetooth, bill: bill);
@@ -5505,93 +5982,378 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final sortedFestivals = List<IndianFestiveEvent>.from(festiveCalendar)
+      ..sort((a, b) => a.nextOccurrence(now).compareTo(b.nextOccurrence(now)));
+    final nextEvent = sortedFestivals.isNotEmpty ? sortedFestivals.first : null;
+    final int daysToNextEvent = nextEvent != null
+        ? nextEvent.nextOccurrence(now).difference(DateTime(now.year, now.month, now.day)).inDays
+        : 0;
+
+    double avgBillValue = billsCount > 0 ? collection / billsCount : 0.0;
+    double cashPercent = collection > 0 ? (cashCollection / collection) * 100 : 0.0;
+    double upiPercent = collection > 0 ? (upiCollection / collection) * 100 : 0.0;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Admin Dashboard", style: TextStyle(color: Colors.white)), 
-        backgroundColor: const Color(0xFF111827), 
+        title: const Text("Admin & Festive Analytics", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF111827),
         iconTheme: const IconThemeData(color: Colors.white),
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.amberAccent,
+          labelColor: Colors.amberAccent,
+          unselectedLabelColor: Colors.white70,
+          labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+          tabs: const [
+            Tab(icon: Icon(Icons.analytics_outlined), text: "Sales & Cash Flow"),
+            Tab(icon: Icon(Icons.celebration_outlined), text: "Festive AI Predictions"),
+          ],
+        ),
       ),
-      body: Column(
+      body: TabBarView(
+        controller: _tabController,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Colors.white,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                FilterChip(
-                  label: const Text("Today"),
-                  selected: currentFilter == "Today",
-                  onSelected: (_) { setState(() => currentFilter = "Today"); _fetchDashboardData(); },
+          // TAB 1: SALES & CASH FLOW
+          Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: Colors.white,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    FilterChip(
+                      label: const Text("Today"),
+                      selected: currentFilter == "Today",
+                      onSelected: (_) { setState(() => currentFilter = "Today"); _fetchDashboardData(); },
+                    ),
+                    FilterChip(
+                      label: const Text("This Month"),
+                      selected: currentFilter == "This Month",
+                      onSelected: (_) { setState(() => currentFilter = "This Month"); _fetchDashboardData(); },
+                    ),
+                    ActionChip(
+                      label: Text(currentFilter == "Custom" ? "Custom Range ✓" : "Custom Range"),
+                      onPressed: _pickCustomDates,
+                    ),
+                  ],
                 ),
-                FilterChip(
-                  label: const Text("This Month"),
-                  selected: currentFilter == "This Month",
-                  onSelected: (_) { setState(() => currentFilter = "This Month"); _fetchDashboardData(); },
-                ),
-                ActionChip(
-                  label: Text(currentFilter == "Custom" ? "Custom Range ✓" : "Custom Range"),
-                  onPressed: _pickCustomDates,
-                ),
-              ],
-            ),
-          ),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            color: Colors.blueAccent.withOpacity(0.1),
-            child: Column(
-              children: [
-                Text("${currentFilter.toUpperCase()} COLLECTION", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black54, letterSpacing: 1.5)),
-                const SizedBox(height: 8),
-                Text("₹${collection.toStringAsFixed(2)}", style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: Colors.blueAccent)),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Align(alignment: Alignment.centerLeft, child: Text("${currentFilter.toUpperCase()} BILLS", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-          ),
-          if (isLoading)
-            const Expanded(child: Center(child: CircularProgressIndicator()))
-          else
-            Expanded(
-              child: ListView.builder(
-                itemCount: pastBills.length,
-                itemBuilder: (context, index) {
-                  final bill = pastBills[index];
-                  String bNo = bill['bill_number'] ?? "N/A";
-                  return ListTile(
-                    leading: const CircleAvatar(backgroundColor: Colors.black12, child: Icon(Icons.receipt, color: Colors.black)),
-                    title: Text("₹${bill['total_amount']}  (No: $bNo)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    subtitle: Text("Paid: ₹${bill['amount_tendered'] ?? bill['total_amount']} • Change: ₹${bill['change_due'] ?? 0} (${bill['payment_method'] ?? 'Cash'})\nStaff: ${bill['staff_name']} • Counter: ${bill['counter_name']}"),
-                    trailing: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.end,
+              ),
+
+              // Overview Cards
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                color: Colors.blue.shade50.withOpacity(0.6),
+                child: Column(
+                  children: [
+                    Row(
                       children: [
-                        Text(
-                          DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0].substring(11),
-                          style: const TextStyle(color: Colors.black54, fontSize: 12),
-                        ),
-                        const SizedBox(height: 4),
-                        ElevatedButton.icon(
-                          icon: const Icon(Icons.print, size: 14, color: Colors.white),
-                          label: const Text("Reprint", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2563EB),
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            minimumSize: Size.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "${currentFilter.toUpperCase()} TOTAL COLLECTION",
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black54, letterSpacing: 1.1),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                "₹${collection.toStringAsFixed(2)}",
+                                style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: Color(0xFF1D4ED8)),
+                              ),
+                            ],
                           ),
-                          onPressed: () => _showBillPreview(bill),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.black12),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text("BILLS: $billsCount", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.indigo)),
+                              const SizedBox(height: 2),
+                              Text("Avg: ₹${avgBillValue.toStringAsFixed(0)} / bill", style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11, color: Colors.black54)),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                    onTap: () => _showBillPreview(bill),
-                  );
-                },
+                    const SizedBox(height: 12),
+
+                    // Cash vs UPI Split
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.green.shade200)),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.payments_outlined, size: 16, color: Colors.green),
+                                const SizedBox(width: 6),
+                                Text("Cash: ₹${cashCollection.toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.green)),
+                                const Spacer(),
+                                Text("${cashPercent.toStringAsFixed(0)}%", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.green.shade900)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(color: Colors.indigo.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.indigo.shade200)),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.qr_code_2, size: 16, color: Colors.indigo),
+                                const SizedBox(width: 6),
+                                Text("UPI: ₹${upiCollection.toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.indigo)),
+                                const Spacer(),
+                                Text("${upiPercent.toStringAsFixed(0)}%", style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.indigo.shade900)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            )
+
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                child: Row(
+                  children: [
+                    Text("${currentFilter.toUpperCase()} BILLS", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    const Spacer(),
+                    Text("$billsCount total", style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                  ],
+                ),
+              ),
+
+              if (isLoading)
+                const Expanded(child: Center(child: CircularProgressIndicator()))
+              else if (pastBills.isEmpty)
+                Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.receipt_long_outlined, size: 56, color: Colors.grey),
+                        const SizedBox(height: 12),
+                        Text("No bills generated for $currentFilter", style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: pastBills.length,
+                    itemBuilder: (context, index) {
+                      final bill = pastBills[index];
+                      String bNo = bill['bill_number'] ?? "N/A";
+                      String pMethod = bill['payment_method'] ?? 'Cash';
+                      bool isUpi = pMethod.toLowerCase().contains('upi') || pMethod.toLowerCase().contains('online');
+
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: isUpi ? Colors.indigo.shade100 : Colors.green.shade100,
+                          child: Icon(isUpi ? Icons.qr_code_2 : Icons.payments, color: isUpi ? Colors.indigo : Colors.green),
+                        ),
+                        title: Text("₹${bill['total_amount']}  (No: $bNo)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        subtitle: Text("Paid: ₹${bill['amount_tendered'] ?? bill['total_amount']} • Change: ₹${bill['change_due'] ?? 0} ($pMethod)\nStaff: ${bill['staff_name']} • Counter: ${bill['counter_name']}"),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0].substring(11),
+                              style: const TextStyle(color: Colors.black54, fontSize: 12),
+                            ),
+                            const SizedBox(height: 4),
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.print, size: 14, color: Colors.white),
+                              label: const Text("Reprint", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF2563EB),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () => _showBillPreview(bill),
+                            ),
+                          ],
+                        ),
+                        onTap: () => _showBillPreview(bill),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+
+          // TAB 2: FESTIVE INTELLIGENCE & 2026/2027 FORECASTS
+          ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // Next upcoming festival spotlight banner
+              if (nextEvent != null)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF831843), Color(0xFFBE185D)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 3))],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(nextEvent.icon, color: Colors.amberAccent, size: 28),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  "UPCOMING FESTIVAL SPIKE • IN $daysToNextEvent DAYS",
+                                  style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.1),
+                                ),
+                                Text(
+                                  nextEvent.name,
+                                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                                ),
+                                Text(
+                                  nextEvent.hindiName,
+                                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)),
+                            child: Column(
+                              children: [
+                                Text("${nextEvent.demandMultiplier}x", style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.w900, fontSize: 18)),
+                                const Text("Surge", style: TextStyle(color: Colors.white70, fontSize: 10)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(color: Colors.white24),
+                      const SizedBox(height: 6),
+                      Text("🎯 Key Focus Stock: ${nextEvent.focusCategories}", style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 4),
+                      Text("📦 Distributor Action: ${nextEvent.distributorAdvice}", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    ],
+                  ),
+                ),
+
+              const SizedBox(height: 20),
+              Row(
+                children: const [
+                  Icon(Icons.calendar_month, color: Colors.blueAccent, size: 20),
+                  SizedBox(width: 8),
+                  Text("Indian Retail Festive Season Roadmap", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                "Seasonal multipliers calibrated for Indian cosmetics, bangles & personal care cycles:",
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+              const SizedBox(height: 12),
+
+              ...sortedFestivals.map((ev) {
+                final days = ev.nextOccurrence(now).difference(DateTime(now.year, now.month, now.day)).inDays;
+                return Card(
+                  elevation: 1.5,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            CircleAvatar(
+                              backgroundColor: Colors.pink.shade50,
+                              child: Icon(ev.icon, color: Colors.pink, size: 20),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(ev.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                  Text(ev.hindiName, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: days <= 30 ? Colors.amber.shade100 : Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                days == 0 ? "TODAY" : "In $days Days",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                  color: days <= 30 ? Colors.amber.shade900 : Colors.blue.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text("Expected Demand: ~${ev.demandMultiplier}x Standard Turnover", style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.green)),
+                        const SizedBox(height: 2),
+                        Text("Top Products: ${ev.focusCategories}", style: const TextStyle(fontSize: 12, color: Colors.black87)),
+                        const SizedBox(height: 2),
+                        Text("Advice: ${ev.distributorAdvice}", style: const TextStyle(fontSize: 11, color: Colors.black54)),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.amber.shade300)),
+                child: Row(
+                  children: const [
+                    Icon(Icons.lightbulb, color: Color(0xFFD97706)),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        "Pro-Tip: Use the stock updater in Item Codes to restock cartons before the festive rush hits. Shelf tags can be printed in seconds using the 1D Barcode thermal printer.",
+                        style: TextStyle(fontSize: 12, color: Color(0xFF92400E)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 40),
+            ],
+          ),
         ],
       ),
     );
