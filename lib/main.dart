@@ -489,18 +489,19 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
 // Ensures bills, receipts, and previews:
 // 1. Never display "Unassigned Product" or "Barcode 890..."
 // 2. Never duplicate the barcode number twice (e.g. in parentheses)
-// 3. Defaults uncataloged items to "General Item"
+// 3. Never display or print "General Item" - if name is unknown, cleanly display the raw barcode number!
 String cleanItemName(String? name, {String? barcode}) {
+  final cleanBarcode = (barcode ?? '').trim();
   if (name == null || name.trim().isEmpty) {
-    return "General Item";
+    return cleanBarcode;
   }
   String cleaned = name.trim();
   if (cleaned.contains("\n")) {
     cleaned = cleaned.split("\n")[0].trim();
   }
   // Strip trailing bracketed barcode matching the barcode parameter if provided
-  if (barcode != null && barcode.isNotEmpty) {
-    cleaned = cleaned.replaceAll("($barcode)", "").trim();
+  if (cleanBarcode.isNotEmpty) {
+    cleaned = cleaned.replaceAll("($cleanBarcode)", "").trim();
   }
   // Strip bracketed long barcode or numeric ID (5+ digits)
   cleaned = cleaned.replaceAll(RegExp(r'\s*\([0-9]{5,}\)$'), '').trim();
@@ -509,15 +510,19 @@ String cleanItemName(String? name, {String? barcode}) {
   // Strip general trailing bracketed raw codes if they resemble barcodes/itemcodes (5+ alphanumeric chars)
   cleaned = cleaned.replaceAll(RegExp(r'\s*\([0-9A-Za-z-]{5,}\)$'), '').trim();
 
-  // If it is a placeholder name, default cleanly to "General Item"
+  // If it is a generic placeholder or "General Item", return the barcode number directly!
   final lower = cleaned.toLowerCase();
   if (cleaned.isEmpty ||
+      lower == "general item" ||
+      lower.startsWith("general item") ||
       lower.startsWith("unassigned") ||
       lower.startsWith("new scanned product") ||
       lower.startsWith("barcode ") ||
       lower == "barcode" ||
       RegExp(r'^item\s+[0-9A-Za-z-]+$', caseSensitive: false).hasMatch(cleaned)) {
-    cleaned = "General Item";
+    return cleanBarcode.isNotEmpty
+        ? cleanBarcode
+        : (cleaned.isNotEmpty && !lower.contains("general item") && !lower.contains("unassigned") ? cleaned : (cleanBarcode.isNotEmpty ? cleanBarcode : ""));
   }
   return cleaned;
 }
@@ -657,6 +662,7 @@ Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
 
   final endpoints = [
     "https://world.openbeautyfacts.org/api/v0/product/$clean.json",
+    "https://in.openfoodfacts.org/api/v0/product/$clean.json",
     "https://world.openfoodfacts.org/api/v0/product/$clean.json",
     "https://world.openproductsfacts.org/api/v0/product/$clean.json",
   ];
@@ -665,11 +671,11 @@ Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
     HttpClient? client;
     try {
       client = HttpClient();
-      client.connectionTimeout = const Duration(milliseconds: 1800);
+      client.connectionTimeout = const Duration(milliseconds: 2400);
       final uri = Uri.parse(url);
       final request = await client.getUrl(uri);
-      request.headers.set('User-Agent', 'LoveKushPOS/1.0 (Retail Scanner)');
-      final response = await request.close().timeout(const Duration(milliseconds: 1900));
+      request.headers.set('User-Agent', 'LoveKushPOS/1.0 (Retail Scanner; Retail; India)');
+      final response = await request.close().timeout(const Duration(milliseconds: 2500));
       if (response.statusCode == 200) {
         final body = await response.transform(utf8.decoder).join();
         final data = json.decode(body);
@@ -682,7 +688,7 @@ Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
             if (brand.isNotEmpty && !name.toLowerCase().contains(brand.toLowerCase())) {
               name = "$brand $name";
             }
-            return {'name': name, 'brand': brand, 'category': category};
+            return {'name': name, 'brand': brand, 'category': category.isNotEmpty ? category : 'Cosmetics'};
           }
         }
       }
@@ -716,12 +722,69 @@ Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
     }
 
     return await completer.future.timeout(
-      const Duration(milliseconds: 2000),
+      const Duration(milliseconds: 2600),
       onTimeout: () => null,
     );
   } catch (_) {
     return null;
   }
+}
+
+// ==========================================
+// AUTO-INGESTION INTO SUPABASE FOR FUTURE FINALIZATION
+// ==========================================
+// Automatically saves scanned products to Supabase (master_catalog and inventory with shelf_location: 'PENDING')
+// so shop database permanently stores it for offline O(1) recall and future owner shelf assignment.
+Future<void> autoIngestProductToDatabase({
+  required String barcode,
+  required String name,
+  String brand = '',
+  String category = 'Cosmetics',
+  double price = 0.0,
+}) async {
+  final clean = barcode.trim();
+  if (clean.isEmpty) return;
+  final cleanName = cleanItemName(name, barcode: clean).isNotEmpty
+      ? cleanItemName(name, barcode: clean)
+      : clean;
+
+  try {
+    // 1. If it has a recognized non-barcode name, auto-save to master_catalog
+    if (cleanName != clean && cleanName.isNotEmpty) {
+      try {
+        await Supabase.instance.client.from('master_catalog').upsert({
+          'barcode': clean,
+          'product_name': cleanName,
+          'brand': brand,
+          'category': category.isNotEmpty ? category : 'Cosmetics',
+          'mrp': price > 0 ? price : 0.0,
+        }, onConflict: 'barcode');
+      } catch (_) {}
+    }
+
+    // 2. Auto-save into inventory with shelf_location: 'PENDING'
+    try {
+      await Supabase.instance.client.from('inventory').upsert({
+        'item_code': clean,
+        'item_name': cleanName,
+        'company_barcode': clean,
+        'price': price,
+        'mrp': price,
+        'stock_qty': 1,
+        'shelf_location': 'PENDING',
+        'category': category.isNotEmpty ? category : 'Cosmetics',
+        'is_online': false,
+      }, onConflict: 'item_code');
+    } catch (_) {
+      try {
+        await Supabase.instance.client.from('inventory').upsert({
+          'item_code': clean,
+          'item_name': cleanName,
+          'price': price,
+        });
+      } catch (_) {}
+    }
+  } catch (_) {}
 }
 
 // ==========================================
@@ -765,6 +828,7 @@ class PendingItemsManager {
     final clean = barcode.trim();
     if (clean.isEmpty) return;
     String cleanName = cleanItemName(name, barcode: clean);
+    if (cleanName.isEmpty) cleanName = clean;
     final index = items.indexWhere((p) => (p['barcode'] ?? '').toString().trim().toUpperCase() == clean.toUpperCase());
     final entry = {
       'barcode': clean,
@@ -776,13 +840,11 @@ class PendingItemsManager {
     };
     if (index >= 0) {
       if (cleanName.isNotEmpty &&
-          cleanName != "General Item" &&
-          (items[index]['name'].toString().startsWith("Unassigned") ||
-           items[index]['name'].toString().startsWith("General Item") ||
-           items[index]['name'].toString().startsWith("Barcode") ||
-           items[index]['name'].toString().startsWith("Item "))) {
-        items[index]['name'] = cleanName;
-      } else if (items[index]['name'].toString().startsWith("Unassigned") || items[index]['name'].toString().startsWith("Barcode")) {
+          cleanName != clean &&
+          !cleanName.toLowerCase().startsWith("unassigned") &&
+          !cleanName.toLowerCase().startsWith("barcode") &&
+          !cleanName.toLowerCase().startsWith("item ") &&
+          !cleanName.toLowerCase().startsWith("general item")) {
         items[index]['name'] = cleanName;
       }
       if (price > 0) {
@@ -937,6 +999,26 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       await prefs.setString('last_col', _lastCol);
       await prefs.setString('last_row', _lastRow);
       await prefs.setInt('last_item_num', _lastItemNum);
+
+      // If an item was previously saved with shelf PENDING under its barcode as item_code,
+      // and is now being assigned a proper shelf code (code != companyBarcode), delete the temporary pending record.
+      if (companyBarcode != null && companyBarcode.isNotEmpty && companyBarcode != code) {
+        try {
+          await Supabase.instance.client.from('inventory').delete().eq('item_code', companyBarcode);
+        } catch (_) {}
+      }
+
+      // Also upsert into master_catalog if name is provided and company barcode is present
+      if (companyBarcode != null && companyBarcode.isNotEmpty && name.isNotEmpty && name != companyBarcode) {
+        try {
+          await Supabase.instance.client.from('master_catalog').upsert({
+            'barcode': companyBarcode,
+            'product_name': name,
+            'category': category ?? 'Cosmetics',
+            'mrp': mrp ?? price,
+          }, onConflict: 'barcode');
+        } catch (_) {}
+      }
 
       // Remove from pending scanned queue since it is now assigned and saved to shop stock!
       PendingItemsManager.remove(companyBarcode ?? '');
@@ -1217,25 +1299,38 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
           price: (masterMatch['price'] as num?)?.toDouble() ?? 0.0,
           category: masterMatch['category'] ?? 'Cosmetics',
         );
+        autoIngestProductToDatabase(
+          barcode: clean,
+          name: masterMatch['name'] ?? '',
+          brand: masterMatch['brand'] ?? '',
+          price: (masterMatch['price'] as num?)?.toDouble() ?? 0.0,
+          category: masterMatch['category'] ?? 'Cosmetics',
+        );
         setState(() {});
         if (mounted) {
           _showRecognizedMasterProductDialog(clean, masterMatch);
         }
       } else {
-        // Unrecognized barcode: record in pending & prompt to add
+        // Unrecognized barcode: record in pending & auto-ingest with clean barcode number
         PendingItemsManager.addPending(
           barcode: clean,
-          name: 'General Item',
+          name: clean,
           brand: '',
           price: 0.0,
-          category: 'Cosmetics',
+          category: 'General',
+        );
+        autoIngestProductToDatabase(
+          barcode: clean,
+          name: clean,
+          brand: '',
+          category: 'General',
         );
         setState(() {});
         if (mounted) {
           if (clean.length >= 8 && digitsOnly.length == clean.length) {
-            _showAddEditDialog(null, null, null, null, clean);
+            _showAddEditDialog(null, null, clean, null, clean);
           } else {
-            _showAddEditDialog(null, clean);
+            _showAddEditDialog(null, clean, clean);
           }
         }
       }
@@ -1645,22 +1740,39 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
 
     String initialShelfCode = "";
     if (isEdit) {
-      String shelf = existing['shelf_location'] ?? '';
-      String num = existing['item_number'] ?? '';
-      if (shelf.isNotEmpty) {
+      String shelf = (existing['shelf_location'] ?? '').toString();
+      String num = (existing['item_number'] ?? '').toString();
+      if (shelf.isNotEmpty && shelf.toUpperCase() != 'PENDING') {
         initialShelfCode = num.isNotEmpty ? "$shelf-$num" : shelf;
       } else {
-        initialShelfCode = existing['item_code'] ?? '';
+        // Item was pending shelf assignment: auto-suggest next available sequential shelf code!
+        initialShelfCode = "${_lastRack.padLeft(2, '0')}-${_lastCol.padLeft(2, '0')}-${_lastRow.toUpperCase()}-${_lastItemNum + 1}";
+        if (initialCompanyBarcode.isEmpty && (existing['item_code'] ?? '').toString().length >= 8) {
+          initialCompanyBarcode = (existing['item_code'] ?? '').toString();
+        }
       }
-    } else if (prefilledCode != null && prefilledCode.isNotEmpty) {
+    } else if (prefilledCode != null && prefilledCode.isNotEmpty && !prefilledCode.toUpperCase().startsWith('890') && prefilledCode.toUpperCase() != 'PENDING') {
       initialShelfCode = prefilledCode;
     } else {
       initialShelfCode = "${_lastRack.padLeft(2, '0')}-${_lastCol.padLeft(2, '0')}-${_lastRow.toUpperCase()}-${_lastItemNum + 1}";
+      if (prefilledCode != null && prefilledCode.isNotEmpty && (prefilledCode.length >= 8 || prefilledCode.startsWith('890')) && initialCompanyBarcode.isEmpty) {
+        initialCompanyBarcode = prefilledCode;
+      }
+    }
+
+    String initialName = isEdit ? (existing['item_name'] ?? '') : (prefilledName ?? '');
+    // If name is equal to raw barcode or placeholder, clear it so user can easily enter product name
+    if (initialName == initialCompanyBarcode ||
+        initialName == initialShelfCode ||
+        initialName.toLowerCase() == "general item" ||
+        initialName.toLowerCase().startsWith("unassigned") ||
+        initialName.toLowerCase().startsWith("barcode ")) {
+      initialName = "";
     }
 
     final companyBarcodeCtrl = TextEditingController(text: initialCompanyBarcode);
     final shelfCodeCtrl = TextEditingController(text: initialShelfCode);
-    final nameCtrl = TextEditingController(text: isEdit ? (existing['item_name'] ?? '') : (prefilledName ?? ''));
+    final nameCtrl = TextEditingController(text: initialName);
     final priceCtrl = TextEditingController(
       text: isEdit
           ? (existing['price']?.toString() ?? '')
@@ -2079,6 +2191,10 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final pendingShelfItems = items.where((it) {
+      final shelf = (it['shelf_location'] ?? '').toString().trim().toUpperCase();
+      return shelf == 'PENDING' || shelf.isEmpty;
+    }).toList();
     final lowStockItems = items.where((it) {
       final qty = (it['stock_qty'] as num?)?.toInt() ?? 0;
       return qty > 0 && qty <= 5;
@@ -2092,10 +2208,15 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       final q = searchQuery.toLowerCase();
       final code = (it['item_code'] ?? '').toString().toLowerCase();
       final name = (it['item_name'] ?? '').toString().toLowerCase();
-      final matchesQuery = code.contains(q) || name.contains(q);
+      final bar = (it['company_barcode'] ?? '').toString().toLowerCase();
+      final matchesQuery = code.contains(q) || name.contains(q) || bar.contains(q);
       if (!matchesQuery) return false;
 
       final qty = (it['stock_qty'] as num?)?.toInt() ?? 0;
+      if (stockFilter == "pending") {
+        final shelf = (it['shelf_location'] ?? '').toString().trim().toUpperCase();
+        return shelf == 'PENDING' || shelf.isEmpty;
+      }
       if (stockFilter == "low") return qty > 0 && qty <= 5;
       if (stockFilter == "out") return qty <= 0;
       return true;
@@ -2191,6 +2312,14 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                   ),
                   const SizedBox(width: 8),
                   ChoiceChip(
+                    label: Text("⏳ Pending Shelf (${pendingShelfItems.length})"),
+                    selected: stockFilter == "pending",
+                    selectedColor: Colors.purple.shade700,
+                    labelStyle: TextStyle(color: stockFilter == "pending" ? Colors.white : Colors.black87, fontWeight: FontWeight.bold, fontSize: 12),
+                    onSelected: (_) => setState(() => stockFilter = "pending"),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
                     label: Text("⚠️ Low Stock (${lowStockItems.length})"),
                     selected: stockFilter == "low",
                     selectedColor: Colors.amber.shade700,
@@ -2255,21 +2384,24 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                     spacing: 8,
                     runSpacing: 6,
                     children: pendingScannedItems.map((p) {
+                      final pBar = (p['barcode'] ?? '').toString();
+                      String displayName = cleanItemName(p['name']?.toString(), barcode: pBar);
+                      if (displayName.isEmpty) displayName = pBar;
                       return ActionChip(
                         backgroundColor: Colors.white,
                         side: const BorderSide(color: Color(0xFFF59E0B)),
                         avatar: const Icon(Icons.add_location_alt, size: 14, color: Color(0xFFD97706)),
                         label: Text(
-                          "${p['name']} (₹${(p['price'] as num?)?.toInt() ?? 0})",
+                          "$displayName (₹${(p['price'] as num?)?.toInt() ?? 0})",
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF92400E)),
                         ),
                         onPressed: () {
                           _showAddEditDialog(
                             null,
                             null,
-                            p['name'],
+                            displayName == pBar ? "" : displayName,
                             (p['price'] as num?)?.toDouble() ?? 0.0,
-                            p['barcode'],
+                            pBar,
                           );
                         },
                       );
@@ -2313,9 +2445,12 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                           final category = (item['category'] ?? '').toString();
                           final stockQty = (item['stock_qty'] as num?)?.toInt() ?? 10;
 
-                          String displayLoc = shelfLoc.isNotEmpty
-                              ? (itemNum.isNotEmpty ? "$shelfLoc-$itemNum" : "$shelfLoc (Shelf Only)")
-                              : code;
+                          final isPending = shelfLoc.toUpperCase() == 'PENDING' || shelfLoc.isEmpty;
+                          String displayLoc = isPending
+                              ? "Pending Shelf"
+                              : (shelfLoc.isNotEmpty
+                                  ? (itemNum.isNotEmpty ? "$shelfLoc-$itemNum" : "$shelfLoc (Shelf Only)")
+                                  : code);
 
                           return Card(
                             elevation: 1.5,
@@ -2331,12 +2466,12 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                                       Container(
                                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                                         decoration: BoxDecoration(
-                                          color: Colors.blueAccent.withOpacity(0.1),
+                                          color: isPending ? Colors.amber.shade100 : Colors.blueAccent.withOpacity(0.1),
                                           borderRadius: BorderRadius.circular(8),
                                         ),
                                         child: Text(
-                                          displayLoc.length >= 2 ? displayLoc.substring(0, 2) : "##",
-                                          style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.blueAccent, fontSize: 16),
+                                          isPending ? "⏳" : (displayLoc.length >= 2 ? displayLoc.substring(0, 2) : "##"),
+                                          style: TextStyle(fontWeight: FontWeight.w900, color: isPending ? Colors.deepOrange : Colors.blueAccent, fontSize: 16),
                                         ),
                                       ),
                                       const SizedBox(width: 10),
@@ -2362,7 +2497,28 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                                               ],
                                             ),
                                             const SizedBox(height: 2),
-                                            Text("📍 Shelf: $displayLoc", style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.indigo, fontSize: 12)),
+                                            Text(
+                                              isPending ? "⏳ Status: Pending Shelf Assignment" : "📍 Shelf: $displayLoc",
+                                              style: TextStyle(fontWeight: FontWeight.w600, color: isPending ? Colors.deepOrange.shade800 : Colors.indigo, fontSize: 12),
+                                            ),
+                                            if (isPending)
+                                              Container(
+                                                margin: const EdgeInsets.only(top: 4, bottom: 2),
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.amber.shade50,
+                                                  borderRadius: BorderRadius.circular(4),
+                                                  border: Border.all(color: Colors.amber.shade400),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: const [
+                                                    Icon(Icons.hourglass_top, size: 12, color: Color(0xFFD97706)),
+                                                    SizedBox(width: 4),
+                                                    Text("Tap edit (✏️) to assign shelf code & finalize", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+                                                  ],
+                                                ),
+                                              ),
                                             if (companyBar.isNotEmpty)
                                               Text("🏭 Barcode: $companyBar", style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade700, fontSize: 11)),
                                             if (category.isNotEmpty && category != "General")
@@ -2696,14 +2852,14 @@ class _PosScreenState extends State<PosScreen> {
       setState(() {
         rawItemCode = clean;
         activeItemName = cName;
-        activeItemSub = "✨ Backup Catalog (Not shelved yet)";
+        activeItemSub = "💄 Cosmetics Catalog (${c['category'] ?? 'Beauty'})";
         activeConflicts = [];
         if (p > 0) {
           rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
         }
         focusedField = 1; // Advance to QTY
       });
-      // Silently log to pending queue for later review
+      // Silently log to pending queue & auto-ingest into DB
       PendingItemsManager.addPending(
         barcode: clean,
         name: cName,
@@ -2711,16 +2867,23 @@ class _PosScreenState extends State<PosScreen> {
         brand: (c['brand'] ?? '').toString(),
         category: (c['category'] ?? 'Cosmetics').toString(),
       );
+      autoIngestProductToDatabase(
+        barcode: clean,
+        name: cName,
+        brand: (c['brand'] ?? '').toString(),
+        category: (c['category'] ?? 'Cosmetics').toString(),
+        price: p,
+      );
       return;
     }
 
-    // 3. Check Open Facts Cloud (<2s) if 8+ digit commercial barcode
+    // 3. Check Online Open Facts Catalogs (<2.5s) if 8+ digit commercial barcode
     final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
     if (clean.length >= 8 && digitsOnly.length == clean.length) {
       setState(() {
         rawItemCode = clean;
-        activeItemName = "General Item";
-        activeItemSub = "🔍 Checking product catalog (<2s)...";
+        activeItemName = clean; // Clean barcode number! Never "General Item"!
+        activeItemSub = "🔍 Searching online catalog (<2.5s)...";
         activeConflicts = [];
         focusedField = 2; // Move directly to rate so cashier can enter price without waiting
       });
@@ -2728,10 +2891,12 @@ class _PosScreenState extends State<PosScreen> {
         if (!mounted) return;
         if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
           final officialName = obf['name']!;
+          final officialBrand = obf['brand'] ?? '';
+          final officialCategory = obf['category'] ?? 'Cosmetics';
           setState(() {
             if (rawItemCode == clean) {
               activeItemName = officialName;
-              activeItemSub = "🌐 Cloud Recognized (Not shelved yet)";
+              activeItemSub = "🌐 Cloud Recognized & Auto-Saved";
             }
             // Reactive backfill: Update any item already placed in the cart during active sale
             for (var i = 0; i < cart.length; i++) {
@@ -2739,6 +2904,7 @@ class _PosScreenState extends State<PosScreen> {
               final cName = (cart[i]['itemName'] ?? '').toString();
               if (cRaw == clean &&
                   (cName.isEmpty ||
+                   cName == clean ||
                    cName == "General Item" ||
                    cName.startsWith("Barcode") ||
                    cName.startsWith("Unassigned") ||
@@ -2752,19 +2918,33 @@ class _PosScreenState extends State<PosScreen> {
             barcode: clean,
             name: officialName,
             price: double.tryParse(rate) ?? 0.0,
-            brand: obf['brand'] ?? '',
-            category: obf['category'] ?? 'Cosmetics',
+            brand: officialBrand,
+            category: officialCategory,
+          );
+          autoIngestProductToDatabase(
+            barcode: clean,
+            name: officialName,
+            brand: officialBrand,
+            category: officialCategory,
+            price: double.tryParse(rate) ?? 0.0,
           );
         } else {
           setState(() {
             if (rawItemCode == clean) {
-              activeItemName = "General Item";
-              activeItemSub = "📦 Not in catalog yet (Tap to name)";
+              activeItemName = clean; // Clean barcode number!
+              activeItemSub = "📦 Uncataloged barcode (Auto-saved, tap to name)";
             }
           });
           PendingItemsManager.addPending(
             barcode: clean,
-            name: "General Item",
+            name: clean,
+            price: double.tryParse(rate) ?? 0.0,
+          );
+          autoIngestProductToDatabase(
+            barcode: clean,
+            name: clean,
+            brand: '',
+            category: 'General',
             price: double.tryParse(rate) ?? 0.0,
           );
         }
@@ -2775,14 +2955,21 @@ class _PosScreenState extends State<PosScreen> {
     // 4. Short / uncataloged code
     setState(() {
       rawItemCode = clean;
-      activeItemName = "General Item";
-      activeItemSub = "📦 Not in catalog yet (Tap to name)";
+      activeItemName = clean; // Clean barcode number!
+      activeItemSub = "📦 Uncataloged (Auto-saved, tap to name)";
       activeConflicts = [];
       focusedField = 2; // Move to rate
     });
     PendingItemsManager.addPending(
       barcode: clean,
-      name: "General Item",
+      name: clean,
+      price: double.tryParse(rate) ?? 0.0,
+    );
+    autoIngestProductToDatabase(
+      barcode: clean,
+      name: clean,
+      brand: '',
+      category: 'General',
       price: double.tryParse(rate) ?? 0.0,
     );
   }
@@ -3249,7 +3436,8 @@ class _PosScreenState extends State<PosScreen> {
   void _promptRenameActiveItem() {
     if (rawItemCode.isEmpty) return;
     final textController = TextEditingController(
-      text: (activeItemName == "General Item" ||
+      text: (activeItemName == rawItemCode ||
+              activeItemName == "General Item" ||
               activeItemName.startsWith("Barcode ") ||
               activeItemName.startsWith("Unassigned") ||
               activeItemName.startsWith("Item "))
@@ -3295,9 +3483,14 @@ class _PosScreenState extends State<PosScreen> {
               if (newName.isNotEmpty) {
                 setState(() {
                   activeItemName = newName;
-                  activeItemSub = "✏️ Custom Named";
+                  activeItemSub = "✏️ Custom Named & Auto-Saved";
                 });
                 PendingItemsManager.addPending(
+                  barcode: rawItemCode,
+                  name: newName,
+                  price: double.tryParse(rate) ?? 0.0,
+                );
+                autoIngestProductToDatabase(
                   barcode: rawItemCode,
                   name: newName,
                   price: double.tryParse(rate) ?? 0.0,
@@ -3316,6 +3509,7 @@ class _PosScreenState extends State<PosScreen> {
     if (rawItemCode.isEmpty || rate.isEmpty) return;
     String itemName = activeItemName;
     if (itemName.isEmpty ||
+        itemName == rawItemCode ||
         itemName == "General Item" ||
         itemName.startsWith("Barcode ") ||
         itemName.startsWith("Unassigned") ||
@@ -3325,6 +3519,7 @@ class _PosScreenState extends State<PosScreen> {
         itemName = (match['item_name'] ?? '').toString();
       }
       if (itemName.isEmpty ||
+          itemName == rawItemCode ||
           itemName == "General Item" ||
           itemName.startsWith("Barcode ") ||
           itemName.startsWith("Unassigned") ||
@@ -3335,6 +3530,7 @@ class _PosScreenState extends State<PosScreen> {
         }
       }
       if (itemName.isEmpty ||
+          itemName == rawItemCode ||
           itemName == "General Item" ||
           itemName.startsWith("Barcode ") ||
           itemName.startsWith("Unassigned") ||
@@ -3345,15 +3541,16 @@ class _PosScreenState extends State<PosScreen> {
             !(pending['name'] ?? '').toString().startsWith("Barcode ") &&
             !(pending['name'] ?? '').toString().startsWith("Unassigned") &&
             !(pending['name'] ?? '').toString().startsWith("Item ") &&
-            (pending['name'] ?? '').toString() != "General Item") {
+            (pending['name'] ?? '').toString() != "General Item" &&
+            (pending['name'] ?? '').toString() != rawItemCode) {
           itemName = pending['name'].toString();
         }
       }
     }
 
     itemName = cleanItemName(itemName, barcode: formattedItemCode);
-    if (itemName.isEmpty || itemName.toLowerCase().startsWith("unassigned")) {
-      itemName = "General Item";
+    if (itemName.isEmpty || itemName.toLowerCase().startsWith("unassigned") || itemName == "General Item") {
+      itemName = rawItemCode.isNotEmpty ? rawItemCode : "Item";
     }
 
     // Save/update pending item with user-entered rate if not yet in inventory
@@ -3362,6 +3559,11 @@ class _PosScreenState extends State<PosScreen> {
       final match = _lookupItem(rawItemCode);
       if (match == null) {
         PendingItemsManager.addPending(
+          barcode: rawItemCode,
+          name: itemName,
+          price: parsedRate,
+        );
+        autoIngestProductToDatabase(
           barcode: rawItemCode,
           name: itemName,
           price: parsedRate,
@@ -3590,6 +3792,7 @@ class _PosScreenState extends State<PosScreen> {
       String currentName = (item["itemName"] ?? "").toString();
       if (rawCode.isNotEmpty &&
           (currentName.isEmpty ||
+           currentName == rawCode ||
            currentName == "General Item" ||
            currentName.startsWith("Barcode ") ||
            currentName.startsWith("Item ") ||
@@ -3604,12 +3807,16 @@ class _PosScreenState extends State<PosScreen> {
               !(p['name'] ?? '').toString().startsWith("Barcode ") &&
               !(p['name'] ?? '').toString().startsWith("Item ") &&
               !(p['name'] ?? '').toString().startsWith("Unassigned") &&
-              p['name'].toString() != "General Item") {
+              p['name'].toString() != "General Item" &&
+              p['name'].toString() != rawCode) {
             item["itemName"] = p['name'].toString();
           }
         }
       }
       item["itemName"] = cleanItemName(item["itemName"]?.toString(), barcode: rawCode);
+      if (item["itemName"] == null || item["itemName"].toString().isEmpty || item["itemName"].toString() == "General Item") {
+        item["itemName"] = rawCode;
+      }
       if (rawCode.isNotEmpty && rawCode != item["itemName"]) {
         item["item"] = "${item["itemName"]}\n$rawCode";
       } else {
