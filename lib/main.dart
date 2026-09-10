@@ -29,7 +29,7 @@ class PosApp extends StatelessWidget {
   const PosApp({Key? key}) : super(key: key);
 
   @override
-
+  Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Love Kush Shopping Center',
       debugShowCheckedModeBanner: false,
