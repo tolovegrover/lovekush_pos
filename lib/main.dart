@@ -766,6 +766,9 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
   List<Map<String, dynamic>> items = [];
   String searchQuery = "";
 
+  // Scanned items waiting for shelf assignment (never lost!)
+  static List<Map<String, dynamic>> pendingScannedItems = [];
+
   // Last used code components for rapid sequential shelf entry
   static String _lastRack = "01";
   static String _lastCol = "03";
@@ -864,6 +867,13 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       await prefs.setString('last_col', _lastCol);
       await prefs.setString('last_row', _lastRow);
       await prefs.setInt('last_item_num', _lastItemNum);
+
+      // Remove from pending scanned queue since it is now assigned and saved to shop stock!
+      setState(() {
+        pendingScannedItems.removeWhere((p) =>
+          (p['barcode'] ?? '') == (companyBarcode ?? '') || (p['barcode'] ?? '') == code
+        );
+      });
 
       _fetchInventory();
       if (mounted) {
@@ -999,18 +1009,42 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         }
       }
 
-      // 3. If recognized in Master Catalog, show confirmation dialog
-      // (DO NOT add to shop inventory automatically!)
+      // 3. Recognized in Master Catalog / Backup OR New Item:
+      // Record in pending queue so it NEVER goes empty or gets lost!
       if (masterMatch != null) {
+        if (!pendingScannedItems.any((p) => (p['barcode'] ?? '') == clean)) {
+          setState(() {
+            pendingScannedItems.insert(0, {
+              'barcode': clean,
+              'name': masterMatch!['name'],
+              'brand': masterMatch['brand'] ?? '',
+              'price': masterMatch['price'] ?? 0.0,
+              'category': masterMatch['category'] ?? 'Cosmetics',
+            });
+          });
+        }
         if (mounted) {
           _showRecognizedMasterProductDialog(clean, masterMatch);
         }
       } else {
-        // Unrecognized code: prompt to add manual item
-        if (clean.length >= 8 && digitsOnly.length == clean.length) {
-          _showAddEditDialog(null, null, null, null, clean);
-        } else {
-          _showAddEditDialog(null, clean);
+        // Unrecognized barcode: record in pending & prompt to add
+        if (!pendingScannedItems.any((p) => (p['barcode'] ?? '') == clean)) {
+          setState(() {
+            pendingScannedItems.insert(0, {
+              'barcode': clean,
+              'name': 'New Scanned Product ($clean)',
+              'brand': '',
+              'price': 0.0,
+              'category': 'Cosmetics',
+            });
+          });
+        }
+        if (mounted) {
+          if (clean.length >= 8 && digitsOnly.length == clean.length) {
+            _showAddEditDialog(null, null, null, null, clean);
+          } else {
+            _showAddEditDialog(null, clean);
+          }
         }
       }
     }
@@ -1225,12 +1259,21 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("CANCEL (DO NOT ADD)", style: TextStyle(color: Colors.grey)),
+            onPressed: () {
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text("Kept in Pending List: ${prod['name']}"),
+                  backgroundColor: const Color(0xFFD97706),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            },
+            child: const Text("KEEP IN PENDING", style: TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.bold)),
           ),
           ElevatedButton.icon(
-            icon: const Icon(Icons.add_shopping_cart, size: 16),
-            label: const Text("+ ADD TO SHOP INVENTORY"),
+            icon: const Icon(Icons.add_location_alt, size: 16),
+            label: const Text("+ ASSIGN SHELF & SAVE"),
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), foregroundColor: Colors.white),
             onPressed: () {
               Navigator.pop(ctx);
@@ -1894,6 +1937,75 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
               onChanged: (val) => setState(() => searchQuery = val),
             ),
           ),
+          if (pendingScannedItems.isNotEmpty)
+            Container(
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFFBEB),
+                border: Border.all(color: const Color(0xFFF59E0B)),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.amber.withOpacity(0.12),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  )
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.pending_actions, color: Color(0xFFD97706), size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "${pendingScannedItems.length} Scanned Item${pendingScannedItems.length > 1 ? 's' : ''} Ready to Assign Shelf",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E)),
+                        ),
+                      ),
+                      TextButton(
+                        style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero),
+                        onPressed: () => setState(() => pendingScannedItems.clear()),
+                        child: const Text("Clear All", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    "Tap any item to assign its shelf number and save to shop stock:",
+                    style: TextStyle(fontSize: 11, color: Color(0xFFB45309)),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: pendingScannedItems.map((p) {
+                      return ActionChip(
+                        backgroundColor: Colors.white,
+                        side: const BorderSide(color: Color(0xFFF59E0B)),
+                        avatar: const Icon(Icons.add_location_alt, size: 14, color: Color(0xFFD97706)),
+                        label: Text(
+                          "${p['name']} (₹${(p['price'] as num?)?.toInt() ?? 0})",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF92400E)),
+                        ),
+                        onPressed: () {
+                          _showAddEditDialog(
+                            null,
+                            null,
+                            p['name'],
+                            (p['price'] as num?)?.toDouble() ?? 0.0,
+                            p['barcode'],
+                          );
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: isLoading
                 ? const Center(child: CircularProgressIndicator())
@@ -2566,6 +2678,15 @@ class _PosScreenState extends State<PosScreen> {
     if (rawItemCode.isEmpty || rate.isEmpty) return;
     final match = _lookupItem(rawItemCode);
     String itemName = match != null ? (match['item_name'] ?? '') : '';
+    if (itemName.isEmpty) {
+      // Check backup database so cart item name is NEVER blank!
+      for (var c in cosmeticDatabase) {
+        if ((c['barcode'] ?? '').toString().toUpperCase() == rawItemCode.toUpperCase()) {
+          itemName = c['name'] ?? '';
+          break;
+        }
+      }
+    }
     String displayTitle = itemName.isNotEmpty ? "$itemName\n$formattedItemCode" : formattedItemCode;
 
     setState(() {
@@ -3171,6 +3292,14 @@ class _PosScreenState extends State<PosScreen> {
                     codeSubtext = "⚠️ ${matches.length} items (Tap to pick)";
                     subColor = focusedField == 0 ? Colors.amberAccent : Colors.amber.shade800;
                     onConflictTap = () => _showConflictSelectionSheet(matches, rawItemCode);
+                  } else if (rawItemCode.isNotEmpty) {
+                    for (var c in cosmeticDatabase) {
+                      if ((c['barcode'] ?? '').toString().toUpperCase() == rawItemCode.toUpperCase()) {
+                        codeSubtext = "✨ ${c['name']} (MRP ₹${c['price']}) • From Backup";
+                        subColor = focusedField == 0 ? Colors.cyanAccent : Colors.teal.shade700;
+                        break;
+                      }
+                    }
                   }
                   return _buildInputBox(
                     "ITEM CODE",
@@ -3236,7 +3365,7 @@ class _PosScreenState extends State<PosScreen> {
                           } else if (matches.length > 1) {
                             _showConflictSelectionSheet(matches, parsedRaw);
                           } else {
-                            // Check Master Reference Database
+                            // Check Master Reference Database / Backup
                             bool foundInMaster = false;
                             for (var c in cosmeticDatabase) {
                               if ((c['barcode'] ?? '').toString().toUpperCase() == parsedRaw.toUpperCase()) {
@@ -3247,13 +3376,17 @@ class _PosScreenState extends State<PosScreen> {
                                 });
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text("Recognized Master Product: ${c['name']} (MRP ₹$rate)"),
-                                    duration: const Duration(seconds: 2),
+                                    content: Text("Backup Recognized: ${c['name']} (MRP ₹$rate)"),
+                                    duration: const Duration(seconds: 3),
                                     backgroundColor: Colors.teal,
+                                    action: SnackBarAction(
+                                      label: "ASSIGN SHELF",
+                                      textColor: Colors.amberAccent,
+                                      onPressed: () => _openItemCatalog(),
+                                    ),
                                   ),
                                 );
                                 foundInMaster = true;
-                                break;
                               }
                             }
                             if (!foundInMaster) {
