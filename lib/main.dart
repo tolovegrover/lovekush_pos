@@ -730,7 +730,10 @@ class PendingItemsManager {
       'scanned_at': DateTime.now().toIso8601String(),
     };
     if (index >= 0) {
-      if (name.isNotEmpty && items[index]['name'].toString().startsWith("Unassigned")) {
+      if (name.isNotEmpty &&
+          (items[index]['name'].toString().startsWith("Unassigned") ||
+           items[index]['name'].toString().startsWith("Barcode") ||
+           items[index]['name'].toString().startsWith("Item "))) {
         items[index]['name'] = name;
       }
       if (price > 0) {
@@ -743,6 +746,13 @@ class PendingItemsManager {
       items.insert(0, entry);
     }
     save();
+  }
+
+  static Map<String, dynamic>? find(String barcode) {
+    final clean = barcode.trim();
+    if (clean.isEmpty) return null;
+    final index = items.indexWhere((p) => (p['barcode'] ?? '').toString().trim().toUpperCase() == clean.toUpperCase());
+    return index >= 0 ? items[index] : null;
   }
 
   static void remove(String barcode) {
@@ -2387,6 +2397,19 @@ class _PosScreenState extends State<PosScreen> {
               activeItemName = officialName;
               activeItemSub = "🌐 Cloud Recognized (Not shelved yet)";
             }
+            // Reactive backfill: Update any item already placed in the cart during active sale
+            for (var i = 0; i < cart.length; i++) {
+              final cRaw = (cart[i]['rawItemCode'] ?? '').toString();
+              final cName = (cart[i]['itemName'] ?? '').toString();
+              if (cRaw == clean &&
+                  (cName.isEmpty ||
+                   cName.startsWith("Barcode") ||
+                   cName.startsWith("Unassigned") ||
+                   cName.startsWith("Item "))) {
+                cart[i]['itemName'] = officialName;
+                cart[i]['item'] = "$officialName\n$clean";
+              }
+            }
           });
           PendingItemsManager.addPending(
             barcode: clean,
@@ -2822,18 +2845,82 @@ class _PosScreenState extends State<PosScreen> {
     return total;
   }
 
+  void _updateLiveItemPreview(String code) {
+    if (code.isEmpty) {
+      activeItemName = "";
+      activeItemSub = "";
+      activeConflicts = [];
+      rate = "";
+      return;
+    }
+    final matches = _lookupAllMatches(code);
+    if (matches.length == 1) {
+      activeItemName = (matches.first['item_name'] ?? '').toString();
+      activeItemSub = "📍 Shelf: ${matches.first['shelf_location'] ?? ''}";
+      activeConflicts = [];
+      double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
+      if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+    } else if (matches.length > 1) {
+      activeItemName = (matches.first['item_name'] ?? '').toString();
+      activeItemSub = "⚠️ ${matches.length} items at this shelf";
+      activeConflicts = matches;
+      double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
+      if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+    } else {
+      for (var c in cosmeticDatabase) {
+        if ((c['barcode'] ?? '').toString().toUpperCase() == code.toUpperCase()) {
+          activeItemName = (c['name'] ?? '').toString();
+          activeItemSub = "✨ Backup Catalog (Not shelved yet)";
+          activeConflicts = [];
+          double p = (c['price'] as num?)?.toDouble() ?? 0.0;
+          if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+          return;
+        }
+      }
+      final pending = PendingItemsManager.find(code);
+      if (pending != null &&
+          (pending['name'] ?? '').toString().isNotEmpty &&
+          !(pending['name'] ?? '').toString().startsWith("Barcode ") &&
+          !(pending['name'] ?? '').toString().startsWith("Unassigned") &&
+          !(pending['name'] ?? '').toString().startsWith("Item ")) {
+        activeItemName = pending['name'].toString();
+        activeItemSub = "✨ Pending Queue (Not shelved yet)";
+        activeConflicts = [];
+        double p = (pending['price'] as num?)?.toDouble() ?? 0.0;
+        if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+        return;
+      }
+      activeItemName = "";
+      activeItemSub = "";
+      activeConflicts = [];
+      rate = "";
+    }
+  }
+
   void addToCart() {
     if (rawItemCode.isEmpty || rate.isEmpty) return;
     String itemName = activeItemName;
-    if (itemName.isEmpty) {
+    if (itemName.isEmpty || itemName.startsWith("Barcode ") || itemName.startsWith("Unassigned") || itemName.startsWith("Item ")) {
       final match = _lookupItem(rawItemCode);
-      itemName = match != null ? (match['item_name'] ?? '').toString() : '';
-      if (itemName.isEmpty) {
+      if (match != null && (match['item_name'] ?? '').toString().isNotEmpty) {
+        itemName = (match['item_name'] ?? '').toString();
+      }
+      if (itemName.isEmpty || itemName.startsWith("Barcode ") || itemName.startsWith("Unassigned") || itemName.startsWith("Item ")) {
         for (var c in cosmeticDatabase) {
           if ((c['barcode'] ?? '').toString().toUpperCase() == rawItemCode.toUpperCase()) {
             itemName = (c['name'] ?? '').toString();
             break;
           }
+        }
+      }
+      if (itemName.isEmpty || itemName.startsWith("Barcode ") || itemName.startsWith("Unassigned") || itemName.startsWith("Item ")) {
+        final pending = PendingItemsManager.find(rawItemCode);
+        if (pending != null &&
+            (pending['name'] ?? '').toString().isNotEmpty &&
+            !(pending['name'] ?? '').toString().startsWith("Barcode ") &&
+            !(pending['name'] ?? '').toString().startsWith("Unassigned") &&
+            !(pending['name'] ?? '').toString().startsWith("Item ")) {
+          itemName = pending['name'].toString();
         }
       }
     }
@@ -2922,32 +3009,7 @@ class _PosScreenState extends State<PosScreen> {
         else if (focusedField == 0) {
           if (rawItemCode.isNotEmpty) {
             rawItemCode = rawItemCode.substring(0, rawItemCode.length - 1);
-            if (rawItemCode.isEmpty) {
-              activeItemName = "";
-              activeItemSub = "";
-              activeConflicts = [];
-              rate = "";
-            } else {
-              final matches = _lookupAllMatches(rawItemCode);
-              if (matches.length == 1) {
-                activeItemName = (matches.first['item_name'] ?? '').toString();
-                activeItemSub = "📍 Shelf: ${matches.first['shelf_location'] ?? ''}";
-                activeConflicts = [];
-                double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
-                if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
-              } else if (matches.length > 1) {
-                activeItemName = (matches.first['item_name'] ?? '').toString();
-                activeItemSub = "⚠️ ${matches.length} items at this shelf";
-                activeConflicts = matches;
-                double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
-                if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
-              } else {
-                activeItemName = "";
-                activeItemSub = "";
-                activeConflicts = [];
-                rate = "";
-              }
-            }
+            _updateLiveItemPreview(rawItemCode);
           }
         }
       } 
@@ -2964,29 +3026,7 @@ class _PosScreenState extends State<PosScreen> {
         if (focusedField == 0) {
           if (value != ".") {
             rawItemCode += value;
-            final matches = _lookupAllMatches(rawItemCode);
-            if (matches.length == 1) {
-              activeItemName = (matches.first['item_name'] ?? '').toString();
-              activeItemSub = "📍 Shelf: ${matches.first['shelf_location'] ?? ''}";
-              activeConflicts = [];
-              double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
-              if (p > 0) {
-                rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
-              }
-            } else if (matches.length > 1) {
-              activeItemName = (matches.first['item_name'] ?? '').toString();
-              activeItemSub = "⚠️ ${matches.length} items at this shelf";
-              activeConflicts = matches;
-              double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
-              if (p > 0) {
-                rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
-              }
-            } else {
-              activeItemName = "";
-              activeItemSub = "";
-              activeConflicts = [];
-              rate = "";
-            }
+            _updateLiveItemPreview(rawItemCode);
           }
         }
         if (focusedField == 1) {
@@ -3091,6 +3131,34 @@ class _PosScreenState extends State<PosScreen> {
       finalChangeDue = ((double.tryParse(amountTendered) ?? 0.0) + (double.tryParse(onlineAmount) ?? 0.0)) - cartTotal;
     }
 
+    // Ensure every item in cart has its best possible resolved name
+    for (var item in cart) {
+      String rawCode = (item["rawItemCode"] ?? "").toString();
+      String currentName = (item["itemName"] ?? "").toString();
+      if (rawCode.isNotEmpty &&
+          (currentName.isEmpty ||
+           currentName.startsWith("Barcode ") ||
+           currentName.startsWith("Item ") ||
+           currentName.startsWith("Unassigned"))) {
+        for (var c in cosmeticDatabase) {
+          if ((c['barcode'] ?? '').toString().toUpperCase() == rawCode.toUpperCase()) {
+            item["itemName"] = (c['name'] ?? '').toString();
+            item["item"] = "${item["itemName"]}\n$rawCode";
+            break;
+          }
+        }
+        final p = PendingItemsManager.find(rawCode);
+        if (p != null &&
+            (p['name'] ?? '').toString().isNotEmpty &&
+            !(p['name'] ?? '').toString().startsWith("Barcode ") &&
+            !(p['name'] ?? '').toString().startsWith("Item ") &&
+            !(p['name'] ?? '').toString().startsWith("Unassigned")) {
+          item["itemName"] = p['name'].toString();
+          item["item"] = "${p['name']}\n$rawCode";
+        }
+      }
+    }
+
     // 1. Save to Supabase
     try {
       await Supabase.instance.client.from('bills').insert({
@@ -3134,7 +3202,7 @@ class _PosScreenState extends State<PosScreen> {
                 ? item["itemName"].toString()
                 : item["item"].toString();
             if (name.contains("\n")) name = name.split("\n")[0];
-            if (name.length > 15) name = name.substring(0, 15);
+            if (name.length > 20) name = name.substring(0, 20);
             String details = "${item["qty"]} x ₹${item["rate"]}";
             await bluetooth.printLeftRight(name, details, 1);
           }
@@ -4546,8 +4614,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       await bluetooth.printCustom("--------------------------------", 1, 1);
       
       for (var item in items) {
-        String name = item['item'].toString();
-        if (name.length > 15) name = name.substring(0, 15);
+        String name = (item['itemName'] != null && item['itemName'].toString().isNotEmpty)
+            ? item['itemName'].toString()
+            : item['item'].toString();
+        if (name.contains("\n")) name = name.split("\n")[0];
+        if (name.length > 20) name = name.substring(0, 20);
         String details = "${item['qty']} x ₹${item['rate']}";
         await bluetooth.printLeftRight(name, details, 1);
       }
