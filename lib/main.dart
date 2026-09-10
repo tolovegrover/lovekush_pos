@@ -1478,6 +1478,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   bool isLoading = true;
   double collection = 0.0;
   List<dynamic> pastBills = [];
+  BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
   
   String currentFilter = "Today";
   DateTime? customStart;
@@ -1530,6 +1531,61 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
+
+  void _reprintBill(Map<String, dynamic> bill) async {
+    bool? isConnected = await bluetooth.isConnected;
+    if (isConnected != true) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please connect printer first!")));
+      return;
+    }
+    
+    try {
+      final items = bill['items_json'] as List<dynamic>;
+      String bNo = bill['bill_number'] ?? "N/A";
+      String counterName = bill['counter_name'].toString();
+      double total = (bill['total_amount'] as num).toDouble();
+      
+      ByteData bytesAsset = await rootBundle.load("assets/logo_bw.jpg");
+      Uint8List imageBytes = bytesAsset.buffer.asUint8List();
+      await bluetooth.printImageBytes(imageBytes);
+      
+      await bluetooth.printNewLine();
+      await bluetooth.printCustom("LOVE KUSH", 3, 1); 
+      await bluetooth.printCustom("SHOPPING CENTER", 2, 1); 
+      await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
+      
+      if (bNo != "N/A") {
+        await bluetooth.printCustom("BILL NO: $bNo", 1, 1);
+      }
+      
+      await bluetooth.printNewLine();
+      await bluetooth.printLeftRight("Item", "Qty x Rate", 1);
+      await bluetooth.printCustom("--------------------------------", 1, 1);
+      
+      for (var item in items) {
+        String name = item['item'].toString();
+        if (name.length > 15) name = name.substring(0, 15);
+        String details = "${item['qty']} x ₹${item['rate']}";
+        await bluetooth.printLeftRight(name, details, 1);
+      }
+      
+      await bluetooth.printCustom("--------------------------------", 1, 1);
+      await bluetooth.printLeftRight("TOTAL", "₹${total.toStringAsFixed(2)}", 2); 
+      await bluetooth.printNewLine();
+      
+      await bluetooth.printCustom("Thank you for shopping!", 1, 1);
+      await bluetooth.printCustom("No Exchange / No Refund", 1, 1);
+      await bluetooth.printCustom("*** DUPLICATE COPY ***", 1, 1);
+      await bluetooth.printNewLine();
+      await bluetooth.printNewLine();
+      await bluetooth.paperCut();
+      
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill Reprinted!")));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Print Error: $e")));
+    }
+  }
+
   void _showBillPreview(Map<String, dynamic> bill) {
     showDialog(
       context: context,
@@ -1579,6 +1635,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             ),
           ),
           actions: [
+            ElevatedButton.icon(
+              icon: const Icon(Icons.print, color: Colors.white),
+              label: const Text("REPRINT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+              onPressed: () {
+                Navigator.pop(context);
+                _reprintBill(bill);
+              },
+            ),
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("CLOSE"))
           ],
         );
