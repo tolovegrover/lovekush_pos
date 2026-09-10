@@ -1,22 +1,20 @@
 import re
 
-filepath = "android/app/src/main/AndroidManifest.xml"
-with open(filepath, "r") as f:
+with open("android/app/src/main/AndroidManifest.xml", "r") as f:
     content = f.read()
 
-intent_filter = """
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="love-kush-pos.firebaseapp.com" />
-                <data android:scheme="http" android:host="love-kush-pos.firebaseapp.com" />
-            </intent-filter>
+permissions = """
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Bluetooth Permissions for Thermal Printer -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
 """
 
-# Insert inside the <activity> tag, right after the main intent-filter
-if "love-kush-pos.firebaseapp.com" not in content:
-    content = content.replace("</intent-filter>", "</intent-filter>" + intent_filter, 1)
+content = content.replace("""    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.CAMERA" />""", permissions)
 
-with open(filepath, "w") as f:
+with open("android/app/src/main/AndroidManifest.xml", "w") as f:
     f.write(content)
