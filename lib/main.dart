@@ -3128,11 +3128,16 @@ class _PosScreenState extends State<PosScreen> {
 
   void _saveAndPrintBill() async {
     final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+    final startOfDay = DateTime(now.year, now.month, now.day).toUtc().toIso8601String();
+    final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59, 999).toUtc().toIso8601String();
     
     String billNumber = "";
     try {
-      final data = await Supabase.instance.client.from('bills').select('id').gte('created_at', startOfDay);
+      final data = await Supabase.instance.client
+          .from('bills')
+          .select('id')
+          .gte('created_at', startOfDay)
+          .lte('created_at', endOfDay);
       int count = data.length + 1;
       
       String dateStr = "${now.day.toString().padLeft(2, '0')}${now.month.toString().padLeft(2, '0')}${now.year.toString().substring(2)}";
@@ -4751,14 +4756,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       String endISO = "";
 
       if (currentFilter == "Today") {
-        startISO = DateTime(now.year, now.month, now.day).toIso8601String();
-        endISO = DateTime(now.year, now.month, now.day, 23, 59, 59).toIso8601String();
+        startISO = DateTime(now.year, now.month, now.day).toUtc().toIso8601String();
+        endISO = DateTime(now.year, now.month, now.day, 23, 59, 59, 999).toUtc().toIso8601String();
       } else if (currentFilter == "This Month") {
-        startISO = DateTime(now.year, now.month, 1).toIso8601String();
-        endISO = DateTime(now.year, now.month + 1, 0, 23, 59, 59).toIso8601String();
+        startISO = DateTime(now.year, now.month, 1).toUtc().toIso8601String();
+        endISO = DateTime(now.year, now.month + 1, 1).subtract(const Duration(milliseconds: 1)).toUtc().toIso8601String();
       } else if (currentFilter == "Custom" && customStart != null && customEnd != null) {
-        startISO = customStart!.toIso8601String();
-        endISO = DateTime(customEnd!.year, customEnd!.month, customEnd!.day, 23, 59, 59).toIso8601String();
+        startISO = DateTime(customStart!.year, customStart!.month, customStart!.day).toUtc().toIso8601String();
+        endISO = DateTime(customEnd!.year, customEnd!.month, customEnd!.day, 23, 59, 59, 999).toUtc().toIso8601String();
       }
 
       final data = await Supabase.instance.client
