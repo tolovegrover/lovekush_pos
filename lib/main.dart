@@ -775,7 +775,6 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   void _saveAndPrintBill() async {
-    // Generate Bill Number: ddMMyy + 5 digit count
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
     
@@ -783,13 +782,22 @@ class _PosScreenState extends State<PosScreen> {
     try {
       final data = await Supabase.instance.client.from('bills').select('id').gte('created_at', startOfDay);
       int count = data.length + 1;
+      
       String dateStr = "${now.day.toString().padLeft(2, '0')}${now.month.toString().padLeft(2, '0')}${now.year.toString().substring(2)}";
-      billNumber = "$dateStr${count.toString().padLeft(5, '0')}";
+      String sellerCode = (widget.userEmail.hashCode.abs() % 90 + 10).toString(); // 2 digits
+      billNumber = "$dateStr$sellerCode${count.toString().padLeft(4, '0')}";
     } catch (e) {
       billNumber = "${now.millisecondsSinceEpoch}";
     }
 
-    // 1. Save to Supabase Cloud ALWAYS
+    double finalChangeDue = 0.0;
+    if (paymentMethod == 'Cash') {
+      finalChangeDue = (double.tryParse(amountTendered) ?? 0.0) - cartTotal;
+    } else if (paymentMethod == 'Hybrid') {
+      finalChangeDue = ((double.tryParse(amountTendered) ?? 0.0) + (double.tryParse(onlineAmount) ?? 0.0)) - cartTotal;
+    }
+
+    // 1. Save to Supabase
     try {
       await Supabase.instance.client.from('bills').insert({
         'bill_number': billNumber,
@@ -799,7 +807,7 @@ class _PosScreenState extends State<PosScreen> {
         'items_json': cart,
         'payment_method': paymentMethod,
         'amount_tendered': double.tryParse(amountTendered) ?? 0.0,
-        'change_due': (paymentMethod == 'Cash' && double.tryParse(amountTendered) != null) ? ((double.tryParse(amountTendered) ?? 0.0) - cartTotal) : 0.0,
+        'change_due': finalChangeDue,
       });
     } catch (dbError) {
       print("Supabase Error: $dbError");
@@ -838,6 +846,20 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printLeftRight("TOTAL", "₹${cartTotal.toStringAsFixed(2)}", 2); 
           await bluetooth.printNewLine();
           
+          await bluetooth.printLeftRight("PAYMENT", paymentMethod.toUpperCase(), 1);
+          if (paymentMethod == "Cash" && double.tryParse(amountTendered) != null) {
+            double tendered = double.tryParse(amountTendered)!;
+            await bluetooth.printLeftRight("Tendered:", "Rs${tendered.toStringAsFixed(2)}", 1);
+            await bluetooth.printLeftRight("Change:", "Rs${(tendered - cartTotal).toStringAsFixed(2)}", 1);
+          } else if (paymentMethod == "Hybrid") {
+            await bluetooth.printLeftRight("Cash:", "Rs${amountTendered}", 1);
+            await bluetooth.printLeftRight("Online:", "Rs${onlineAmount}", 1);
+            if (finalChangeDue > 0) {
+              await bluetooth.printLeftRight("Change:", "Rs${finalChangeDue.toStringAsFixed(2)}", 1);
+            }
+          }
+          await bluetooth.printNewLine();
+
           await bluetooth.printCustom("Thank you for shopping!", 1, 1);
           await bluetooth.printCustom("No Exchange / No Refund", 1, 1);
           await bluetooth.printNewLine();
@@ -1204,6 +1226,10 @@ class _PosScreenState extends State<PosScreen> {
     double changeDue = 0;
     if (paymentMethod == 'Cash' && double.tryParse(amountTendered) != null) {
       changeDue = double.parse(amountTendered) - cartTotal;
+    } else if (paymentMethod == 'Hybrid') {
+      double cash = double.tryParse(amountTendered) ?? 0.0;
+      double online = double.tryParse(onlineAmount) ?? 0.0;
+      changeDue = (cash + online) - cartTotal;
     }
     
     return Scaffold(
@@ -1266,6 +1292,8 @@ class _PosScreenState extends State<PosScreen> {
                                   Expanded(child: TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Online (₹)", border: OutlineInputBorder()), onChanged: (val) => setState(() => onlineAmount = val))),
                                 ],
                               ),
+                              const SizedBox(height: 12),
+                              Text("Change Due: ₹${changeDue.toStringAsFixed(2)}", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: changeDue >= 0 ? Colors.green : Colors.red)),
                             ]
                           ],
                         ),
