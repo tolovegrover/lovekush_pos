@@ -484,6 +484,45 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
 // ==========================================
 
 // ==========================================
+// ITEM NAME SANITIZER & DISPLAY FORMATTER
+// ==========================================
+// Ensures bills, receipts, and previews:
+// 1. Never display "Unassigned Product" or "Barcode 890..."
+// 2. Never duplicate the barcode number twice (e.g. in parentheses)
+// 3. Defaults uncataloged items to "General Item"
+String cleanItemName(String? name, {String? barcode}) {
+  if (name == null || name.trim().isEmpty) {
+    return "General Item";
+  }
+  String cleaned = name.trim();
+  if (cleaned.contains("\n")) {
+    cleaned = cleaned.split("\n")[0].trim();
+  }
+  // Strip trailing bracketed barcode matching the barcode parameter if provided
+  if (barcode != null && barcode.isNotEmpty) {
+    cleaned = cleaned.replaceAll("($barcode)", "").trim();
+  }
+  // Strip bracketed long barcode or numeric ID (5+ digits)
+  cleaned = cleaned.replaceAll(RegExp(r'\s*\([0-9]{5,}\)$'), '').trim();
+  // Strip bracketed shelf format like (01-03-C-134) or (01-03-C)
+  cleaned = cleaned.replaceAll(RegExp(r'\s*\([0-9]{2}-[0-9]{2}-[A-Za-z](-[0-9]+)?\)$'), '').trim();
+  // Strip general trailing bracketed raw codes if they resemble barcodes/itemcodes (5+ alphanumeric chars)
+  cleaned = cleaned.replaceAll(RegExp(r'\s*\([0-9A-Za-z-]{5,}\)$'), '').trim();
+
+  // If it is a placeholder name, default cleanly to "General Item"
+  final lower = cleaned.toLowerCase();
+  if (cleaned.isEmpty ||
+      lower.startsWith("unassigned") ||
+      lower.startsWith("new scanned product") ||
+      lower.startsWith("barcode ") ||
+      lower == "barcode" ||
+      RegExp(r'^item\s+[0-9A-Za-z-]+$', caseSensitive: false).hasMatch(cleaned)) {
+    cleaned = "General Item";
+  }
+  return cleaned;
+}
+
+// ==========================================
 // SHELF CODE BREAKDOWN & AUTO-DASH FORMATTER
 // ==========================================
 class ShelfCodeBreakdown {
@@ -699,7 +738,11 @@ class PendingItemsManager {
       if (str != null && str.isNotEmpty) {
         final decoded = json.decode(str);
         if (decoded is List) {
-          items = List<Map<String, dynamic>>.from(decoded);
+          items = List<Map<String, dynamic>>.from(decoded).map((item) {
+            final m = Map<String, dynamic>.from(item);
+            m['name'] = cleanItemName(m['name']?.toString(), barcode: m['barcode']?.toString());
+            return m;
+          }).toList();
         }
       }
     } catch (_) {}
@@ -721,21 +764,26 @@ class PendingItemsManager {
   }) {
     final clean = barcode.trim();
     if (clean.isEmpty) return;
+    String cleanName = cleanItemName(name, barcode: clean);
     final index = items.indexWhere((p) => (p['barcode'] ?? '').toString().trim().toUpperCase() == clean.toUpperCase());
     final entry = {
       'barcode': clean,
-      'name': name.isNotEmpty ? name : "Unassigned Item ($clean)",
+      'name': cleanName,
       'brand': brand,
       'price': price,
       'category': category,
       'scanned_at': DateTime.now().toIso8601String(),
     };
     if (index >= 0) {
-      if (name.isNotEmpty &&
+      if (cleanName.isNotEmpty &&
+          cleanName != "General Item" &&
           (items[index]['name'].toString().startsWith("Unassigned") ||
+           items[index]['name'].toString().startsWith("General Item") ||
            items[index]['name'].toString().startsWith("Barcode") ||
            items[index]['name'].toString().startsWith("Item "))) {
-        items[index]['name'] = name;
+        items[index]['name'] = cleanName;
+      } else if (items[index]['name'].toString().startsWith("Unassigned") || items[index]['name'].toString().startsWith("Barcode")) {
+        items[index]['name'] = cleanName;
       }
       if (price > 0) {
         items[index]['price'] = price;
@@ -1046,7 +1094,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         // Unrecognized barcode: record in pending & prompt to add
         PendingItemsManager.addPending(
           barcode: clean,
-          name: 'New Scanned Product ($clean)',
+          name: 'General Item',
           brand: '',
           price: 0.0,
           category: 'Cosmetics',
@@ -1624,12 +1672,26 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                             ),
                           );
                           if (scanned != null && scanned is String && scanned.isNotEmpty) {
-                            final parsed = ShelfCodeBreakdown.parse(scanned.trim());
-                            setDialogState(() {
-                              shelfCodeCtrl.text = parsed.fullCode.isNotEmpty
-                                  ? parsed.fullCode
-                                  : scanned.trim().toUpperCase();
-                            });
+                            final clean = scanned.trim();
+                            final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
+                            if (clean.length >= 8 && digitsOnly.length == clean.length) {
+                              setDialogState(() => companyBarcodeCtrl.text = clean);
+                              setDialogState(() => isFetchingObf = true);
+                              final obf = await fetchOpenBeautyFacts(clean);
+                              setDialogState(() {
+                                isFetchingObf = false;
+                                if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty && nameCtrl.text.isEmpty) {
+                                  nameCtrl.text = obf['name']!;
+                                }
+                              });
+                            } else {
+                              final parsed = ShelfCodeBreakdown.parse(clean);
+                              setDialogState(() {
+                                shelfCodeCtrl.text = parsed.fullCode.isNotEmpty
+                                    ? parsed.fullCode
+                                    : clean.toUpperCase();
+                              });
+                            }
                           }
                         },
                       ),
@@ -2384,8 +2446,8 @@ class _PosScreenState extends State<PosScreen> {
     if (clean.length >= 8 && digitsOnly.length == clean.length) {
       setState(() {
         rawItemCode = clean;
-        activeItemName = "Barcode $clean";
-        activeItemSub = "Checking cloud (<2s)...";
+        activeItemName = "General Item";
+        activeItemSub = "🔍 Checking product catalog (<2s)...";
         activeConflicts = [];
         focusedField = 2; // Move directly to rate so cashier can enter price without waiting
       });
@@ -2404,6 +2466,7 @@ class _PosScreenState extends State<PosScreen> {
               final cName = (cart[i]['itemName'] ?? '').toString();
               if (cRaw == clean &&
                   (cName.isEmpty ||
+                   cName == "General Item" ||
                    cName.startsWith("Barcode") ||
                    cName.startsWith("Unassigned") ||
                    cName.startsWith("Item "))) {
@@ -2422,13 +2485,13 @@ class _PosScreenState extends State<PosScreen> {
         } else {
           setState(() {
             if (rawItemCode == clean) {
-              activeItemName = "Unassigned Product ($clean)";
-              activeItemSub = "📦 Not in database yet";
+              activeItemName = "General Item";
+              activeItemSub = "📦 Not in catalog yet (Tap to name)";
             }
           });
           PendingItemsManager.addPending(
             barcode: clean,
-            name: "Unassigned Product ($clean)",
+            name: "General Item",
             price: double.tryParse(rate) ?? 0.0,
           );
         }
@@ -2439,14 +2502,14 @@ class _PosScreenState extends State<PosScreen> {
     // 4. Short / uncataloged code
     setState(() {
       rawItemCode = clean;
-      activeItemName = "Unassigned Item ($clean)";
-      activeItemSub = "📦 Not in database yet";
+      activeItemName = "General Item";
+      activeItemSub = "📦 Not in catalog yet (Tap to name)";
       activeConflicts = [];
       focusedField = 2; // Move to rate
     });
     PendingItemsManager.addPending(
       barcode: clean,
-      name: "Unassigned Item ($clean)",
+      name: "General Item",
       price: double.tryParse(rate) ?? 0.0,
     );
   }
@@ -2911,15 +2974,89 @@ class _PosScreenState extends State<PosScreen> {
     }
   }
 
+  void _promptRenameActiveItem() {
+    if (rawItemCode.isEmpty) return;
+    final textController = TextEditingController(
+      text: (activeItemName == "General Item" ||
+              activeItemName.startsWith("Barcode ") ||
+              activeItemName.startsWith("Unassigned") ||
+              activeItemName.startsWith("Item "))
+          ? ""
+          : activeItemName,
+    );
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: Row(
+          children: const [
+            Icon(Icons.edit_note, color: Colors.blueAccent),
+            SizedBox(width: 8),
+            Text("Name Scanned Product", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Barcode: $rawItemCode", style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: textController,
+              autofocus: true,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: "Product Name",
+                hintText: "e.g. Ponds Cold Cream 55ml",
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final newName = textController.text.trim();
+              if (newName.isNotEmpty) {
+                setState(() {
+                  activeItemName = newName;
+                  activeItemSub = "✏️ Custom Named";
+                });
+                PendingItemsManager.addPending(
+                  barcode: rawItemCode,
+                  name: newName,
+                  price: double.tryParse(rate) ?? 0.0,
+                );
+              }
+              Navigator.pop(dialogCtx);
+            },
+            child: const Text("Save"),
+          ),
+        ],
+      ),
+    );
+  }
+
   void addToCart() {
     if (rawItemCode.isEmpty || rate.isEmpty) return;
     String itemName = activeItemName;
-    if (itemName.isEmpty || itemName.startsWith("Barcode ") || itemName.startsWith("Unassigned") || itemName.startsWith("Item ")) {
+    if (itemName.isEmpty ||
+        itemName == "General Item" ||
+        itemName.startsWith("Barcode ") ||
+        itemName.startsWith("Unassigned") ||
+        itemName.startsWith("Item ")) {
       final match = _lookupItem(rawItemCode);
       if (match != null && (match['item_name'] ?? '').toString().isNotEmpty) {
         itemName = (match['item_name'] ?? '').toString();
       }
-      if (itemName.isEmpty || itemName.startsWith("Barcode ") || itemName.startsWith("Unassigned") || itemName.startsWith("Item ")) {
+      if (itemName.isEmpty ||
+          itemName == "General Item" ||
+          itemName.startsWith("Barcode ") ||
+          itemName.startsWith("Unassigned") ||
+          itemName.startsWith("Item ")) {
         for (var c in cosmeticDatabase) {
           if ((c['barcode'] ?? '').toString().toUpperCase() == rawItemCode.toUpperCase()) {
             itemName = (c['name'] ?? '').toString();
@@ -2927,19 +3064,26 @@ class _PosScreenState extends State<PosScreen> {
           }
         }
       }
-      if (itemName.isEmpty || itemName.startsWith("Barcode ") || itemName.startsWith("Unassigned") || itemName.startsWith("Item ")) {
+      if (itemName.isEmpty ||
+          itemName == "General Item" ||
+          itemName.startsWith("Barcode ") ||
+          itemName.startsWith("Unassigned") ||
+          itemName.startsWith("Item ")) {
         final pending = PendingItemsManager.find(rawItemCode);
         if (pending != null &&
             (pending['name'] ?? '').toString().isNotEmpty &&
             !(pending['name'] ?? '').toString().startsWith("Barcode ") &&
             !(pending['name'] ?? '').toString().startsWith("Unassigned") &&
-            !(pending['name'] ?? '').toString().startsWith("Item ")) {
+            !(pending['name'] ?? '').toString().startsWith("Item ") &&
+            (pending['name'] ?? '').toString() != "General Item") {
           itemName = pending['name'].toString();
         }
       }
     }
-    if (itemName.isEmpty) {
-      itemName = "Item $formattedItemCode";
+
+    itemName = cleanItemName(itemName, barcode: formattedItemCode);
+    if (itemName.isEmpty || itemName.toLowerCase().startsWith("unassigned")) {
+      itemName = "General Item";
     }
 
     // Save/update pending item with user-entered rate if not yet in inventory
@@ -2955,7 +3099,9 @@ class _PosScreenState extends State<PosScreen> {
       }
     }
 
-    String displayTitle = "$itemName\n$formattedItemCode";
+    String displayTitle = formattedItemCode.isNotEmpty && formattedItemCode != itemName
+        ? "$itemName\n$formattedItemCode"
+        : itemName;
 
     setState(() {
       cart.insert(0, {
@@ -3174,13 +3320,13 @@ class _PosScreenState extends State<PosScreen> {
       String currentName = (item["itemName"] ?? "").toString();
       if (rawCode.isNotEmpty &&
           (currentName.isEmpty ||
+           currentName == "General Item" ||
            currentName.startsWith("Barcode ") ||
            currentName.startsWith("Item ") ||
            currentName.startsWith("Unassigned"))) {
         for (var c in cosmeticDatabase) {
           if ((c['barcode'] ?? '').toString().toUpperCase() == rawCode.toUpperCase()) {
             item["itemName"] = (c['name'] ?? '').toString();
-            item["item"] = "${item["itemName"]}\n$rawCode";
             break;
           }
         }
@@ -3189,10 +3335,16 @@ class _PosScreenState extends State<PosScreen> {
             (p['name'] ?? '').toString().isNotEmpty &&
             !(p['name'] ?? '').toString().startsWith("Barcode ") &&
             !(p['name'] ?? '').toString().startsWith("Item ") &&
-            !(p['name'] ?? '').toString().startsWith("Unassigned")) {
+            !(p['name'] ?? '').toString().startsWith("Unassigned") &&
+            p['name'].toString() != "General Item") {
           item["itemName"] = p['name'].toString();
-          item["item"] = "${p['name']}\n$rawCode";
         }
+      }
+      item["itemName"] = cleanItemName(item["itemName"]?.toString(), barcode: rawCode);
+      if (rawCode.isNotEmpty && rawCode != item["itemName"]) {
+        item["item"] = "${item["itemName"]}\n$rawCode";
+      } else {
+        item["item"] = item["itemName"];
       }
     }
 
@@ -3248,10 +3400,12 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printCustom("--------------------------------", 1, 1);
           
           for (var item in cart) {
-            String name = (item["itemName"] != null && item["itemName"].toString().isNotEmpty)
-                ? item["itemName"].toString()
-                : item["item"].toString();
-            if (name.contains("\n")) name = name.split("\n")[0];
+            String name = cleanItemName(
+              (item["itemName"] != null && item["itemName"].toString().isNotEmpty)
+                  ? item["itemName"].toString()
+                  : item["item"].toString(),
+              barcode: item["rawItemCode"]?.toString(),
+            );
             if (name.length > 20) name = name.substring(0, 20);
             String details = "${item["qty"]} x ₹${item["rate"]}";
             await bluetooth.printLeftRight(name, details, 1);
@@ -3547,7 +3701,7 @@ class _PosScreenState extends State<PosScreen> {
                   "${PendingItemsManager.items.length} Pending",
                   style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
                 ),
-                tooltip: "Unassigned Scanned Barcodes (Assign Later)",
+                tooltip: "Pending Scanned Barcodes (Assign Later)",
                 onPressed: _openItemCatalog,
               ),
             ),
@@ -3725,55 +3879,66 @@ class _PosScreenState extends State<PosScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Icon(
-                              activeConflicts.isNotEmpty
-                                  ? Icons.shelves
-                                  : Icons.check_circle_outline,
-                              size: 16,
-                              color: activeConflicts.isNotEmpty
-                                  ? const Color(0xFFB45309)
-                                  : const Color(0xFF059669),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                activeItemName,
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold,
-                                  color: activeConflicts.isNotEmpty
-                                      ? const Color(0xFF78350F)
-                                      : const Color(0xFF065F46),
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                        InkWell(
+                          onTap: _promptRenameActiveItem,
+                          borderRadius: BorderRadius.circular(6),
+                          child: Row(
+                            children: [
+                              Icon(
+                                activeConflicts.isNotEmpty
+                                    ? Icons.shelves
+                                    : Icons.check_circle_outline,
+                                size: 16,
+                                color: activeConflicts.isNotEmpty
+                                    ? const Color(0xFFB45309)
+                                    : const Color(0xFF059669),
                               ),
-                            ),
-                            if (activeItemSub.isNotEmpty) ...[
-                              const SizedBox(width: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: activeConflicts.isNotEmpty
-                                      ? const Color(0xFFFDE68A)
-                                      : const Color(0xFFA7F3D0),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
+                              const SizedBox(width: 8),
+                              Expanded(
                                 child: Text(
-                                  activeItemSub,
+                                  activeItemName,
                                   style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
                                     color: activeConflicts.isNotEmpty
-                                        ? const Color(0xFF92400E)
+                                        ? const Color(0xFF78350F)
                                         : const Color(0xFF065F46),
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ),
+                              IconButton(
+                                icon: const Icon(Icons.edit_outlined, size: 16, color: Colors.blueGrey),
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                                tooltip: "Tap to rename this item",
+                                onPressed: _promptRenameActiveItem,
+                              ),
+                              if (activeItemSub.isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: activeConflicts.isNotEmpty
+                                        ? const Color(0xFFFDE68A)
+                                        : const Color(0xFFA7F3D0),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    activeItemSub,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: activeConflicts.isNotEmpty
+                                          ? const Color(0xFF92400E)
+                                          : const Color(0xFF065F46),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                         // Inline choice chips for multiple shelf items - NO POPUPS!
                         if (activeConflicts.length > 1) ...[
@@ -4141,12 +4306,22 @@ class _PosScreenState extends State<PosScreen> {
                       const Text("----------------------------------------", style: TextStyle(color: Colors.grey)),
                       const SizedBox(height: 16),
                       ...cart.reversed.map((item) {
+                        String name = cleanItemName(
+                          (item["itemName"] != null && item["itemName"].toString().isNotEmpty)
+                              ? item["itemName"].toString()
+                              : item["item"].toString(),
+                          barcode: item["rawItemCode"]?.toString(),
+                        );
+                        String rawCode = (item["rawItemCode"] ?? "").toString();
+                        String previewTitle = rawCode.isNotEmpty && rawCode != name
+                            ? "$name\n$rawCode"
+                            : name;
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Expanded(flex: 3, child: Text(item["item"], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+                              Expanded(flex: 3, child: Text(previewTitle, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
                               Expanded(flex: 2, child: Text("${item["qty"]} x ${item["rate"]}", style: const TextStyle(fontSize: 14, color: Colors.black54), textAlign: TextAlign.center)),
                               Expanded(flex: 2, child: Text("₹${item["price"]}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800), textAlign: TextAlign.right)),
                             ],
@@ -4747,7 +4922,10 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   @override
   void initState() {
     super.initState();
-    controller = MobileScannerController(); // Scans ALL 1D & 2D formats (Code 128, Code 39, EAN, UPC, QR)
+    controller = MobileScannerController(
+      formats: const [BarcodeFormat.all],
+      detectionSpeed: DetectionSpeed.noDuplicates,
+    );
   }
 
   @override
@@ -4905,10 +5083,12 @@ Future<void> executeReprintThermalBill({
     await bluetooth.printCustom("--------------------------------", 1, 1);
 
     for (var item in items) {
-      String name = (item['itemName'] != null && item['itemName'].toString().isNotEmpty)
-          ? item['itemName'].toString()
-          : (item['item'] ?? '').toString();
-      if (name.contains("\n")) name = name.split("\n")[0];
+      String name = cleanItemName(
+        (item['itemName'] != null && item['itemName'].toString().isNotEmpty)
+            ? item['itemName'].toString()
+            : (item['item'] ?? '').toString(),
+        barcode: item['rawItemCode']?.toString(),
+      );
       if (name.length > 20) name = name.substring(0, 20);
       String details = "${item['qty'] ?? 1} x ₹${item['rate'] ?? 0}";
       await bluetooth.printLeftRight(name, details, 1);
@@ -5076,10 +5256,12 @@ void showReceiptPreviewDialog({
 
                         // Items list
                         ...items.map((item) {
-                          String name = (item['itemName'] != null && item['itemName'].toString().isNotEmpty)
-                              ? item['itemName'].toString()
-                              : (item['item'] ?? '').toString();
-                          if (name.contains("\n")) name = name.split("\n")[0];
+                          String name = cleanItemName(
+                            (item['itemName'] != null && item['itemName'].toString().isNotEmpty)
+                                ? item['itemName'].toString()
+                                : (item['item'] ?? '').toString(),
+                            barcode: item['rawItemCode']?.toString(),
+                          );
                           final qty = item['qty'] ?? 1;
                           final rate = item['rate'] ?? 0;
                           return Padding(
