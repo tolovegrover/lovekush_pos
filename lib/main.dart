@@ -444,6 +444,51 @@ class _PosScreenState extends State<PosScreen> {
   String qty = "1"; 
   String rate = ""; 
   int focusedField = 0; 
+  String counterName = "Basement Counter";
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCounterName();
+  }
+
+  void _loadCounterName() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        counterName = prefs.getString('counterName') ?? "Basement Counter";
+      });
+    }
+  }
+
+  void _changeCounterName() {
+    TextEditingController ctrl = TextEditingController(text: counterName);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Change Counter Name"),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(labelText: "Counter Name (e.g. Ground Floor)"),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.black54))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.black),
+            onPressed: () async {
+              if (ctrl.text.trim().isNotEmpty) {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString('counterName', ctrl.text.trim());
+                setState(() => counterName = ctrl.text.trim());
+                if (mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text("SAVE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          )
+        ]
+      )
+    );
+  }
   bool isPreviewingBill = false;
   bool isScanning = false; 
 
