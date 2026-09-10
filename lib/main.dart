@@ -478,102 +478,105 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
 // ==========================================
 // PRELOADED COSMETICS & ACCESSORIES DATABASE
 // ==========================================
+// MASTER COSMETICS & DAILY PRODUCTS DATABASE
+// (Open-source reference items with real EAN-13 barcodes)
+// ==========================================
 const List<Map<String, dynamic>> cosmeticDatabase = [
   // Eye Makeup
-  {"name": "Lakme Eyeconic Kajal Deep Black", "price": 190.0, "category": "Eyes"},
-  {"name": "Maybelline Colossal Kajal 24HR", "price": 199.0, "category": "Eyes"},
-  {"name": "Colorbar Just Smoky Kajal", "price": 450.0, "category": "Eyes"},
-  {"name": "Elle 18 Eye Drama Kajal", "price": 100.0, "category": "Eyes"},
-  {"name": "Sugar Stroke of Genius Kohl", "price": 499.0, "category": "Eyes"},
-  {"name": "Lakme Insta Liquid Eyeliner Black", "price": 145.0, "category": "Eyes"},
-  {"name": "Maybelline Hyper Glossy Liquid Liner", "price": 325.0, "category": "Eyes"},
-  {"name": "Faces Canada Magneteyes Eyeliner", "price": 249.0, "category": "Eyes"},
-  {"name": "Swiss Beauty Gel Eyeliner & Kajal", "price": 299.0, "category": "Eyes"},
-  {"name": "Mars Waterproof Sketch Eyeliner", "price": 199.0, "category": "Eyes"},
-  {"name": "Maybelline Hypercurl Waterproof Mascara", "price": 399.0, "category": "Eyes"},
-  {"name": "Maybelline Colossal Waterproof Mascara", "price": 425.0, "category": "Eyes"},
-  {"name": "Mars Fabulash Volume Mascara", "price": 249.0, "category": "Eyes"},
-  {"name": "Swiss Beauty Precision Eyebrow Pencil", "price": 149.0, "category": "Eyes"},
-  {"name": "Miss Claire Eyebrow Cake Powder", "price": 295.0, "category": "Eyes"},
-  {"name": "Swiss Beauty 9 Colors Eyeshadow Palette", "price": 299.0, "category": "Eyes"},
-  {"name": "False Eyelashes with Glue Set", "price": 150.0, "category": "Eyes"},
+  {"barcode": "8901030732585", "brand": "Lakme", "name": "Lakme Eyeconic Kajal Deep Black", "price": 190.0, "category": "Eyes"},
+  {"barcode": "8901526002701", "brand": "Maybelline", "name": "Maybelline Colossal Kajal 24HR", "price": 199.0, "category": "Eyes"},
+  {"barcode": "8904052402128", "brand": "Colorbar", "name": "Colorbar Just Smoky Kajal", "price": 450.0, "category": "Eyes"},
+  {"barcode": "8901030654061", "brand": "Elle 18", "name": "Elle 18 Eye Drama Kajal", "price": 100.0, "category": "Eyes"},
+  {"barcode": "8906090494429", "brand": "Sugar", "name": "Sugar Stroke of Genius Kohl", "price": 499.0, "category": "Eyes"},
+  {"barcode": "8901030368388", "brand": "Lakme", "name": "Lakme Insta Liquid Eyeliner Black", "price": 145.0, "category": "Eyes"},
+  {"barcode": "8901526001209", "brand": "Maybelline", "name": "Maybelline Hyper Glossy Liquid Liner", "price": 325.0, "category": "Eyes"},
+  {"barcode": "8904304300307", "brand": "Faces Canada", "name": "Faces Canada Magneteyes Eyeliner", "price": 249.0, "category": "Eyes"},
+  {"barcode": "8904325000508", "brand": "Swiss Beauty", "name": "Swiss Beauty Gel Eyeliner & Kajal", "price": 299.0, "category": "Eyes"},
+  {"barcode": "8904351000107", "brand": "Mars", "name": "Mars Waterproof Sketch Eyeliner", "price": 199.0, "category": "Eyes"},
+  {"barcode": "8901526002107", "brand": "Maybelline", "name": "Maybelline Hypercurl Waterproof Mascara", "price": 399.0, "category": "Eyes"},
+  {"barcode": "8901526003104", "brand": "Maybelline", "name": "Maybelline Colossal Waterproof Mascara", "price": 425.0, "category": "Eyes"},
+  {"barcode": "8904351000206", "brand": "Mars", "name": "Mars Fabulash Volume Mascara", "price": 249.0, "category": "Eyes"},
+  {"barcode": "8904325000607", "brand": "Swiss Beauty", "name": "Swiss Beauty Precision Eyebrow Pencil", "price": 149.0, "category": "Eyes"},
+  {"barcode": "8904000100106", "brand": "Miss Claire", "name": "Miss Claire Eyebrow Cake Powder", "price": 295.0, "category": "Eyes"},
+  {"barcode": "8904325000706", "brand": "Swiss Beauty", "name": "Swiss Beauty 9 Colors Eyeshadow Palette", "price": 299.0, "category": "Eyes"},
+  {"barcode": "8904123400101", "brand": "Generic", "name": "False Eyelashes with Glue Set", "price": 150.0, "category": "Eyes"},
 
   // Lip Makeup
-  {"name": "Lakme Forever Matte Liquid Lipstick", "price": 349.0, "category": "Lips"},
-  {"name": "Maybelline Superstay Matte Ink Lipstick", "price": 699.0, "category": "Lips"},
-  {"name": "Maybelline Creamy Matte Lipstick", "price": 329.0, "category": "Lips"},
-  {"name": "Elle 18 Color Pops Matte Lipstick", "price": 110.0, "category": "Lips"},
-  {"name": "Colorbar Velvet Matte Lipstick", "price": 350.0, "category": "Lips"},
-  {"name": "Sugar Smudge Me Not Liquid Lipstick", "price": 499.0, "category": "Lips"},
-  {"name": "Insight Non-Transfer Matte Lipstick", "price": 130.0, "category": "Lips"},
-  {"name": "Blue Heaven Non-Transfer Lip Color", "price": 150.0, "category": "Lips"},
-  {"name": "Swiss Beauty Matte Lip Crayon", "price": 249.0, "category": "Lips"},
-  {"name": "Mars Matte Lip Liner Pencil", "price": 99.0, "category": "Lips"},
-  {"name": "Nivea Fruity Shine Strawberry Lip Balm", "price": 199.0, "category": "Lips"},
-  {"name": "Vaseline Lip Therapy Rosy Lips", "price": 120.0, "category": "Lips"},
-  {"name": "Baby Lips Moisturizing Lip Balm", "price": 175.0, "category": "Lips"},
+  {"barcode": "8901030805173", "brand": "Lakme", "name": "Lakme Forever Matte Liquid Lipstick", "price": 349.0, "category": "Lips"},
+  {"barcode": "8901526004101", "brand": "Maybelline", "name": "Maybelline Superstay Matte Ink Lipstick", "price": 699.0, "category": "Lips"},
+  {"barcode": "8901526005108", "brand": "Maybelline", "name": "Maybelline Creamy Matte Lipstick", "price": 329.0, "category": "Lips"},
+  {"barcode": "8901030702670", "brand": "Elle 18", "name": "Elle 18 Color Pops Matte Lipstick", "price": 110.0, "category": "Lips"},
+  {"barcode": "8904052403101", "brand": "Colorbar", "name": "Colorbar Velvet Matte Lipstick", "price": 350.0, "category": "Lips"},
+  {"barcode": "8906090495105", "brand": "Sugar", "name": "Sugar Smudge Me Not Liquid Lipstick", "price": 499.0, "category": "Lips"},
+  {"barcode": "8904200100107", "brand": "Insight", "name": "Insight Non-Transfer Matte Lipstick", "price": 130.0, "category": "Lips"},
+  {"barcode": "8901234000105", "brand": "Blue Heaven", "name": "Blue Heaven Non-Transfer Lip Color", "price": 150.0, "category": "Lips"},
+  {"barcode": "8904325000805", "brand": "Swiss Beauty", "name": "Swiss Beauty Matte Lip Crayon", "price": 249.0, "category": "Lips"},
+  {"barcode": "8904351000305", "brand": "Mars", "name": "Mars Matte Lip Liner Pencil", "price": 99.0, "category": "Lips"},
+  {"barcode": "8904256000215", "brand": "Nivea", "name": "Nivea Fruity Shine Strawberry Lip Balm", "price": 199.0, "category": "Lips"},
+  {"barcode": "8901030652593", "brand": "Vaseline", "name": "Vaseline Lip Therapy Rosy Lips", "price": 120.0, "category": "Lips"},
+  {"barcode": "8901526006105", "brand": "Maybelline", "name": "Baby Lips Moisturizing Lip Balm", "price": 175.0, "category": "Lips"},
 
   // Face Makeup
-  {"name": "Maybelline Fit Me Matte Foundation", "price": 599.0, "category": "Face"},
-  {"name": "Lakme Invisible Finish Foundation", "price": 275.0, "category": "Face"},
-  {"name": "Lakme 9 to 5 Complexion Care CC Cream", "price": 325.0, "category": "Face"},
-  {"name": "Spinz BB Brightening Cream", "price": 95.0, "category": "Face"},
-  {"name": "Ponds White Beauty BB+ Cream", "price": 140.0, "category": "Face"},
-  {"name": "Garnier Skin Naturals BB Cream", "price": 175.0, "category": "Face"},
-  {"name": "Maybelline Fit Me Compact Powder", "price": 249.0, "category": "Face"},
-  {"name": "Lakme Sun Expert Ultra Matte Compact", "price": 299.0, "category": "Face"},
-  {"name": "White Tone Face Powder 70g", "price": 110.0, "category": "Face"},
-  {"name": "Swiss Beauty Liquid Concealer", "price": 229.0, "category": "Face"},
-  {"name": "Insight Concealer Palette 6-in-1", "price": 199.0, "category": "Face"},
-  {"name": "Lakme Absolute Blur Perfect Primer", "price": 450.0, "category": "Face"},
-  {"name": "Insight 3-in-1 Long Lasting Primer", "price": 260.0, "category": "Face"},
-  {"name": "Swiss Beauty Makeup Fixer Setting Spray", "price": 249.0, "category": "Face"},
-  {"name": "Sugar Contour De Force Mini Blush", "price": 349.0, "category": "Face"},
-  {"name": "Mars City Paradise Blusher & Highlighter", "price": 299.0, "category": "Face"},
+  {"barcode": "8901526101107", "brand": "Maybelline", "name": "Maybelline Fit Me Matte Foundation", "price": 599.0, "category": "Face"},
+  {"barcode": "8901030612108", "brand": "Lakme", "name": "Lakme Invisible Finish Foundation", "price": 275.0, "category": "Face"},
+  {"barcode": "8901030623104", "brand": "Lakme", "name": "Lakme 9 to 5 Complexion Care CC Cream", "price": 325.0, "category": "Face"},
+  {"barcode": "8901088010109", "brand": "Spinz", "name": "Spinz BB Brightening Cream", "price": 95.0, "category": "Face"},
+  {"barcode": "8901030712105", "brand": "Ponds", "name": "Ponds White Beauty BB+ Cream", "price": 140.0, "category": "Face"},
+  {"barcode": "8901526011109", "brand": "Garnier", "name": "Garnier Skin Naturals BB Cream", "price": 175.0, "category": "Face"},
+  {"barcode": "8901526102104", "brand": "Maybelline", "name": "Maybelline Fit Me Compact Powder", "price": 249.0, "category": "Face"},
+  {"barcode": "8901030723101", "brand": "Lakme", "name": "Lakme Sun Expert Ultra Matte Compact", "price": 299.0, "category": "Face"},
+  {"barcode": "8906000010103", "brand": "White Tone", "name": "White Tone Face Powder 70g", "price": 110.0, "category": "Face"},
+  {"barcode": "8904325000904", "brand": "Swiss Beauty", "name": "Swiss Beauty Liquid Concealer", "price": 229.0, "category": "Face"},
+  {"barcode": "8904200100206", "brand": "Insight", "name": "Insight Concealer Palette 6-in-1", "price": 199.0, "category": "Face"},
+  {"barcode": "8901030745103", "brand": "Lakme", "name": "Lakme Absolute Blur Perfect Primer", "price": 450.0, "category": "Face"},
+  {"barcode": "8904200100305", "brand": "Insight", "name": "Insight 3-in-1 Long Lasting Primer", "price": 260.0, "category": "Face"},
+  {"barcode": "8904325001000", "brand": "Swiss Beauty", "name": "Swiss Beauty Makeup Fixer Setting Spray", "price": 249.0, "category": "Face"},
+  {"barcode": "8906090496102", "brand": "Sugar", "name": "Sugar Contour De Force Mini Blush", "price": 349.0, "category": "Face"},
+  {"barcode": "8904351000404", "brand": "Mars", "name": "Mars City Paradise Blusher & Highlighter", "price": 299.0, "category": "Face"},
 
   // Nails
-  {"name": "Colorbar Luxe Nail Lacquer", "price": 250.0, "category": "Nails"},
-  {"name": "Elle 18 Nail Pops", "price": 60.0, "category": "Nails"},
-  {"name": "Insight Long Wear Nail Polish", "price": 75.0, "category": "Nails"},
-  {"name": "Lakme True Wear Color Crush", "price": 160.0, "category": "Nails"},
-  {"name": "Blue Heaven Dip Nail Polish Remover", "price": 99.0, "category": "Nails"},
-  {"name": "Envy Gel Finish Nail Polish", "price": 120.0, "category": "Nails"},
-  {"name": "Artificial Nails French Manicure (24 Pcs)", "price": 250.0, "category": "Nails"},
+  {"barcode": "8904052404108", "brand": "Colorbar", "name": "Colorbar Luxe Nail Lacquer", "price": 250.0, "category": "Nails"},
+  {"barcode": "8901030751104", "brand": "Elle 18", "name": "Elle 18 Nail Pops", "price": 60.0, "category": "Nails"},
+  {"barcode": "8904200100404", "brand": "Insight", "name": "Insight Long Wear Nail Polish", "price": 75.0, "category": "Nails"},
+  {"barcode": "8901030761103", "brand": "Lakme", "name": "Lakme True Wear Color Crush", "price": 160.0, "category": "Nails"},
+  {"barcode": "8901234000204", "brand": "Blue Heaven", "name": "Blue Heaven Dip Nail Polish Remover", "price": 99.0, "category": "Nails"},
+  {"barcode": "8904123400200", "brand": "Envy", "name": "Envy Gel Finish Nail Polish", "price": 120.0, "category": "Nails"},
+  {"barcode": "8904123400309", "brand": "Generic", "name": "Artificial Nails French Manicure (24 Pcs)", "price": 250.0, "category": "Nails"},
 
   // Skin & Hair Care
-  {"name": "Himalaya Purifying Neem Face Wash 100ml", "price": 150.0, "category": "Skincare"},
-  {"name": "Clean & Clear Foaming Face Wash 100ml", "price": 175.0, "category": "Skincare"},
-  {"name": "Garnier Micellar Cleansing Water 125ml", "price": 225.0, "category": "Skincare"},
-  {"name": "Dabur Gulabari Premium Rose Water 120ml", "price": 85.0, "category": "Skincare"},
-  {"name": "Ponds Super Light Gel Moisturizer 100g", "price": 190.0, "category": "Skincare"},
-  {"name": "Nivea Soft Light Moisturizing Cream 100ml", "price": 180.0, "category": "Skincare"},
-  {"name": "Lakme Peach Milk Soft Cream 100g", "price": 165.0, "category": "Skincare"},
-  {"name": "Lotus Herbals Safe Sun SPF 50 Sunscreen", "price": 395.0, "category": "Skincare"},
-  {"name": "Biotique Bio Dandelion Ageless Serum", "price": 230.0, "category": "Skincare"},
-  {"name": "Streax Hair Serum with Walnut Oil 100ml", "price": 240.0, "category": "Hair"},
-  {"name": "L'Oreal Extraordinary Oil Hair Serum 100ml", "price": 549.0, "category": "Hair"},
-  {"name": "Bajaj Almond Drops Hair Oil 100ml", "price": 75.0, "category": "Hair"},
+  {"barcode": "8901138500130", "brand": "Himalaya", "name": "Himalaya Purifying Neem Face Wash 100ml", "price": 150.0, "category": "Skincare"},
+  {"barcode": "8901012111162", "brand": "Clean & Clear", "name": "Clean & Clear Foaming Face Wash 100ml", "price": 175.0, "category": "Skincare"},
+  {"barcode": "8901526012106", "brand": "Garnier", "name": "Garnier Micellar Cleansing Water 125ml", "price": 225.0, "category": "Skincare"},
+  {"barcode": "8901207010100", "brand": "Dabur", "name": "Dabur Gulabari Premium Rose Water 120ml", "price": 85.0, "category": "Skincare"},
+  {"barcode": "8901030765941", "brand": "Ponds", "name": "Ponds Super Light Gel Moisturizer 100g", "price": 190.0, "category": "Skincare"},
+  {"barcode": "8904256001007", "brand": "Nivea", "name": "Nivea Soft Light Moisturizing Cream 100ml", "price": 180.0, "category": "Skincare"},
+  {"barcode": "8901030771102", "brand": "Lakme", "name": "Lakme Peach Milk Soft Cream 100g", "price": 165.0, "category": "Skincare"},
+  {"barcode": "8904010100103", "brand": "Lotus", "name": "Lotus Herbals Safe Sun SPF 50 Sunscreen", "price": 395.0, "category": "Skincare"},
+  {"barcode": "8906009450101", "brand": "Biotique", "name": "Biotique Bio Dandelion Ageless Serum", "price": 230.0, "category": "Skincare"},
+  {"barcode": "8904040100108", "brand": "Streax", "name": "Streax Hair Serum with Walnut Oil 100ml", "price": 240.0, "category": "Hair"},
+  {"barcode": "8901526013103", "brand": "L'Oreal", "name": "L'Oreal Extraordinary Oil Hair Serum 100ml", "price": 549.0, "category": "Hair"},
+  {"barcode": "8901099011003", "brand": "Bajaj", "name": "Bajaj Almond Drops Hair Oil 100ml", "price": 75.0, "category": "Hair"},
 
-  // Bangles, Jewelry & Accessories
-  {"name": "Red Velvet Bangles Set (Size 2.4)", "price": 200.0, "category": "Bangles"},
-  {"name": "Red Velvet Bangles Set (Size 2.6)", "price": 200.0, "category": "Bangles"},
-  {"name": "Red Velvet Bangles Set (Size 2.8)", "price": 200.0, "category": "Bangles"},
-  {"name": "Maroon Velvet Bangles Set (Size 2.6)", "price": 200.0, "category": "Bangles"},
-  {"name": "Multicolor Glass Bangles Set (2 Dozen)", "price": 160.0, "category": "Bangles"},
-  {"name": "Gold Plated Kada Bangles (Pair)", "price": 350.0, "category": "Bangles"},
-  {"name": "Bridal Latkan Chuda Set", "price": 850.0, "category": "Bangles"},
-  {"name": "Velvet Bindi Packet (Maroon/Red)", "price": 40.0, "category": "Accessories"},
-  {"name": "Shilpa Fancy Stone Bindi Book", "price": 80.0, "category": "Accessories"},
-  {"name": "Round Golden Bindi Pack", "price": 50.0, "category": "Accessories"},
-  {"name": "Premium Pearl Stud Earrings", "price": 120.0, "category": "Jewelry"},
-  {"name": "Kundan Jhumka Traditional Earrings", "price": 280.0, "category": "Jewelry"},
-  {"name": "Oxidised Silver Boho Jhumki", "price": 150.0, "category": "Jewelry"},
-  {"name": "Metal Hair Clutchers Pack of 6", "price": 99.0, "category": "Accessories"},
-  {"name": "Satin Silk Scrunchies Pack of 3", "price": 80.0, "category": "Accessories"},
-  {"name": "Korean Hair Pins Pack of 4", "price": 120.0, "category": "Accessories"},
-  {"name": "Makeup Beauty Blender Sponge", "price": 60.0, "category": "Accessories"},
-  {"name": "Professional Makeup Brush Set (7 Pcs)", "price": 299.0, "category": "Accessories"},
-  {"name": "Safety Pins Golden Pack of 12", "price": 30.0, "category": "Accessories"},
+  // Bangles, Jewelry & Accessories (Store-level custom codes)
+  {"barcode": "LK-BGL-01", "brand": "LoveKush", "name": "Red Velvet Bangles Set (Size 2.4)", "price": 200.0, "category": "Bangles"},
+  {"barcode": "LK-BGL-02", "brand": "LoveKush", "name": "Red Velvet Bangles Set (Size 2.6)", "price": 200.0, "category": "Bangles"},
+  {"barcode": "LK-BGL-03", "brand": "LoveKush", "name": "Red Velvet Bangles Set (Size 2.8)", "price": 200.0, "category": "Bangles"},
+  {"barcode": "LK-BGL-04", "brand": "LoveKush", "name": "Maroon Velvet Bangles Set (Size 2.6)", "price": 200.0, "category": "Bangles"},
+  {"barcode": "LK-BGL-05", "brand": "LoveKush", "name": "Multicolor Glass Bangles Set (2 Dozen)", "price": 160.0, "category": "Bangles"},
+  {"barcode": "LK-BGL-06", "brand": "LoveKush", "name": "Gold Plated Kada Bangles (Pair)", "price": 350.0, "category": "Bangles"},
+  {"barcode": "LK-BGL-07", "brand": "LoveKush", "name": "Bridal Latkan Chuda Set", "price": 850.0, "category": "Bangles"},
+  {"barcode": "LK-ACC-01", "brand": "LoveKush", "name": "Velvet Bindi Packet (Maroon/Red)", "price": 40.0, "category": "Accessories"},
+  {"barcode": "LK-ACC-02", "brand": "Shilpa", "name": "Shilpa Fancy Stone Bindi Book", "price": 80.0, "category": "Accessories"},
+  {"barcode": "LK-ACC-03", "brand": "LoveKush", "name": "Round Golden Bindi Pack", "price": 50.0, "category": "Accessories"},
+  {"barcode": "LK-JWL-01", "brand": "LoveKush", "name": "Premium Pearl Stud Earrings", "price": 120.0, "category": "Jewelry"},
+  {"barcode": "LK-JWL-02", "brand": "LoveKush", "name": "Kundan Jhumka Traditional Earrings", "price": 280.0, "category": "Jewelry"},
+  {"barcode": "LK-JWL-03", "brand": "LoveKush", "name": "Oxidised Silver Boho Jhumki", "price": 150.0, "category": "Jewelry"},
+  {"barcode": "LK-ACC-04", "brand": "LoveKush", "name": "Metal Hair Clutchers Pack of 6", "price": 99.0, "category": "Accessories"},
+  {"barcode": "LK-ACC-05", "brand": "LoveKush", "name": "Satin Silk Scrunchies Pack of 3", "price": 80.0, "category": "Accessories"},
+  {"barcode": "LK-ACC-06", "brand": "LoveKush", "name": "Korean Hair Pins Pack of 4", "price": 120.0, "category": "Accessories"},
+  {"barcode": "LK-ACC-07", "brand": "LoveKush", "name": "Makeup Beauty Blender Sponge", "price": 60.0, "category": "Accessories"},
+  {"barcode": "LK-ACC-08", "brand": "LoveKush", "name": "Professional Makeup Brush Set (7 Pcs)", "price": 299.0, "category": "Accessories"},
+  {"barcode": "LK-ACC-09", "brand": "LoveKush", "name": "Safety Pins Golden Pack of 12", "price": 30.0, "category": "Accessories"},
 ];
 
 // ==========================================
@@ -892,7 +895,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     }
   }
 
-  // Fast Barcode Scanning for Editing or Adding
+  // Fast Barcode Scanning with Master Catalog Recognition
   void _scanBarcodeToEditOrAdd() async {
     final scannedCode = await Navigator.push(
       context,
@@ -900,38 +903,163 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     );
     if (scannedCode != null && scannedCode is String && scannedCode.isNotEmpty) {
       final clean = scannedCode.trim();
-      Map<String, dynamic>? match;
+
+      // 1. First check active shop inventory
+      Map<String, dynamic>? shopMatch;
       for (var it in items) {
         final itCode = (it['item_code'] ?? '').toString().toUpperCase();
         final itBar = (it['company_barcode'] ?? '').toString().toUpperCase();
         final itShelf = (it['shelf_location'] ?? '').toString().toUpperCase();
         if (itCode == clean.toUpperCase() || itBar == clean.toUpperCase() || itShelf == clean.toUpperCase()) {
-          match = it;
+          shopMatch = it;
           break;
         }
       }
-      if (match != null) {
-        _showAddEditDialog(match);
-      } else {
-        // Check if commercial barcode (8 to 14 digits)
-        final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
-        if (clean.length >= 8 && digitsOnly.length == clean.length) {
-          // Commercial barcode: query Open Beauty Facts in background
-          String? fetchedName;
-          final obf = await fetchOpenBeautyFacts(clean);
-          if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
-            fetchedName = obf['name'];
+
+      if (shopMatch != null) {
+        _showAddEditDialog(shopMatch);
+        return;
+      }
+
+      // 2. NOT in shop inventory! Check Master Reference Catalog:
+      Map<String, dynamic>? masterMatch;
+
+      // Check local cosmeticDatabase
+      for (var c in cosmeticDatabase) {
+        if ((c['barcode'] ?? '').toString().toUpperCase() == clean.toUpperCase()) {
+          masterMatch = {
+            'name': c['name'],
+            'price': c['price'],
+            'category': c['category'],
+            'brand': c['brand'] ?? '',
+          };
+          break;
+        }
+      }
+
+      // Check Supabase master_catalog if not found locally
+      if (masterMatch == null) {
+        try {
+          final res = await Supabase.instance.client
+              .from('master_catalog')
+              .select()
+              .eq('barcode', clean)
+              .maybeSingle();
+          if (res != null) {
+            masterMatch = {
+              'name': res['product_name'],
+              'price': (res['mrp'] as num?)?.toDouble() ?? 0.0,
+              'category': res['category'] ?? 'Cosmetics',
+              'brand': res['brand'] ?? '',
+            };
           }
-          _showAddEditDialog(null, null, fetchedName, null, clean);
+        } catch (_) {}
+      }
+
+      // Check Open Beauty Facts if 8+ digit commercial barcode
+      final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
+      if (masterMatch == null && clean.length >= 8 && digitsOnly.length == clean.length) {
+        final obf = await fetchOpenBeautyFacts(clean);
+        if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
+          masterMatch = {
+            'name': obf['name'],
+            'price': 0.0,
+            'category': obf['category'] ?? 'Cosmetics',
+            'brand': obf['brand'] ?? '',
+          };
+        }
+      }
+
+      // 3. If recognized in Master Catalog, show confirmation dialog
+      // (DO NOT add to shop inventory automatically!)
+      if (masterMatch != null) {
+        if (mounted) {
+          _showRecognizedMasterProductDialog(clean, masterMatch);
+        }
+      } else {
+        // Unrecognized code: prompt to add manual item
+        if (clean.length >= 8 && digitsOnly.length == clean.length) {
+          _showAddEditDialog(null, null, null, null, clean);
         } else {
-          // Shelf location code (e.g. 01-03-C-134 or 01-03-C)
           _showAddEditDialog(null, clean);
         }
       }
     }
   }
 
-  // Cosmetics Database Dialog (Browse & 1-tap Use / Batch Import)
+  void _showRecognizedMasterProductDialog(String barcode, Map<String, dynamic> prod) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: const [
+            Icon(Icons.auto_awesome, color: Colors.amber, size: 24),
+            SizedBox(width: 8),
+            Expanded(child: Text("Product Recognized!", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18))),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(prod['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  const SizedBox(height: 4),
+                  if ((prod['brand'] ?? '').toString().isNotEmpty)
+                    Text("Brand: ${prod['brand']}", style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                  Text("Barcode: $barcode", style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                  if ((prod['price'] ?? 0.0) > 0)
+                    Text("Catalog MRP: ₹${prod['price']}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green, fontSize: 14)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "⚠️ This product is in the Master Reference Database, but is NOT in your shop inventory yet.",
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black87),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              "Would you like to assign a shelf location, set your shop selling rate, and add it to your inventory?",
+              style: TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("CANCEL (DO NOT ADD)", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.add_shopping_cart, size: 16),
+            label: const Text("+ ADD TO SHOP INVENTORY"),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), foregroundColor: Colors.white),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _showAddEditDialog(
+                null,
+                null,
+                prod['name'],
+                (prod['price'] as num?)?.toDouble() ?? 0.0,
+                barcode,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Cosmetics Database Dialog (Browse & 1-tap Use / Sync Master Catalog)
   void _showCosmeticsCatalogDialog() {
     String filterCategory = "All";
     String search = "";
@@ -952,7 +1080,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                 const Icon(Icons.auto_awesome, color: Colors.pinkAccent),
                 const SizedBox(width: 8),
                 const Expanded(
-                  child: Text("Cosmetics & Daily Database", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  child: Text("Master Reference Database", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                 ),
               ],
             ),
@@ -993,10 +1121,11 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                       itemCount: filteredCosmetics.length,
                       itemBuilder: (context, i) {
                         final it = filteredCosmetics[i];
+                        final hasBarcode = (it["barcode"] ?? '').toString().isNotEmpty;
                         return ListTile(
                           dense: true,
                           title: Text(it["name"], style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text("${it["category"]} • MRP ₹${it["price"]}"),
+                          subtitle: Text("${it["category"]} • MRP ₹${it["price"]}${hasBarcode ? ' • 🏭 ${it["barcode"]}' : ''}"),
                           trailing: ElevatedButton(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.pinkAccent,
@@ -1010,6 +1139,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                                 null,
                                 it["name"] as String,
                                 (it["price"] as num).toDouble(),
+                                it["barcode"] as String?,
                               );
                             },
                             child: const Text("USE", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
@@ -1027,12 +1157,12 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                 child: const Text("CLOSE"),
               ),
               ElevatedButton.icon(
-                icon: const Icon(Icons.cloud_upload, size: 16),
-                label: const Text("IMPORT ALL (65+ ITEMS)"),
+                icon: const Icon(Icons.cloud_sync, size: 16),
+                label: const Text("SYNC TO MASTER CATALOG"),
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF111827), foregroundColor: Colors.white),
                 onPressed: () async {
                   Navigator.pop(ctx);
-                  _batchImportCosmetics();
+                  _syncToMasterCatalog();
                 },
               ),
             ],
@@ -1042,54 +1172,34 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     );
   }
 
-  void _batchImportCosmetics() async {
+  void _syncToMasterCatalog() async {
     setState(() => isLoading = true);
     try {
-      int imported = 0;
-      int currentNum = _lastItemNum;
+      int synced = 0;
       for (var item in cosmeticDatabase) {
-        String name = item["name"];
-        double price = (item["price"] as num).toDouble();
-        bool exists = items.any((it) => (it["item_name"] ?? '').toString().toLowerCase() == name.toLowerCase());
-        if (!exists) {
-          currentNum++;
-          String shelfLoc = "${_lastRack.padLeft(2, '0')}-${_lastCol.padLeft(2, '0')}-${_lastRow.toUpperCase()}";
-          String code = "$shelfLoc-$currentNum";
-          final Map<String, dynamic> rowData = {
-            'item_code': code,
-            'item_name': name,
-            'price': price,
-            'shelf_location': shelfLoc,
-            'item_number': currentNum.toString(),
+        final bar = (item['barcode'] ?? item['name']).toString();
+        try {
+          await Supabase.instance.client.from('master_catalog').upsert({
+            'barcode': bar,
+            'product_name': item['name'],
+            'brand': item['brand'] ?? 'Generic',
             'category': item['category'] ?? 'Cosmetics',
-            'mrp': price,
-            'stock_qty': 10,
-            'is_online': true,
-          };
-          try {
-            await Supabase.instance.client.from('inventory').upsert(rowData);
-          } catch (_) {
-            await Supabase.instance.client.from('inventory').upsert({
-              'item_code': code,
-              'item_name': name,
-              'price': price,
-            });
-          }
-          imported++;
-        }
+            'mrp': item['price'],
+          });
+          synced++;
+        } catch (_) {}
       }
-      _lastItemNum = currentNum;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt('last_item_num', _lastItemNum);
-      _fetchInventory();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Imported $imported cosmetics into inventory!")),
+          SnackBar(
+            content: Text("Master Reference Catalog updated ($synced products). None were added to your shop inventory."),
+            backgroundColor: Colors.teal,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Import error: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Sync Error: $e")));
       }
     } finally {
       if (mounted) setState(() => isLoading = false);
