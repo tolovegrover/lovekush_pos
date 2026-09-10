@@ -808,8 +808,42 @@ class _PosScreenState extends State<PosScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (isPreviewingBill) return buildPrintPreviewScreen();
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) async {
+        if (didPop) return;
+        
+        if (isPreviewingBill) {
+          setState(() => isPreviewingBill = false);
+          return;
+        }
+        if (isScanning) {
+          setState(() => isScanning = false);
+          return;
+        }
+        
+        final shouldExit = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Exit App?'),
+            content: const Text('Are you sure you want to exit the POS?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('NO', style: TextStyle(color: Colors.black54))),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red), 
+                onPressed: () => Navigator.pop(context, true), 
+                child: const Text('YES', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+              ),
+            ],
+          ),
+        );
+        if (shouldExit == true) SystemNavigator.pop();
+      },
+      child: isPreviewingBill ? buildPrintPreviewScreen() : _buildMainScaffold(),
+    );
+  }
 
+  Widget _buildMainScaffold() {
     return Scaffold(
       drawer: Drawer(
         child: ListView(
