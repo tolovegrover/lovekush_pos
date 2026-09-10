@@ -333,33 +333,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvoked: (didPop) async {
-        if (didPop) return;
-        if (isPhoneMode) {
-          setState(() { isPhoneMode = false; _emailController.clear(); });
-          return;
-        }
-        final shouldExit = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            icon: const Icon(Icons.exit_to_app, color: Colors.redAccent, size: 40),
-            title: const Text('Exit POS?'),
-            content: const Text('Are you sure you want to close the Love Kush POS app?'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('STAY')),
-              FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-                onPressed: () => SystemNavigator.pop(), 
-                child: const Text('EXIT')
-              ),
-            ]
-          )
-        );
-        if (shouldExit == true) SystemNavigator.pop();
-      },
-      child: Scaffold(
+    return Scaffold(
       backgroundColor: Colors.white,
       body: Center(
         child: SingleChildScrollView(
@@ -450,33 +424,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvoked: (didPop) async {
-        if (didPop) return;
-        if (isPhoneMode) {
-          setState(() { isPhoneMode = false; _emailController.clear(); });
-          return;
-        }
-        final shouldExit = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            icon: const Icon(Icons.exit_to_app, color: Colors.redAccent, size: 40),
-            title: const Text('Exit POS?'),
-            content: const Text('Are you sure you want to close the Love Kush POS app?'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('STAY')),
-              FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-                onPressed: () => SystemNavigator.pop(), 
-                child: const Text('EXIT')
-              ),
-            ]
-          )
-        );
-        if (shouldExit == true) SystemNavigator.pop();
-      },
-      child: Scaffold(
+    return Scaffold(
       appBar: AppBar(
         title: const Text("MANAGE STAFF", style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
         backgroundColor: Colors.white,
@@ -1502,33 +1450,7 @@ class _InventoryQrScreenState extends State<InventoryQrScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvoked: (didPop) async {
-        if (didPop) return;
-        if (isPhoneMode) {
-          setState(() { isPhoneMode = false; _emailController.clear(); });
-          return;
-        }
-        final shouldExit = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            icon: const Icon(Icons.exit_to_app, color: Colors.redAccent, size: 40),
-            title: const Text('Exit POS?'),
-            content: const Text('Are you sure you want to close the Love Kush POS app?'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('STAY')),
-              FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-                onPressed: () => SystemNavigator.pop(), 
-                child: const Text('EXIT')
-              ),
-            ]
-          )
-        );
-        if (shouldExit == true) SystemNavigator.pop();
-      },
-      child: Scaffold(
+    return Scaffold(
       appBar: AppBar(title: const Text("Item QR Generator"), backgroundColor: Colors.black, foregroundColor: Colors.white),
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -1604,33 +1526,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvoked: (didPop) async {
-        if (didPop) return;
-        if (isPhoneMode) {
-          setState(() { isPhoneMode = false; _emailController.clear(); });
-          return;
-        }
-        final shouldExit = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            icon: const Icon(Icons.exit_to_app, color: Colors.redAccent, size: 40),
-            title: const Text('Exit POS?'),
-            content: const Text('Are you sure you want to close the Love Kush POS app?'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('STAY')),
-              FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-                onPressed: () => SystemNavigator.pop(), 
-                child: const Text('EXIT')
-              ),
-            ]
-          )
-        );
-        if (shouldExit == true) SystemNavigator.pop();
-      },
-      child: Scaffold(
+    return Scaffold(
       appBar: AppBar(title: const Text("Scan QR Label"), backgroundColor: Colors.black, foregroundColor: Colors.white),
       body: MobileScanner(
         controller: controller,
@@ -1694,33 +1590,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvoked: (didPop) async {
-        if (didPop) return;
-        if (isPhoneMode) {
-          setState(() { isPhoneMode = false; _emailController.clear(); });
-          return;
-        }
-        final shouldExit = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            icon: const Icon(Icons.exit_to_app, color: Colors.redAccent, size: 40),
-            title: const Text('Exit POS?'),
-            content: const Text('Are you sure you want to close the Love Kush POS app?'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('STAY')),
-              FilledButton(
-                style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
-                onPressed: () => SystemNavigator.pop(), 
-                child: const Text('EXIT')
-              ),
-            ]
-          )
-        );
-        if (shouldExit == true) SystemNavigator.pop();
-      },
-      child: Scaffold(
+    return Scaffold(
       appBar: AppBar(title: const Text("Admin Dashboard", style: TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF111827), iconTheme: const IconThemeData(color: Colors.white)),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
