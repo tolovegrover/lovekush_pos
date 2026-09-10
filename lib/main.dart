@@ -756,6 +756,56 @@ class _PosScreenState extends State<PosScreen> {
     });
   }
 
+  void executeBluetoothPrint() async {
+    if (!_printerConnected) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please connect the printer in the Side Menu!")));
+      setState(() => isPreviewingBill = true);
+      return;
+    }
+
+    try {
+      bool? isConnected = await bluetooth.isConnected;
+      if (isConnected != true) throw Exception("Lost connection");
+
+      ByteData bytesAsset = await rootBundle.load("assets/logo_bw.jpg");
+      Uint8List imageBytes = bytesAsset.buffer.asUint8List();
+      await bluetooth.printImageBytes(imageBytes);
+      
+      await bluetooth.printNewLine();
+      await bluetooth.printCustom("LOVE KUSH", 3, 1); 
+      await bluetooth.printCustom("SHOPPING CENTER", 2, 1); 
+      await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
+      
+      await bluetooth.printNewLine();
+      await bluetooth.printLeftRight("Item", "Qty x Rate", 1);
+      await bluetooth.printCustom("--------------------------------", 1, 1);
+      
+      for (var item in cart) {
+        String name = item["item"].toString();
+        if (name.length > 15) name = name.substring(0, 15);
+        String details = "${item["qty"]} x ₹${item["rate"]}";
+        await bluetooth.printLeftRight(name, details, 1);
+      }
+      
+      await bluetooth.printCustom("--------------------------------", 1, 1);
+      await bluetooth.printLeftRight("TOTAL", "₹${cartTotal.toStringAsFixed(2)}", 2); 
+      await bluetooth.printNewLine();
+      
+      await bluetooth.printCustom("Thank you for shopping!", 1, 1);
+      await bluetooth.printCustom("No Exchange / No Refund", 1, 1);
+      await bluetooth.printNewLine();
+      await bluetooth.printNewLine();
+      await bluetooth.paperCut();
+
+      confirmPrint();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill Printed Successfully!")));
+      
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Print Error: $e")));
+      setState(() => isPreviewingBill = true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (isPreviewingBill) return buildPrintPreviewScreen();
@@ -937,7 +987,7 @@ class _PosScreenState extends State<PosScreen> {
           ),
           if (cart.isNotEmpty)
             GestureDetector(
-              onTap: () => setState(() => isPreviewingBill = true),
+              onTap: executeBluetoothPrint,
               child: Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 16),
@@ -1115,7 +1165,7 @@ class _PosScreenState extends State<PosScreen> {
                     flex: 2,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), padding: const EdgeInsets.symmetric(vertical: 20)),
-                      onPressed: confirmPrint, 
+                      onPressed: executeBluetoothPrint, 
                       child: const Text("🖨️ PRINT BILL", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
                     ),
                   ),
