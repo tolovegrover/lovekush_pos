@@ -13,6 +13,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'dart:ui' as ui;
 import 'firebase_options.dart';
 import 'cosmetics_catalog.dart';
 
@@ -3231,7 +3232,16 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printCustom("SHOPPING CENTER", 2, 1); 
           await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
           await bluetooth.printCustom("BILL NO: $billNumber", 1, 1);
-          try { await bluetooth.printQRcode(billNumber, 200, 200, 1); } catch(e){}
+          try {
+            final barcodeBytes = await generateBarcodeImageBytes(billNumber, width: 340, height: 60);
+            if (barcodeBytes != null) {
+              await bluetooth.printImageBytes(barcodeBytes);
+            } else {
+              await bluetooth.printQRcode(billNumber, 200, 200, 1);
+            }
+          } catch (_) {
+            try { await bluetooth.printQRcode(billNumber, 200, 200, 1); } catch (_) {}
+          }
           
           await bluetooth.printNewLine();
           await bluetooth.printLeftRight("Item", "Qty x Rate", 1);
@@ -4818,6 +4828,32 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   }
 }
 
+Future<Uint8List?> generateBarcodeImageBytes(String data, {double width = 340, double height = 64}) async {
+  try {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width, height));
+    final bgPaint = Paint()..color = Colors.white;
+    canvas.drawRect(Rect.fromLTWH(0, 0, width, height), bgPaint);
+
+    final barPaint = Paint()
+      ..color = Colors.black
+      ..isAntiAlias = false;
+    final barcode = bw.Barcode.code128();
+    final recipe = barcode.make(data, width: width, height: height, drawText: false);
+    for (var element in recipe) {
+      if (element is bw.BarcodeBar && element.black) {
+        canvas.drawRect(Rect.fromLTWH(element.left, element.top, element.width, element.height), barPaint);
+      }
+    }
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(width.toInt(), height.toInt());
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return byteData?.buffer.asUint8List();
+  } catch (_) {
+    return null;
+  }
+}
+
 Future<void> executeReprintThermalBill({
   required BuildContext context,
   required BlueThermalPrinter bluetooth,
@@ -4851,8 +4887,17 @@ Future<void> executeReprintThermalBill({
     if (bNo != "N/A" && bNo.isNotEmpty) {
       await bluetooth.printCustom("BILL NO: $bNo", 1, 1);
       try {
-        await bluetooth.printQRcode(bNo, 200, 200, 1);
-      } catch (_) {}
+        final barcodeBytes = await generateBarcodeImageBytes(bNo, width: 340, height: 60);
+        if (barcodeBytes != null) {
+          await bluetooth.printImageBytes(barcodeBytes);
+        } else {
+          await bluetooth.printQRcode(bNo, 200, 200, 1);
+        }
+      } catch (_) {
+        try {
+          await bluetooth.printQRcode(bNo, 200, 200, 1);
+        } catch (_) {}
+      }
     }
 
     await bluetooth.printNewLine();
@@ -5002,20 +5047,13 @@ void showReceiptPreviewDialog({
                         ),
                         const SizedBox(height: 10),
 
-                        // Bill Number & Barcode
+                        // Bill Number (Text Only - Barcode is for printed physical bills only)
                         if (bNo != "N/A" && bNo.isNotEmpty) ...[
-                          bw.BarcodeWidget(
-                            barcode: bw.Barcode.code128(),
-                            data: bNo,
-                            width: 220,
-                            height: 48,
-                            drawText: false,
-                          ),
-                          const SizedBox(height: 4),
                           Text(
                             "BILL NO: $bNo",
-                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, letterSpacing: 1),
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, letterSpacing: 1.2),
                           ),
+                          const SizedBox(height: 4),
                         ],
                         const SizedBox(height: 10),
                         const Text(
