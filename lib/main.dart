@@ -374,48 +374,101 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     }
   }
 
+  String _getSellerCode(String email) {
+    final clean = email.trim().toLowerCase();
+    if (clean == "tolovegrover@gmail.com") return "01";
+    if (clean == "sanjeetagrover@gmail.com") return "02";
+    if (clean == "nishaankit60@gmail.com") return "03";
+    int id = (clean.hashCode.abs() % 3) + 4;
+    return id.toString().padLeft(2, '0');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Manage Staff Access", style: TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF111827), iconTheme: const IconThemeData(color: Colors.white)),
+      appBar: AppBar(
+        title: const Text("Manage Staff Access", style: TextStyle(color: Colors.white)), 
+        backgroundColor: const Color(0xFF111827), 
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: "Refresh list",
+            onPressed: _fetchUsers,
+          )
+        ],
+      ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: users.length,
-              itemBuilder: (context, index) {
-                final user = users[index];
-                bool isApproved = user['is_approved'] == true;
-                bool isAdmin = user['is_admin'] == true;
-                
-                return Card(
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: isAdmin ? Colors.purple : (isApproved ? Colors.green : Colors.orange),
-                      child: Icon(isAdmin ? Icons.admin_panel_settings : Icons.person, color: Colors.white),
+          : users.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.people_outline, size: 64, color: Colors.grey),
+                        const SizedBox(height: 16),
+                        const Text("No Staff Registered Yet", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        const Text(
+                          "When staff members register or log in, they will appear here awaiting your approval.\n\nMake sure the 'staff_users' table has been created in your Supabase SQL editor!",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                        const SizedBox(height: 20),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+                          onPressed: _fetchUsers,
+                          icon: const Icon(Icons.refresh, color: Colors.white),
+                          label: const Text("Refresh List", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        )
+                      ],
                     ),
-                    title: Text(user['name'] ?? 'Staff', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(user['email']),
-                    trailing: isAdmin 
-                        ? const Text("ADMIN", style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold))
-                        : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Switch(
-                                value: isApproved,
-                                activeColor: Colors.green,
-                                onChanged: (val) => _toggleApproval(user['email'], isApproved),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.redAccent),
-                                onPressed: () => _deleteUser(user['email']),
-                              )
-                            ],
-                          ),
                   ),
-                );
-              },
-            ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: users.length,
+                  itemBuilder: (context, index) {
+                    final user = users[index];
+                    bool isApproved = user['is_approved'] == true;
+                    bool isAdmin = user['is_admin'] == true;
+                    String sCode = _getSellerCode(user['email'] ?? '');
+                    
+                    return Card(
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: isAdmin ? Colors.purple : (isApproved ? Colors.green : Colors.orange),
+                          child: Icon(isAdmin ? Icons.admin_panel_settings : Icons.person, color: Colors.white),
+                        ),
+                        title: Text(user['name'] ?? 'Staff', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text("${user['email']}\nSeller ID: $sCode • ${isApproved ? 'Approved' : 'Pending Approval'}"),
+                        isThreeLine: true,
+                        trailing: isAdmin 
+                            ? Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(color: Colors.purple.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                                child: const Text("ADMIN", style: TextStyle(color: Colors.purple, fontWeight: FontWeight.bold, fontSize: 12)),
+                              )
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Switch(
+                                    value: isApproved,
+                                    activeColor: Colors.green,
+                                    onChanged: (val) => _toggleApproval(user['email'], isApproved),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete, color: Colors.redAccent),
+                                    onPressed: () => _deleteUser(user['email']),
+                                  )
+                                ],
+                              ),
+                      ),
+                    );
+                  },
+                ),
     );
   }
 }
@@ -774,6 +827,15 @@ class _PosScreenState extends State<PosScreen> {
     });
   }
 
+  String _getSellerCode(String email) {
+    final clean = email.trim().toLowerCase();
+    if (clean == "tolovegrover@gmail.com") return "01";
+    if (clean == "sanjeetagrover@gmail.com") return "02";
+    if (clean == "nishaankit60@gmail.com") return "03";
+    int id = (clean.hashCode.abs() % 3) + 4; // 04, 05, 06
+    return id.toString().padLeft(2, '0');
+  }
+
   void _saveAndPrintBill() async {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
@@ -784,7 +846,7 @@ class _PosScreenState extends State<PosScreen> {
       int count = data.length + 1;
       
       String dateStr = "${now.day.toString().padLeft(2, '0')}${now.month.toString().padLeft(2, '0')}${now.year.toString().substring(2)}";
-      String sellerCode = (widget.userEmail.hashCode.abs() % 90 + 10).toString(); // 2 digits
+      String sellerCode = _getSellerCode(widget.userEmail);
       billNumber = "$dateStr$sellerCode${count.toString().padLeft(4, '0')}";
     } catch (e) {
       billNumber = "${now.millisecondsSinceEpoch}";
