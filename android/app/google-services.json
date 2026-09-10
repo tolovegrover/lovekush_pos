@@ -12,7 +12,20 @@
           "package_name": "com.lovekush.lovekush_pos"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "919136245115-ba5gtkfo8usd58645bihi3ug4kvl9n4v.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.lovekush.lovekush_pos",
+            "certificate_hash": "726a6a030a36ae53525ab7bf9f972c428f969ec5"
+          }
+        },
+        {
+          "client_id": "919136245115-7qfs6n9uq1ml1m3svrq7gfh9fp50mo5n.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyD1qGHRZjnGCY9J5nrPP8viMa1g8ZqtyW0"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "919136245115-7qfs6n9uq1ml1m3svrq7gfh9fp50mo5n.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "919136245115-rq48ouu41bk70o53grab00godmhj5ogv.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.lovekush.lovekushPos"
+              }
+            }
+          ]
         }
       }
     }
