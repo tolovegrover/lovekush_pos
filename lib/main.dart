@@ -67,7 +67,19 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    _checkExistingLogin();
     _initDeepLinks();
+  }
+
+  void _checkExistingLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    if (isLoggedIn && mounted) {
+      String userName = prefs.getString('userName') ?? "Staff";
+      String userEmail = prefs.getString('userEmail') ?? "";
+      bool isAdmin = prefs.getBool('isAdmin') ?? false;
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PosScreen(userName: userName, userEmail: userEmail, isAdmin: isAdmin)));
+    }
   }
   
   @override
