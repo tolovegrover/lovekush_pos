@@ -1332,8 +1332,8 @@ class _PosScreenState extends State<PosScreen> {
                     flex: 2,
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), padding: const EdgeInsets.symmetric(vertical: 20)),
-                      onPressed: executeBluetoothPrint, 
-                      child: const Text("🖨️ PRINT BILL", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                      onPressed: _saveAndPrintBill, 
+                      child: Text(_printerConnected ? "🖨️ SAVE & PRINT" : "☁️ SAVE BILL", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
                     ),
                   ),
                 ],
