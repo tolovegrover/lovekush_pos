@@ -30,6 +30,9 @@ jobs:
           cache: true
           
       - run: flutter pub get
+      - name: Patch blue_thermal_printer namespace
+        run: |
+          find /home/runner/.pub-cache/hosted/pub.dev/blue_thermal_printer-*/android -name build.gradle -exec sed -i '/android {/a \    namespace "id.kakzaki.blue_thermal_printer"' {} +
       - run: flutter build apk --release
       
       - name: Create Release
