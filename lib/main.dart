@@ -5,6 +5,8 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:app_links/app_links.dart';
+import 'package:blue_thermal_printer/blue_thermal_printer.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 import 'firebase_options.dart';
 
@@ -452,11 +454,100 @@ class _PosScreenState extends State<PosScreen> {
   String rate = ""; 
   int focusedField = 0; 
   String counterName = "Basement Counter";
+  
+  // Printer Setup
+  BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
+  List<BluetoothDevice> _devices = [];
+  BluetoothDevice? _selectedDevice;
+  bool _printerConnected = false;
 
   @override
   void initState() {
     super.initState();
     _loadCounterName();
+    _initBluetooth();
+  }
+
+  void _initBluetooth() async {
+    try {
+      List<BluetoothDevice> devices = await bluetooth.getBluetooths ?? [];
+      setState(() => _devices = devices);
+    } catch (e) {
+      print("Bluetooth Error: $e");
+    }
+    
+    bluetooth.onStateChanged().listen((state) {
+      switch (state) {
+        case BlueThermalPrinter.CONNECTED:
+          setState(() => _printerConnected = true);
+          break;
+        case BlueThermalPrinter.DISCONNECTED:
+        case BlueThermalPrinter.DISCONNECT_REQUESTED:
+        case BlueThermalPrinter.STATE_OFF:
+        case BlueThermalPrinter.ERROR:
+          setState(() => _printerConnected = false);
+          break;
+        default:
+          break;
+      }
+    });
+  }
+
+  void _showPrinterDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text("Connect Receipt Printer"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_devices.isEmpty) const Text("No paired Bluetooth devices found. Please pair your printer in Android Settings first."),
+                if (_devices.isNotEmpty) DropdownButton<BluetoothDevice>(
+                  hint: const Text("Select Printer"),
+                  value: _selectedDevice,
+                  isExpanded: true,
+                  items: _devices.map((device) => DropdownMenuItem(
+                    value: device,
+                    child: Text(device.name ?? "Unknown Device"),
+                  )).toList(),
+                  onChanged: (device) {
+                    setDialogState(() => _selectedDevice = device);
+                    setState(() => _selectedDevice = device);
+                  },
+                ),
+                const SizedBox(height: 16),
+                if (_printerConnected) const Text("🟢 Connected", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                if (!_printerConnected && _selectedDevice != null) const Text("🔴 Disconnected", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text("CLOSE")),
+              if (!_printerConnected) ElevatedButton(
+                onPressed: _selectedDevice == null ? null : () async {
+                  try {
+                    await bluetooth.connect(_selectedDevice!);
+                    setDialogState(() {});
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to connect: $e")));
+                  }
+                },
+                child: const Text("CONNECT"),
+              ),
+              if (_printerConnected) ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () async {
+                  await bluetooth.disconnect();
+                  setDialogState(() {});
+                },
+                child: const Text("DISCONNECT", style: TextStyle(color: Colors.white)),
+              ),
+            ],
+          );
+        }
+      ),
+    );
   }
 
   void _loadCounterName() async {
