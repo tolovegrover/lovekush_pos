@@ -473,6 +473,343 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   }
 }
 
+// ==========================================
+// ITEM CODES & RATES (INVENTORY MAPPING)
+// ==========================================
+class ItemCatalogScreen extends StatefulWidget {
+  final bool selectMode;
+  const ItemCatalogScreen({Key? key, this.selectMode = false}) : super(key: key);
+
+  @override
+  State<ItemCatalogScreen> createState() => _ItemCatalogScreenState();
+}
+
+class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
+  bool isLoading = true;
+  List<Map<String, dynamic>> items = [];
+  String searchQuery = "";
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchInventory();
+  }
+
+  void _fetchInventory() async {
+    setState(() => isLoading = true);
+    try {
+      final data = await Supabase.instance.client.from('inventory').select().order('item_code');
+      setState(() {
+        items = List<Map<String, dynamic>>.from(data);
+        isLoading = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching items: $e")));
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
+  void _saveOrUpdateItem({required String code, required String name, required double price}) async {
+    try {
+      await Supabase.instance.client.from('inventory').upsert({
+        'item_code': code,
+        'item_name': name,
+        'price': price,
+      });
+      _fetchInventory();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Saved: $code ($name)")));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Save Error: $e")));
+      }
+    }
+  }
+
+  void _deleteItem(String code) async {
+    try {
+      await Supabase.instance.client.from('inventory').delete().eq('item_code', code);
+      _fetchInventory();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Item deleted")));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Delete Error: $e")));
+      }
+    }
+  }
+
+  void _showAddEditDialog([Map<String, dynamic>? existing]) {
+    final bool isEdit = existing != null;
+    
+    final rackCtrl = TextEditingController(text: "01");
+    final sectionCtrl = TextEditingController(text: "1");
+    final colCtrl = TextEditingController(text: "04");
+    final shelfCtrl = TextEditingController(text: "C");
+    final itemCtrl = TextEditingController(text: "1");
+    
+    final codeCtrl = TextEditingController(text: isEdit ? existing['item_code'] : "01-1-04-C-1");
+    final nameCtrl = TextEditingController(text: isEdit ? (existing['item_name'] ?? '') : '');
+    final priceCtrl = TextEditingController(text: isEdit ? (existing['price']?.toString() ?? '') : '');
+
+    void updateGeneratedCode(void Function(void Function()) setDialogState) {
+      setDialogState(() {
+        codeCtrl.text = "${rackCtrl.text.padLeft(2, '0')}-${sectionCtrl.text}-${colCtrl.text.padLeft(2, '0')}-${shelfCtrl.text.toUpperCase()}-${itemCtrl.text}".toUpperCase();
+      });
+    }
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text(isEdit ? "Edit Item Code & Rate" : "Add New Item Mapping", style: const TextStyle(fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!isEdit) ...[
+                  const Text("Location Code Components:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.blueAccent)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: rackCtrl,
+                          decoration: const InputDecoration(labelText: "Rack (01)", border: OutlineInputBorder(), isDense: true),
+                          onChanged: (_) => updateGeneratedCode(setDialogState),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: TextField(
+                          controller: sectionCtrl,
+                          decoration: const InputDecoration(labelText: "Sec (1)", border: OutlineInputBorder(), isDense: true),
+                          onChanged: (_) => updateGeneratedCode(setDialogState),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: TextField(
+                          controller: colCtrl,
+                          decoration: const InputDecoration(labelText: "Col (04)", border: OutlineInputBorder(), isDense: true),
+                          onChanged: (_) => updateGeneratedCode(setDialogState),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: shelfCtrl,
+                          decoration: const InputDecoration(labelText: "Shelf (A-I)", border: OutlineInputBorder(), isDense: true),
+                          onChanged: (_) => updateGeneratedCode(setDialogState),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: TextField(
+                          controller: itemCtrl,
+                          decoration: const InputDecoration(labelText: "Item #", border: OutlineInputBorder(), isDense: true),
+                          onChanged: (_) => updateGeneratedCode(setDialogState),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                TextField(
+                  controller: codeCtrl,
+                  readOnly: isEdit,
+                  decoration: InputDecoration(
+                    labelText: "Item Code",
+                    helperText: "Format: Rack-Sec-Col-Shelf-Item",
+                    border: const OutlineInputBorder(),
+                    filled: isEdit,
+                    fillColor: isEdit ? Colors.grey.shade100 : null,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: "Item Name (e.g. Red Velvet Bangles)",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: priceCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: "Rate / Price (₹)",
+                    prefixText: "₹ ",
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text("CANCEL", style: TextStyle(color: Colors.black54)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6)),
+              onPressed: () {
+                final code = codeCtrl.text.trim().toUpperCase();
+                final name = nameCtrl.text.trim();
+                final price = double.tryParse(priceCtrl.text.trim()) ?? 0.0;
+                if (code.isEmpty || name.isEmpty || price <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Please fill Code, Name, and valid Rate")),
+                  );
+                  return;
+                }
+                Navigator.pop(dialogCtx);
+                _saveOrUpdateItem(code: code, name: name, price: price);
+              },
+              child: Text(isEdit ? "UPDATE RATE" : "SAVE TO CLOUD", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = items.where((it) {
+      final q = searchQuery.toLowerCase();
+      final code = (it['item_code'] ?? '').toString().toLowerCase();
+      final name = (it['item_name'] ?? '').toString().toLowerCase();
+      return code.contains(q) || name.contains(q);
+    }).toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.selectMode ? "Select Item for Bill" : "Item Codes & Rates", style: const TextStyle(color: Colors.white)),
+        backgroundColor: const Color(0xFF111827),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: "Refresh from cloud",
+            onPressed: _fetchInventory,
+          )
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: const Color(0xFF3B82F6),
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text("Add Code", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        onPressed: () => _showAddEditDialog(),
+      ),
+      body: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: Colors.white,
+            child: TextField(
+              decoration: InputDecoration(
+                hintText: "Search by code (e.g. 01-1) or item name...",
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () => setState(() => searchQuery = ""),
+                      )
+                    : null,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+              ),
+              onChanged: (val) => setState(() => searchQuery = val),
+            ),
+          ),
+          Expanded(
+            child: isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : filtered.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.inventory_2_outlined, size: 64, color: Colors.grey),
+                              const SizedBox(height: 16),
+                              Text(searchQuery.isEmpty ? "No Items Mapped Yet" : "No matching items found", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 8),
+                              const Text("Tap '+ Add Code' to map your first rack code to a product name and rate.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                            ],
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final item = filtered[index];
+                          final code = item['item_code']?.toString() ?? '';
+                          final name = item['item_name']?.toString() ?? '';
+                          final price = (item['price'] as num?)?.toDouble() ?? 0.0;
+
+                          return Card(
+                            elevation: 1.5,
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              onTap: () {
+                                if (widget.selectMode) {
+                                  Navigator.pop(context, item);
+                                } else {
+                                  _showAddEditDialog(item);
+                                }
+                              },
+                              leading: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.blueAccent.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  code.length >= 2 ? code.substring(0, 2) : "##",
+                                  style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.blueAccent, fontSize: 16),
+                                ),
+                              ),
+                              title: Text(name.isNotEmpty ? name : "Unnamed Item", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              subtitle: Text("Code: $code", style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.black54)),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text("₹${price.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18, color: Colors.green)),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    icon: const Icon(Icons.edit, size: 20, color: Colors.blueAccent),
+                                    onPressed: () => _showAddEditDialog(item),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, size: 20, color: Colors.redAccent),
+                                    onPressed: () => _deleteItem(code),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 // ==========================================
 // POS SCREEN
@@ -489,19 +826,84 @@ class PosScreen extends StatefulWidget {
 }
 
 class _PosScreenState extends State<PosScreen> {
-  Map<String, double> cloudInventory = {};
+  Map<String, Map<String, dynamic>> cloudInventory = {};
   
   void _syncInventoryFromCloud() async {
     try {
       final data = await Supabase.instance.client.from('inventory').select();
-      setState(() {
-        for (var item in data) {
-          cloudInventory[item['item_code'].toString()] = (item['price'] as num).toDouble();
-        }
-      });
+      if (mounted) {
+        setState(() {
+          cloudInventory.clear();
+          for (var item in data) {
+            String code = item['item_code'].toString();
+            cloudInventory[code] = {
+              'item_code': code,
+              'item_name': item['item_name']?.toString() ?? '',
+              'price': (item['price'] as num?)?.toDouble() ?? 0.0,
+            };
+          }
+        });
+      }
     } catch (e) {
       print("Inventory Sync Error: $e");
     }
+  }
+
+  String _canonicalCode(String s) {
+    String clean = s.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+    if (clean.length >= 6) {
+      int? d = int.tryParse(clean[5]);
+      if (d != null && d >= 1 && d <= 9) {
+        clean = clean.substring(0, 5) + String.fromCharCode(64 + d) + clean.substring(6);
+      }
+    }
+    return clean;
+  }
+
+  Map<String, dynamic>? _lookupItem(String query) {
+    if (query.isEmpty) return null;
+    String qCanon = _canonicalCode(query);
+    if (qCanon.isEmpty) return null;
+    for (var entry in cloudInventory.entries) {
+      if (_canonicalCode(entry.key) == qCanon) return entry.value;
+    }
+    String fCanon = _canonicalCode(formattedItemCode);
+    if (fCanon.isNotEmpty && fCanon != qCanon) {
+      for (var entry in cloudInventory.entries) {
+        if (_canonicalCode(entry.key) == fCanon) return entry.value;
+      }
+    }
+    return null;
+  }
+
+  void _openItemCatalog() async {
+    final selected = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: true)),
+    );
+    if (selected != null && selected is Map<String, dynamic>) {
+      setState(() {
+        String code = selected['item_code']?.toString() ?? '';
+        rawItemCode = _parseToRaw(code);
+        double p = (selected['price'] as num?)?.toDouble() ?? 0.0;
+        rate = p > 0 ? (p % 1 == 0 ? p.toInt().toString() : p.toString()) : '';
+        focusedField = 1; // Jump to QTY
+      });
+    }
+    _syncInventoryFromCloud();
+  }
+
+  String _parseToRaw(String code) {
+    String clean = code.replaceAll("-", "").replaceAll(" ", "").trim().toUpperCase();
+    if (clean.length >= 6) {
+      String shelfChar = clean[5];
+      int codeUnit = shelfChar.codeUnitAt(0);
+      if (codeUnit >= 65 && codeUnit <= 90) {
+        int num = codeUnit - 64;
+        clean = clean.substring(0, 5) + num.toString() + clean.substring(6);
+      }
+    }
+    return clean;
   }
 
   List<List<Map<String, dynamic>>> activeBills = [[]];
@@ -658,13 +1060,15 @@ class _PosScreenState extends State<PosScreen> {
     if (rawItemCode.isEmpty) return "";
     String result = "";
     for (int i = 0; i < rawItemCode.length; i++) {
-      if (i == 1) result += " - "; 
-      if (i == 3) result += " - "; 
-      if (i == 4) result += " - "; 
-      if (i == 3) {
+      if (i == 2) result += " - "; // After Rack (2 digits: 0, 1)
+      if (i == 3) result += " - "; // After Section (1 digit: 2)
+      if (i == 5) result += " - "; // After Column (2 digits: 3, 4)
+      if (i == 6) result += " - "; // After Shelf (1 letter: 5)
+      
+      if (i == 5) {
         int? num = int.tryParse(rawItemCode[i]);
         if (num != null && num >= 1 && num <= 9) {
-          result += String.fromCharCode(64 + num); 
+          result += String.fromCharCode(64 + num); // 1=A, 2=B, 3=C...
         } else {
           result += rawItemCode[i];
         }
@@ -690,10 +1094,15 @@ class _PosScreenState extends State<PosScreen> {
 
   void addToCart() {
     if (rawItemCode.isEmpty || rate.isEmpty) return;
+    final match = _lookupItem(rawItemCode);
+    String itemName = match != null ? (match['item_name'] ?? '') : '';
+    String displayTitle = itemName.isNotEmpty ? "$itemName\n$formattedItemCode" : formattedItemCode;
+
     setState(() {
       cart.insert(0, {
         "qty": qty.isEmpty ? "1" : qty,
-        "item": formattedItemCode,
+        "item": displayTitle,
+        "itemName": itemName,
         "rawItemCode": rawItemCode, 
         "rate": rate,
         "price": totalPrice, 
@@ -723,7 +1132,16 @@ class _PosScreenState extends State<PosScreen> {
   void onKeypadPress(String value) {
     setState(() {
       if (value == "ENTER") {
-        if (focusedField == 0) focusedField = 1;
+        if (focusedField == 0) {
+          final match = _lookupItem(rawItemCode);
+          if (match != null) {
+            double p = (match['price'] as num?)?.toDouble() ?? 0.0;
+            if (p > 0 && rate.isEmpty) {
+              rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+            }
+          }
+          focusedField = 1;
+        }
         else if (focusedField == 1) focusedField = 2;
         else if (focusedField == 2) addToCart();
       } 
@@ -741,7 +1159,16 @@ class _PosScreenState extends State<PosScreen> {
           else focusedField = 0; 
         } 
         else if (focusedField == 0) {
-          if (rawItemCode.isNotEmpty) rawItemCode = rawItemCode.substring(0, rawItemCode.length - 1);
+          if (rawItemCode.isNotEmpty) {
+            rawItemCode = rawItemCode.substring(0, rawItemCode.length - 1);
+            final match = _lookupItem(rawItemCode);
+            if (match != null) {
+              double p = (match['price'] as num?)?.toDouble() ?? 0.0;
+              if (p > 0) {
+                rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+              }
+            }
+          }
         }
       } 
       else if (value == "+/-") {
@@ -754,8 +1181,17 @@ class _PosScreenState extends State<PosScreen> {
         }
       }
       else {
-        if (focusedField == 0 && rawItemCode.length < 8) {
-          if (value != ".") rawItemCode += value;
+        if (focusedField == 0 && rawItemCode.length < 10) {
+          if (value != ".") {
+            rawItemCode += value;
+            final match = _lookupItem(rawItemCode);
+            if (match != null) {
+              double p = (match['price'] as num?)?.toDouble() ?? 0.0;
+              if (p > 0) {
+                rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+              }
+            }
+          }
         }
         if (focusedField == 1) {
           if (value == ".") {
@@ -898,7 +1334,10 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printCustom("--------------------------------", 1, 1);
           
           for (var item in cart) {
-            String name = item["item"].toString();
+            String name = (item["itemName"] != null && item["itemName"].toString().isNotEmpty)
+                ? item["itemName"].toString()
+                : item["item"].toString();
+            if (name.contains("\n")) name = name.split("\n")[0];
             if (name.length > 15) name = name.substring(0, 15);
             String details = "${item["qty"]} x ₹${item["rate"]}";
             await bluetooth.printLeftRight(name, details, 1);
@@ -1043,6 +1482,15 @@ class _PosScreenState extends State<PosScreen> {
               onTap: () => Navigator.pop(context), 
             ),
             ListTile(
+              leading: const Icon(Icons.price_change_outlined, color: Colors.blueAccent),
+              title: const Text('Item Codes & Rates', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+              subtitle: const Text('Lookup, edit, and map item rates'),
+              onTap: () {
+                Navigator.pop(context);
+                _openItemCatalog();
+              },
+            ),
+            ListTile(
               leading: Icon(Icons.print, color: _printerConnected ? Colors.green : Colors.black87),
               title: Text(_printerConnected ? 'Printer Connected' : 'Connect Printer', style: TextStyle(fontWeight: FontWeight.bold, color: _printerConnected ? Colors.green : Colors.black87)),
               onTap: () {
@@ -1077,6 +1525,13 @@ class _PosScreenState extends State<PosScreen> {
         elevation: 1,
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.black), 
+        actions: [
+          IconButton(
+            tooltip: "Item Codes & Rates",
+            icon: const Icon(Icons.menu_book, color: Colors.blueAccent),
+            onPressed: _openItemCatalog,
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -1089,19 +1544,34 @@ class _PosScreenState extends State<PosScreen> {
               itemCount: activeBills.length + 1,
               itemBuilder: (context, index) {
                 if (index == activeBills.length) {
-                  return Padding(
-                    padding: const EdgeInsets.only(left: 8.0),
-                    child: ActionChip(
-                      backgroundColor: Colors.green.shade50,
-                      side: BorderSide(color: Colors.green),
-                      label: const Text("+ New Customer", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                      onPressed: () {
-                        setState(() {
-                          activeBills.add([]);
-                          currentBillIndex = activeBills.length - 1;
-                        });
-                      }
-                    ),
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: ActionChip(
+                          backgroundColor: Colors.green.shade50,
+                          side: const BorderSide(color: Colors.green),
+                          label: const Text("+ New Customer", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                          onPressed: () {
+                            setState(() {
+                              activeBills.add([]);
+                              currentBillIndex = activeBills.length - 1;
+                            });
+                          }
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: ActionChip(
+                          avatar: const Icon(Icons.menu_book, size: 16, color: Colors.blueAccent),
+                          backgroundColor: Colors.blue.shade50,
+                          side: const BorderSide(color: Colors.blueAccent),
+                          label: const Text("Codes & Rates", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                          onPressed: _openItemCatalog,
+                        ),
+                      ),
+                    ],
                   );
                 }
                 bool isSelected = index == currentBillIndex;
@@ -1203,7 +1673,7 @@ class _PosScreenState extends State<PosScreen> {
             ),
             child: Row(
               children: [
-                _buildInputBox("ITEM CODE", formattedItemCode, focusedField == 0, 0, flex: 8, isCode: true),
+                _buildInputBox("ITEM CODE", formattedItemCode, focusedField == 0, 0, flex: 8, isCode: true, subtext: _lookupItem(rawItemCode)?['item_name']),
                 const SizedBox(width: 8),
                 _buildInputBox("QTY", qty.isEmpty ? "—" : qty, focusedField == 1, 1, flex: 3),
                 const SizedBox(width: 8),
@@ -1245,7 +1715,14 @@ class _PosScreenState extends State<PosScreen> {
                         final List<Barcode> barcodes = capture.barcodes;
                         if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
                           setState(() {
-                            rawItemCode = barcodes.first.rawValue!.replaceAll("-", "");
+                            rawItemCode = _parseToRaw(barcodes.first.rawValue!);
+                            final match = _lookupItem(rawItemCode);
+                            if (match != null) {
+                              double p = (match['price'] as num?)?.toDouble() ?? 0.0;
+                              if (p > 0) {
+                                rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+                              }
+                            }
                             focusedField = 1; // jump to qty
                             isScanning = false; // instantly close camera to show keypad
                           });
@@ -1433,24 +1910,40 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
-  Widget _buildInputBox(String label, String value, bool isFocused, int fieldIndex, {required int flex, bool isCode = false}) {
+  Widget _buildInputBox(String label, String value, bool isFocused, int fieldIndex, {required int flex, bool isCode = false, String? subtext}) {
     return Expanded(
       flex: flex,
       child: GestureDetector(
         onTap: () => setState(() => focusedField = fieldIndex),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
           decoration: BoxDecoration(
             color: isFocused ? Colors.black : Colors.white,
             border: Border.all(color: isFocused ? Colors.black : Colors.black26, width: 2),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: isFocused ? Colors.white70 : Colors.black45)),
-              const SizedBox(height: 6),
-              Text(value.isEmpty ? (isCode ? "—" : "") : value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: isFocused ? Colors.white : Colors.black), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 4),
+              Text(value.isEmpty ? (isCode ? "—" : "") : value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: isFocused ? Colors.white : Colors.black), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (subtext != null && subtext.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtext,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: isFocused ? Colors.greenAccent : Colors.green.shade700,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ],
           ),
         ),
@@ -1517,12 +2010,13 @@ class InventoryQrScreen extends StatefulWidget {
 }
 
 class _InventoryQrScreenState extends State<InventoryQrScreen> {
-  final TextEditingController _floorCtrl = TextEditingController(text: "1");
   final TextEditingController _rackCtrl = TextEditingController(text: "01");
-  final TextEditingController _shelfCtrl = TextEditingController(text: "A");
+  final TextEditingController _secCtrl = TextEditingController(text: "1");
+  final TextEditingController _colCtrl = TextEditingController(text: "04");
+  final TextEditingController _shelfCtrl = TextEditingController(text: "C");
   final TextEditingController _itemCtrl = TextEditingController(text: "1");
   
-  String get locationCode => "${_floorCtrl.text}-${_rackCtrl.text}-${_shelfCtrl.text}-${_itemCtrl.text}".toUpperCase();
+  String get locationCode => "${_rackCtrl.text.padLeft(2, '0')}-${_secCtrl.text}-${_colCtrl.text.padLeft(2, '0')}-${_shelfCtrl.text.toUpperCase()}-${_itemCtrl.text}".toUpperCase();
 
   @override
   Widget build(BuildContext context) {
@@ -1536,11 +2030,13 @@ class _InventoryQrScreenState extends State<InventoryQrScreen> {
             const SizedBox(height: 16),
             Row(
               children: [
-                Expanded(child: TextField(controller: _floorCtrl, decoration: const InputDecoration(labelText: "Floor"), onChanged: (_) => setState((){}))),
+                Expanded(child: TextField(controller: _rackCtrl, decoration: const InputDecoration(labelText: "Rack (01)"), onChanged: (_) => setState((){}))),
                 const SizedBox(width: 8),
-                Expanded(child: TextField(controller: _rackCtrl, decoration: const InputDecoration(labelText: "Rack"), onChanged: (_) => setState((){}))),
+                Expanded(child: TextField(controller: _secCtrl, decoration: const InputDecoration(labelText: "Sec (1)"), onChanged: (_) => setState((){}))),
                 const SizedBox(width: 8),
-                Expanded(child: TextField(controller: _shelfCtrl, decoration: const InputDecoration(labelText: "Shelf"), onChanged: (_) => setState((){}))),
+                Expanded(child: TextField(controller: _colCtrl, decoration: const InputDecoration(labelText: "Col (04)"), onChanged: (_) => setState((){}))),
+                const SizedBox(width: 8),
+                Expanded(child: TextField(controller: _shelfCtrl, decoration: const InputDecoration(labelText: "Shelf (A-I)"), onChanged: (_) => setState((){}))),
                 const SizedBox(width: 8),
                 Expanded(child: TextField(controller: _itemCtrl, decoration: const InputDecoration(labelText: "Item"), onChanged: (_) => setState((){}))),
               ],
