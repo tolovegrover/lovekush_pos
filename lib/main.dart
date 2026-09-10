@@ -241,7 +241,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: const Icon(Icons.storefront, size: 80, color: Color(0xFF3B82F6)),
               ),
               const SizedBox(height: 24),
-              const Text("LOVE KUSH SHOPPING CENTER", textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 2, height: 1.2)),
+              const Text("लव कुश शॉपिङ्ग सेण्टर", textAlign: TextAlign.center, style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900, letterSpacing: 2, height: 1.2)),
               const SizedBox(height: 8),
               const Text("Secure Staff Portal", style: TextStyle(fontSize: 16, color: Colors.black54)),
               const SizedBox(height: 40),
@@ -675,7 +675,7 @@ class _PosScreenState extends State<PosScreen> {
                 children: [
                   const Icon(Icons.storefront, color: Colors.white, size: 40),
                   const SizedBox(height: 12),
-                  const Text('LOVE KUSH SHOPPING CENTER', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                  const Text('लव कुश शॉपिङ्ग सेण्टर', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
                   Text(widget.userName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
                   Text(widget.userEmail, style: const TextStyle(color: Colors.white54, fontSize: 12)),
                 ],
@@ -719,7 +719,7 @@ class _PosScreenState extends State<PosScreen> {
         ),
       ),
       appBar: AppBar(
-        title: const Text('LOVE KUSH SHOPPING CENTER', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
+        title: const Text('लव कुश शॉपिङ्ग सेण्टर', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
         backgroundColor: Colors.white,
         elevation: 1,
         centerTitle: true,
@@ -949,7 +949,7 @@ class _PosScreenState extends State<PosScreen> {
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     children: [
-                      const Text("LOVE KUSH SHOPPING CENTER", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                      const Text("लव कुश शॉपिङ्ग सेण्टर", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 8),
                       const Text("Basement Counter", style: TextStyle(fontSize: 16, color: Colors.black54)),
                       Text("Served by: ${widget.userName}", style: const TextStyle(fontSize: 14, color: Colors.black45, fontStyle: FontStyle.italic)),
