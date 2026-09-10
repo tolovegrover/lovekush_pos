@@ -1004,11 +1004,19 @@ class _PosScreenState extends State<PosScreen> {
                 child: Text("ADMIN CONTROLS", style: TextStyle(color: Colors.blueAccent, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
               ),
               ListTile(
+                leading: const Icon(Icons.dashboard, color: Colors.blueAccent),
+                title: const Text('Admin Dashboard (Past Bills)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.manage_accounts, color: Colors.black87),
                 title: const Text('Manage Staff Access', style: TextStyle(fontWeight: FontWeight.bold)),
                 onTap: () {
-                  Navigator.pop(context); // close drawer
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => StaffManagementScreen()));
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const StaffManagementScreen()));
                 },
               ),
               const Divider(),
@@ -1027,11 +1035,7 @@ class _PosScreenState extends State<PosScreen> {
                 _showPrinterDialog();
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.history, color: Colors.black54),
-              title: const Text('Past Bills'),
-              onTap: () {}, 
-            ),
+
             const Divider(),
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.redAccent),
