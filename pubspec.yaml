@@ -104,3 +104,4 @@ flutter_launcher_icons:
 flutter:
   assets:
     - assets/logo.jpg
+    - assets/logo_bw.jpg
