@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:barcode_widget/barcode_widget.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -864,9 +865,24 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   void _saveAndPrintBill() async {
+    // Generate Bill Number: ddMMyy + 5 digit count
+    final now = DateTime.now();
+    final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+    
+    String billNumber = "";
+    try {
+      final data = await Supabase.instance.client.from('bills').select('id').gte('created_at', startOfDay);
+      int count = data.length + 1;
+      String dateStr = "${now.day.toString().padLeft(2, '0')}${now.month.toString().padLeft(2, '0')}${now.year.toString().substring(2)}";
+      billNumber = "$dateStr${count.toString().padLeft(5, '0')}";
+    } catch (e) {
+      billNumber = "${now.millisecondsSinceEpoch}";
+    }
+
     // 1. Save to Supabase Cloud ALWAYS
     try {
       await Supabase.instance.client.from('bills').insert({
+        'bill_number': billNumber,
         'staff_name': widget.userName,
         'counter_name': counterName,
         'total_amount': cartTotal,
@@ -891,6 +907,7 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printCustom("LOVE KUSH", 3, 1); 
           await bluetooth.printCustom("SHOPPING CENTER", 2, 1); 
           await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
+          await bluetooth.printCustom("BILL NO: $billNumber", 1, 1);
           
           await bluetooth.printNewLine();
           await bluetooth.printLeftRight("Item", "Qty x Rate", 1);
@@ -1550,8 +1567,12 @@ class AdminDashboardScreen extends StatefulWidget {
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   bool isLoading = true;
-  double todaysCollection = 0.0;
+  double collection = 0.0;
   List<dynamic> pastBills = [];
+  
+  String currentFilter = "Today";
+  DateTime? customStart;
+  DateTime? customEnd;
 
   @override
   void initState() {
@@ -1560,15 +1581,28 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   void _fetchDashboardData() async {
+    setState(() => isLoading = true);
     try {
       final now = DateTime.now();
-      final startOfDay = DateTime(now.year, now.month, now.day).toIso8601String();
+      String startISO = "";
+      String endISO = "";
 
-      // Fetch today's bills
+      if (currentFilter == "Today") {
+        startISO = DateTime(now.year, now.month, now.day).toIso8601String();
+        endISO = DateTime(now.year, now.month, now.day, 23, 59, 59).toIso8601String();
+      } else if (currentFilter == "This Month") {
+        startISO = DateTime(now.year, now.month, 1).toIso8601String();
+        endISO = DateTime(now.year, now.month + 1, 0, 23, 59, 59).toIso8601String();
+      } else if (currentFilter == "Custom" && customStart != null && customEnd != null) {
+        startISO = customStart!.toIso8601String();
+        endISO = DateTime(customEnd!.year, customEnd!.month, customEnd!.day, 23, 59, 59).toIso8601String();
+      }
+
       final data = await Supabase.instance.client
           .from('bills')
           .select()
-          .gte('created_at', startOfDay)
+          .gte('created_at', startISO)
+          .lte('created_at', endISO)
           .order('created_at', ascending: false);
 
       double total = 0;
@@ -1577,7 +1611,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       }
 
       setState(() {
-        todaysCollection = total;
+        collection = total;
         pastBills = data;
         isLoading = false;
       });
@@ -1587,46 +1621,148 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
+  void _showBillPreview(Map<String, dynamic> bill) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final items = bill['items_json'] as List<dynamic>;
+        String bNo = bill['bill_number'] ?? "N/A";
+        
+        return AlertDialog(
+          contentPadding: const EdgeInsets.all(16),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text("LOVE KUSH", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                  const Text("SHOPPING CENTER", style: TextStyle(fontSize: 16)),
+                  Text(bill['counter_name'].toString().toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 10),
+                  if (bNo != "N/A") ...[
+                    BarcodeWidget(barcode: Barcode.code128(), data: bNo, width: 200, height: 60, drawText: false),
+                    const SizedBox(height: 4),
+                    Text("BILL NO: $bNo", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                  const SizedBox(height: 10),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: const [Text("Item", style: TextStyle(fontWeight: FontWeight.bold)), Text("Qty x Rate", style: TextStyle(fontWeight: FontWeight.bold))]),
+                  const Divider(color: Colors.black, thickness: 1),
+                  ...items.map((item) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(child: Text(item['item'].toString(), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                          Text("${item['qty']} x ₹${item['rate']}"),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  const Divider(color: Colors.black, thickness: 1),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("TOTAL", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)), Text("₹${bill['total_amount']}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18))]),
+                  const SizedBox(height: 10),
+                  Text("Staff: ${bill['staff_name']}", style: const TextStyle(color: Colors.black54)),
+                  Text("Date: ${DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0]}", style: const TextStyle(color: Colors.black54)),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("CLOSE"))
+          ],
+        );
+      }
+    );
+  }
+
+  void _pickCustomDates() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) {
+      setState(() {
+        currentFilter = "Custom";
+        customStart = picked.start;
+        customEnd = picked.end;
+      });
+      _fetchDashboardData();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Admin Dashboard", style: TextStyle(color: Colors.white)), backgroundColor: const Color(0xFF111827), iconTheme: const IconThemeData(color: Colors.white)),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+      appBar: AppBar(
+        title: const Text("Admin Dashboard", style: TextStyle(color: Colors.white)), 
+        backgroundColor: const Color(0xFF111827), 
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Colors.white,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(24),
-                  color: Colors.blueAccent.withOpacity(0.1),
-                  child: Column(
-                    children: [
-                      const Text("TODAY'S COLLECTION", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black54, letterSpacing: 1.5)),
-                      const SizedBox(height: 8),
-                      Text("₹${todaysCollection.toStringAsFixed(2)}", style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: Colors.blueAccent)),
-                    ],
-                  ),
+                FilterChip(
+                  label: const Text("Today"),
+                  selected: currentFilter == "Today",
+                  onSelected: (_) { setState(() => currentFilter = "Today"); _fetchDashboardData(); },
                 ),
-                const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Align(alignment: Alignment.centerLeft, child: Text("TODAY'S BILLS", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+                FilterChip(
+                  label: const Text("This Month"),
+                  selected: currentFilter == "This Month",
+                  onSelected: (_) { setState(() => currentFilter = "This Month"); _fetchDashboardData(); },
                 ),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: pastBills.length,
-                    itemBuilder: (context, index) {
-                      final bill = pastBills[index];
-                      return ListTile(
-                        leading: CircleAvatar(backgroundColor: Colors.black12, child: const Icon(Icons.receipt, color: Colors.black)),
-                        title: Text("₹${bill['total_amount']}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                        subtitle: Text("Staff: ${bill['staff_name']} • Counter: ${bill['counter_name']}"),
-                        trailing: Text(DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0].substring(11), style: const TextStyle(color: Colors.black54)),
-                      );
-                    },
-                  ),
-                )
+                ActionChip(
+                  label: Text(currentFilter == "Custom" ? "Custom Range ✓" : "Custom Range"),
+                  onPressed: _pickCustomDates,
+                ),
               ],
             ),
+          ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            color: Colors.blueAccent.withOpacity(0.1),
+            child: Column(
+              children: [
+                Text("${currentFilter.toUpperCase()} COLLECTION", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black54, letterSpacing: 1.5)),
+                const SizedBox(height: 8),
+                Text("₹${collection.toStringAsFixed(2)}", style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: Colors.blueAccent)),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Align(alignment: Alignment.centerLeft, child: Text("${currentFilter.toUpperCase()} BILLS", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+          ),
+          if (isLoading)
+            const Expanded(child: Center(child: CircularProgressIndicator()))
+          else
+            Expanded(
+              child: ListView.builder(
+                itemCount: pastBills.length,
+                itemBuilder: (context, index) {
+                  final bill = pastBills[index];
+                  String bNo = bill['bill_number'] ?? "N/A";
+                  return ListTile(
+                    leading: CircleAvatar(backgroundColor: Colors.black12, child: const Icon(Icons.receipt, color: Colors.black)),
+                    title: Text("₹${bill['total_amount']}  (No: $bNo)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    subtitle: Text("Staff: ${bill['staff_name']} • Counter: ${bill['counter_name']}"),
+                    trailing: Text(DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0].substring(11), style: const TextStyle(color: Colors.black54)),
+                    onTap: () => _showBillPreview(bill),
+                  );
+                },
+              ),
+            )
+        ],
+      ),
     );
   }
 }

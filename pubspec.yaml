@@ -28,6 +28,7 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  barcode_widget: ^2.0.4
   flutter:
     sdk: flutter
 
@@ -44,6 +45,7 @@ dependencies:
   supabase_flutter: ^2.17.2
 
 dev_dependencies:
+  barcode_widget: ^2.0.4
   flutter_test:
     sdk: flutter
 
