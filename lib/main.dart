@@ -14,6 +14,12 @@ import 'firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try { await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform); } catch (e) { print(e); }
+  try {
+    await Supabase.initialize(
+      url: 'https://hzseglqgnjxmkzrecizn.supabase.co',
+      anonKey: 'sb_publishable_y6Rb83ANnxVRaEItiKf5kg_MjqHNo6w',
+    );
+  } catch (e) { print("Supabase Init Error: $e"); }
 
   runApp(const PosApp());
 }
