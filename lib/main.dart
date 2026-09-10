@@ -209,19 +209,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
     String input = _emailController.text.trim().toLowerCase();
     
-    // Instant Phone Login Bypass
-    if (phoneAuth.containsKey(input)) {
-      final user = phoneAuth[input]!;
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isLoggedIn', true);
-      await prefs.setString('userName', user["name"]);
-      await prefs.setString('userEmail', user["email"]);
-      await prefs.setBool('isAdmin', user["isAdmin"]);
-      if (mounted) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PosScreen(userName: user["name"], userEmail: user["email"], isAdmin: user["isAdmin"])));
-      }
-      return;
-    }
+
 
     String email = input;
     if (email.isEmpty || !email.contains("@")) {
