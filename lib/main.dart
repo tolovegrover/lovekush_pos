@@ -612,26 +612,30 @@ class ShelfCodeInputFormatter extends TextInputFormatter {
 }
 
 Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
+  final clean = barcode.replaceAll(RegExp(r'[^0-9]'), '').trim();
+  if (clean.length < 8) return null;
+
   final endpoints = [
-    "https://world.openbeautyfacts.org/api/v0/product/$barcode.json",
-    "https://world.openfoodfacts.org/api/v0/product/$barcode.json",
-    "https://world.openproductsfacts.org/api/v0/product/$barcode.json",
+    "https://world.openbeautyfacts.org/api/v0/product/$clean.json",
+    "https://world.openfoodfacts.org/api/v0/product/$clean.json",
+    "https://world.openproductsfacts.org/api/v0/product/$clean.json",
   ];
 
-  for (final url in endpoints) {
+  Future<Map<String, String>?> queryEndpoint(String url) async {
+    HttpClient? client;
     try {
-      final client = HttpClient();
-      client.connectionTimeout = const Duration(seconds: 3);
+      client = HttpClient();
+      client.connectionTimeout = const Duration(milliseconds: 1800);
       final uri = Uri.parse(url);
       final request = await client.getUrl(uri);
       request.headers.set('User-Agent', 'LoveKushPOS/1.0 (Retail Scanner)');
-      final response = await request.close().timeout(const Duration(seconds: 3));
+      final response = await request.close().timeout(const Duration(milliseconds: 1900));
       if (response.statusCode == 200) {
         final body = await response.transform(utf8.decoder).join();
         final data = json.decode(body);
         if (data is Map && data['status'] == 1 && data['product'] != null) {
           final prod = data['product'];
-          String name = (prod['product_name'] ?? prod['product_name_en'] ?? '').toString().trim();
+          String name = (prod['product_name'] ?? prod['product_name_en'] ?? prod['generic_name'] ?? '').toString().trim();
           String brand = (prod['brands'] ?? '').toString().trim();
           String category = (prod['categories'] ?? '').toString().trim();
           if (name.isNotEmpty) {
@@ -642,9 +646,42 @@ Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
           }
         }
       }
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      client?.close(force: true);
+    }
+    return null;
   }
-  return null;
+
+  try {
+    final completer = Completer<Map<String, String>?>();
+    int pending = endpoints.length;
+
+    for (final url in endpoints) {
+      queryEndpoint(url).then((result) {
+        if (!completer.isCompleted) {
+          if (result != null) {
+            completer.complete(result);
+          } else {
+            pending--;
+            if (pending <= 0) completer.complete(null);
+          }
+        }
+      }).catchError((_) {
+        if (!completer.isCompleted) {
+          pending--;
+          if (pending <= 0) completer.complete(null);
+        }
+      });
+    }
+
+    return await completer.future.timeout(
+      const Duration(milliseconds: 2000),
+      onTimeout: () => null,
+    );
+  } catch (_) {
+    return null;
+  }
 }
 
 // ==========================================
@@ -1435,7 +1472,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                           else
                             IconButton(
                               icon: const Icon(Icons.cloud_download, color: Colors.teal, size: 20),
-                              tooltip: "Fetch Name from Open Beauty Facts",
+                              tooltip: "Fetch Name from Open Facts Cloud (<2s)",
                               onPressed: () async {
                                 final bar = companyBarcodeCtrl.text.trim();
                                 if (bar.isEmpty) {
@@ -1448,9 +1485,9 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                                   isFetchingObf = false;
                                   if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
                                     nameCtrl.text = obf['name']!;
-                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Fetched: ${obf['name']}")));
+                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Cloud Fetched: ${obf['name']}")));
                                   } else {
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No match on Open Beauty Facts. Enter name manually.")));
+                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No match in Open Facts Cloud (<2s). Enter name manually.")));
                                   }
                                 });
                               },
@@ -3290,6 +3327,34 @@ class _PosScreenState extends State<PosScreen> {
                               setState(() {
                                 focusedField = 2; // jump to rate
                               });
+                              final digitsOnly = parsedRaw.replaceAll(RegExp(r'[^0-9]'), '');
+                              if (parsedRaw.length >= 8 && digitsOnly.length == parsedRaw.length) {
+                                fetchOpenBeautyFacts(parsedRaw).then((obf) {
+                                  if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty && mounted) {
+                                    if (!_ItemCatalogScreenState.pendingScannedItems.any((p) => (p['barcode'] ?? '') == parsedRaw)) {
+                                      _ItemCatalogScreenState.pendingScannedItems.insert(0, {
+                                        'barcode': parsedRaw,
+                                        'name': obf['name'],
+                                        'brand': obf['brand'] ?? '',
+                                        'price': 0.0,
+                                        'category': obf['category'] ?? 'Cosmetics',
+                                      });
+                                    }
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text("Cloud Recognized (<2s): ${obf['name']}"),
+                                        duration: const Duration(seconds: 4),
+                                        backgroundColor: Colors.teal.shade700,
+                                        action: SnackBarAction(
+                                          label: "ASSIGN SHELF",
+                                          textColor: Colors.amberAccent,
+                                          onPressed: () => _openItemCatalog(),
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                });
+                              }
                             }
                           }
                         }
