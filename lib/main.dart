@@ -547,18 +547,17 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     final bool isEdit = existing != null;
     
     final rackCtrl = TextEditingController(text: "01");
-    final sectionCtrl = TextEditingController(text: "1");
-    final colCtrl = TextEditingController(text: "04");
-    final shelfCtrl = TextEditingController(text: "C");
-    final itemCtrl = TextEditingController(text: "1");
+    final colCtrl = TextEditingController(text: "03");
+    final rowCtrl = TextEditingController(text: "C");
+    final itemCtrl = TextEditingController(text: "134");
     
-    final codeCtrl = TextEditingController(text: isEdit ? existing['item_code'] : "01-1-04-C-1");
+    final codeCtrl = TextEditingController(text: isEdit ? existing['item_code'] : "01-03-C-134");
     final nameCtrl = TextEditingController(text: isEdit ? (existing['item_name'] ?? '') : '');
     final priceCtrl = TextEditingController(text: isEdit ? (existing['price']?.toString() ?? '') : '');
 
     void updateGeneratedCode(void Function(void Function()) setDialogState) {
       setDialogState(() {
-        codeCtrl.text = "${rackCtrl.text.padLeft(2, '0')}-${sectionCtrl.text}-${colCtrl.text.padLeft(2, '0')}-${shelfCtrl.text.toUpperCase()}-${itemCtrl.text}".toUpperCase();
+        codeCtrl.text = "${rackCtrl.text.padLeft(2, '0')}-${colCtrl.text.padLeft(2, '0')}-${rowCtrl.text.toUpperCase()}-${itemCtrl.text}".toUpperCase();
       });
     }
 
@@ -587,28 +586,16 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: TextField(
-                          controller: sectionCtrl,
-                          decoration: const InputDecoration(labelText: "Sec (1)", border: OutlineInputBorder(), isDense: true),
+                          controller: colCtrl,
+                          decoration: const InputDecoration(labelText: "Col (03)", border: OutlineInputBorder(), isDense: true),
                           onChanged: (_) => updateGeneratedCode(setDialogState),
                         ),
                       ),
                       const SizedBox(width: 6),
                       Expanded(
                         child: TextField(
-                          controller: colCtrl,
-                          decoration: const InputDecoration(labelText: "Col (04)", border: OutlineInputBorder(), isDense: true),
-                          onChanged: (_) => updateGeneratedCode(setDialogState),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: shelfCtrl,
-                          decoration: const InputDecoration(labelText: "Shelf (A-I)", border: OutlineInputBorder(), isDense: true),
+                          controller: rowCtrl,
+                          decoration: const InputDecoration(labelText: "Row (A-I)", border: OutlineInputBorder(), isDense: true),
                           onChanged: (_) => updateGeneratedCode(setDialogState),
                         ),
                       ),
@@ -616,7 +603,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                       Expanded(
                         child: TextField(
                           controller: itemCtrl,
-                          decoration: const InputDecoration(labelText: "Item #", border: OutlineInputBorder(), isDense: true),
+                          decoration: const InputDecoration(labelText: "Item (134)", border: OutlineInputBorder(), isDense: true),
                           onChanged: (_) => updateGeneratedCode(setDialogState),
                         ),
                       ),
@@ -629,7 +616,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                   readOnly: isEdit,
                   decoration: InputDecoration(
                     labelText: "Item Code",
-                    helperText: "Format: Rack-Sec-Col-Shelf-Item",
+                    helperText: "Format: 01(Rack)-03(Col)-C(Row)-134(Item)",
                     border: const OutlineInputBorder(),
                     filled: isEdit,
                     fillColor: isEdit ? Colors.grey.shade100 : null,
@@ -719,7 +706,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
             color: Colors.white,
             child: TextField(
               decoration: InputDecoration(
-                hintText: "Search by code (e.g. 01-1) or item name...",
+                hintText: "Search by code (e.g. 01-03) or item name...",
                 prefixIcon: const Icon(Icons.search),
                 suffixIcon: searchQuery.isNotEmpty
                     ? IconButton(
@@ -851,10 +838,10 @@ class _PosScreenState extends State<PosScreen> {
 
   String _canonicalCode(String s) {
     String clean = s.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
-    if (clean.length >= 6) {
-      int? d = int.tryParse(clean[5]);
+    if (clean.length >= 5) {
+      int? d = int.tryParse(clean[4]);
       if (d != null && d >= 1 && d <= 9) {
-        clean = clean.substring(0, 5) + String.fromCharCode(64 + d) + clean.substring(6);
+        clean = clean.substring(0, 4) + String.fromCharCode(64 + d) + clean.substring(5);
       }
     }
     return clean;
@@ -895,12 +882,12 @@ class _PosScreenState extends State<PosScreen> {
 
   String _parseToRaw(String code) {
     String clean = code.replaceAll("-", "").replaceAll(" ", "").trim().toUpperCase();
-    if (clean.length >= 6) {
-      String shelfChar = clean[5];
-      int codeUnit = shelfChar.codeUnitAt(0);
+    if (clean.length >= 5) {
+      String rowChar = clean[4];
+      int codeUnit = rowChar.codeUnitAt(0);
       if (codeUnit >= 65 && codeUnit <= 90) {
         int num = codeUnit - 64;
-        clean = clean.substring(0, 5) + num.toString() + clean.substring(6);
+        clean = clean.substring(0, 4) + num.toString() + clean.substring(5);
       }
     }
     return clean;
@@ -1061,11 +1048,10 @@ class _PosScreenState extends State<PosScreen> {
     String result = "";
     for (int i = 0; i < rawItemCode.length; i++) {
       if (i == 2) result += " - "; // After Rack (2 digits: 0, 1)
-      if (i == 3) result += " - "; // After Section (1 digit: 2)
-      if (i == 5) result += " - "; // After Column (2 digits: 3, 4)
-      if (i == 6) result += " - "; // After Shelf (1 letter: 5)
+      if (i == 4) result += " - "; // After Column (2 digits: 2, 3)
+      if (i == 5) result += " - "; // After Row (1 letter: 4)
       
-      if (i == 5) {
+      if (i == 4) {
         int? num = int.tryParse(rawItemCode[i]);
         if (num != null && num >= 1 && num <= 9) {
           result += String.fromCharCode(64 + num); // 1=A, 2=B, 3=C...
@@ -1181,7 +1167,7 @@ class _PosScreenState extends State<PosScreen> {
         }
       }
       else {
-        if (focusedField == 0 && rawItemCode.length < 10) {
+        if (focusedField == 0) {
           if (value != ".") {
             rawItemCode += value;
             final match = _lookupItem(rawItemCode);
@@ -2011,12 +1997,11 @@ class InventoryQrScreen extends StatefulWidget {
 
 class _InventoryQrScreenState extends State<InventoryQrScreen> {
   final TextEditingController _rackCtrl = TextEditingController(text: "01");
-  final TextEditingController _secCtrl = TextEditingController(text: "1");
-  final TextEditingController _colCtrl = TextEditingController(text: "04");
-  final TextEditingController _shelfCtrl = TextEditingController(text: "C");
-  final TextEditingController _itemCtrl = TextEditingController(text: "1");
+  final TextEditingController _colCtrl = TextEditingController(text: "03");
+  final TextEditingController _rowCtrl = TextEditingController(text: "C");
+  final TextEditingController _itemCtrl = TextEditingController(text: "134");
   
-  String get locationCode => "${_rackCtrl.text.padLeft(2, '0')}-${_secCtrl.text}-${_colCtrl.text.padLeft(2, '0')}-${_shelfCtrl.text.toUpperCase()}-${_itemCtrl.text}".toUpperCase();
+  String get locationCode => "${_rackCtrl.text.padLeft(2, '0')}-${_colCtrl.text.padLeft(2, '0')}-${_rowCtrl.text.toUpperCase()}-${_itemCtrl.text}".toUpperCase();
 
   @override
   Widget build(BuildContext context) {
@@ -2032,13 +2017,11 @@ class _InventoryQrScreenState extends State<InventoryQrScreen> {
               children: [
                 Expanded(child: TextField(controller: _rackCtrl, decoration: const InputDecoration(labelText: "Rack (01)"), onChanged: (_) => setState((){}))),
                 const SizedBox(width: 8),
-                Expanded(child: TextField(controller: _secCtrl, decoration: const InputDecoration(labelText: "Sec (1)"), onChanged: (_) => setState((){}))),
+                Expanded(child: TextField(controller: _colCtrl, decoration: const InputDecoration(labelText: "Col (03)"), onChanged: (_) => setState((){}))),
                 const SizedBox(width: 8),
-                Expanded(child: TextField(controller: _colCtrl, decoration: const InputDecoration(labelText: "Col (04)"), onChanged: (_) => setState((){}))),
+                Expanded(child: TextField(controller: _rowCtrl, decoration: const InputDecoration(labelText: "Row (A-I)"), onChanged: (_) => setState((){}))),
                 const SizedBox(width: 8),
-                Expanded(child: TextField(controller: _shelfCtrl, decoration: const InputDecoration(labelText: "Shelf (A-I)"), onChanged: (_) => setState((){}))),
-                const SizedBox(width: 8),
-                Expanded(child: TextField(controller: _itemCtrl, decoration: const InputDecoration(labelText: "Item"), onChanged: (_) => setState((){}))),
+                Expanded(child: TextField(controller: _itemCtrl, decoration: const InputDecoration(labelText: "Item (134)"), onChanged: (_) => setState((){}))),
               ],
             ),
             const SizedBox(height: 40),
