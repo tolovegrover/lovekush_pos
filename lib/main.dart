@@ -58,6 +58,9 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
+  bool isPhoneMode = false;
+  String _verificationId = "";
+  final TextEditingController _otpController = TextEditingController();
   
   final Map<String, Map<String, dynamic>> phoneAuth = {
     "8800452769": {"name": "Love Kush", "email": "tolovegrover@gmail.com", "isAdmin": true},
@@ -125,7 +128,84 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  void _verifyPhoneNumber() async {
+    String phone = _emailController.text.trim();
+    if (phone.length == 10 && !phone.startsWith('+')) {
+      phone = '+91$phone'; // Default to India if no code
+    }
+
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: phone,
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          await FirebaseAuth.instance.signInWithCredential(credential);
+          _completeLogin("Staff (Phone)", phone, false);
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? "Phone Verification Failed")));
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          setState(() => _verificationId = verificationId);
+          _showOtpDialog(phone);
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {},
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  void _showOtpDialog(String phone) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text("Enter SMS OTP"),
+        content: TextField(
+          controller: _otpController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: "6-digit OTP"),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.black54))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.black),
+            onPressed: () async {
+              try {
+                PhoneAuthCredential credential = PhoneAuthProvider.credential(
+                  verificationId: _verificationId,
+                  smsCode: _otpController.text.trim(),
+                );
+                await FirebaseAuth.instance.signInWithCredential(credential);
+                if (mounted) Navigator.pop(context);
+                _completeLogin("Staff (Phone)", phone, false);
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid OTP")));
+              }
+            },
+            child: const Text("VERIFY", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          )
+        ],
+      )
+    );
+  }
+
+  void _completeLogin(String name, String emailOrPhone, bool isAdmin) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isLoggedIn', true);
+    await prefs.setString('userName', name);
+    await prefs.setString('userEmail', emailOrPhone);
+    await prefs.setBool('isAdmin', isAdmin);
+    if (mounted) {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PosScreen(userName: name, userEmail: emailOrPhone, isAdmin: isAdmin)));
+    }
+  }
+
   void _sendEmailLink() async {
+    if (isPhoneMode) {
+      _verifyPhoneNumber();
+      return;
+    }
     String input = _emailController.text.trim().toLowerCase();
     
     // Instant Phone Login Bypass
