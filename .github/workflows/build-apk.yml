@@ -30,9 +30,11 @@ jobs:
           cache: true
           
       - run: flutter pub get
-      - name: Patch blue_thermal_printer namespace
+      - name: Patch blue_thermal_printer namespace and compileSdk
         run: |
           find /home/runner/.pub-cache/hosted/pub.dev/blue_thermal_printer-*/android -name build.gradle -exec sed -i '/android {/a \    namespace "id.kakzaki.blue_thermal_printer"' {} +
+          find /home/runner/.pub-cache/hosted/pub.dev/blue_thermal_printer-*/android -name build.gradle -exec sed -i 's/compileSdkVersion [0-9]*/compileSdkVersion 34/g' {} +
+          find /home/runner/.pub-cache/hosted/pub.dev/blue_thermal_printer-*/android -name build.gradle -exec sed -i 's/targetSdkVersion [0-9]*/targetSdkVersion 34/g' {} +
       - run: flutter build apk --release
       
       - name: Create Release
