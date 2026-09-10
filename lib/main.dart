@@ -1040,7 +1040,18 @@ class _PosScreenState extends State<PosScreen> {
             ListTile(
               leading: const Icon(Icons.logout, color: Colors.redAccent),
               title: const Text('Logout', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-              onTap: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const LoginScreen())),
+              onTap: () async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.clear();
+                try { await FirebaseAuth.instance.signOut(); } catch(e){}
+                if (context.mounted) {
+                  Navigator.pushAndRemoveUntil(
+                    context, 
+                    MaterialPageRoute(builder: (context) => const LoginScreen()), 
+                    (route) => false
+                  );
+                }
+              },
             ),
           ],
         ),
