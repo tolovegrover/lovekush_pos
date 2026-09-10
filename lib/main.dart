@@ -685,6 +685,79 @@ Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
 }
 
 // ==========================================
+// UNASSIGNED / PENDING SCANNED ITEMS MANAGER
+// (Scanned during sales or stocktake, saved to review & assign later)
+// ==========================================
+class PendingItemsManager {
+  static List<Map<String, dynamic>> items = [];
+
+  static Future<void> load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final str = prefs.getString('pending_scanned_items');
+      if (str != null && str.isNotEmpty) {
+        final decoded = json.decode(str);
+        if (decoded is List) {
+          items = List<Map<String, dynamic>>.from(decoded);
+        }
+      }
+    } catch (_) {}
+  }
+
+  static Future<void> save() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('pending_scanned_items', json.encode(items));
+    } catch (_) {}
+  }
+
+  static void addPending({
+    required String barcode,
+    required String name,
+    double price = 0.0,
+    String brand = '',
+    String category = 'Cosmetics',
+  }) {
+    final clean = barcode.trim();
+    if (clean.isEmpty) return;
+    final index = items.indexWhere((p) => (p['barcode'] ?? '').toString().trim().toUpperCase() == clean.toUpperCase());
+    final entry = {
+      'barcode': clean,
+      'name': name.isNotEmpty ? name : "Unassigned Item ($clean)",
+      'brand': brand,
+      'price': price,
+      'category': category,
+      'scanned_at': DateTime.now().toIso8601String(),
+    };
+    if (index >= 0) {
+      if (name.isNotEmpty && items[index]['name'].toString().startsWith("Unassigned")) {
+        items[index]['name'] = name;
+      }
+      if (price > 0) {
+        items[index]['price'] = price;
+      }
+      if (brand.isNotEmpty) {
+        items[index]['brand'] = brand;
+      }
+    } else {
+      items.insert(0, entry);
+    }
+    save();
+  }
+
+  static void remove(String barcode) {
+    if (barcode.trim().isEmpty) return;
+    items.removeWhere((p) => (p['barcode'] ?? '').toString().trim().toUpperCase() == barcode.trim().toUpperCase());
+    save();
+  }
+
+  static void clear() {
+    items.clear();
+    save();
+  }
+}
+
+// ==========================================
 // ITEM CODES & RATES (INVENTORY MAPPING)
 // ==========================================
 class ItemCatalogScreen extends StatefulWidget {
@@ -701,7 +774,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
   String searchQuery = "";
 
   // Scanned items waiting for shelf assignment (never lost!)
-  static List<Map<String, dynamic>> pendingScannedItems = [];
+  List<Map<String, dynamic>> get pendingScannedItems => PendingItemsManager.items;
 
   // Last used code components for rapid sequential shelf entry
   static String _lastRack = "01";
@@ -714,6 +787,9 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     super.initState();
     _loadLastUsedCode();
     _fetchInventory();
+    PendingItemsManager.load().then((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   void _loadLastUsedCode() async {
@@ -803,11 +879,9 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       await prefs.setInt('last_item_num', _lastItemNum);
 
       // Remove from pending scanned queue since it is now assigned and saved to shop stock!
-      setState(() {
-        pendingScannedItems.removeWhere((p) =>
-          (p['barcode'] ?? '') == (companyBarcode ?? '') || (p['barcode'] ?? '') == code
-        );
-      });
+      PendingItemsManager.remove(companyBarcode ?? '');
+      PendingItemsManager.remove(code);
+      setState(() {});
 
       _fetchInventory();
       if (mounted) {
@@ -946,33 +1020,27 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       // 3. Recognized in Master Catalog / Backup OR New Item:
       // Record in pending queue so it NEVER goes empty or gets lost!
       if (masterMatch != null) {
-        if (!pendingScannedItems.any((p) => (p['barcode'] ?? '') == clean)) {
-          setState(() {
-            pendingScannedItems.insert(0, {
-              'barcode': clean,
-              'name': masterMatch!['name'],
-              'brand': masterMatch['brand'] ?? '',
-              'price': masterMatch['price'] ?? 0.0,
-              'category': masterMatch['category'] ?? 'Cosmetics',
-            });
-          });
-        }
+        PendingItemsManager.addPending(
+          barcode: clean,
+          name: masterMatch['name'] ?? '',
+          brand: masterMatch['brand'] ?? '',
+          price: (masterMatch['price'] as num?)?.toDouble() ?? 0.0,
+          category: masterMatch['category'] ?? 'Cosmetics',
+        );
+        setState(() {});
         if (mounted) {
           _showRecognizedMasterProductDialog(clean, masterMatch);
         }
       } else {
         // Unrecognized barcode: record in pending & prompt to add
-        if (!pendingScannedItems.any((p) => (p['barcode'] ?? '') == clean)) {
-          setState(() {
-            pendingScannedItems.insert(0, {
-              'barcode': clean,
-              'name': 'New Scanned Product ($clean)',
-              'brand': '',
-              'price': 0.0,
-              'category': 'Cosmetics',
-            });
-          });
-        }
+        PendingItemsManager.addPending(
+          barcode: clean,
+          name: 'New Scanned Product ($clean)',
+          brand: '',
+          price: 0.0,
+          category: 'Cosmetics',
+        );
+        setState(() {});
         if (mounted) {
           if (clean.length >= 8 && digitsOnly.length == clean.length) {
             _showAddEditDialog(null, null, null, null, clean);
@@ -1496,12 +1564,18 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                             icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent, size: 20),
                             tooltip: "Scan Box Barcode",
                             onPressed: () async {
-                              final scanned = await Navigator.push(context, MaterialPageRoute(builder: (_) => const QRScannerScreen()));
+                              final scanned = await Navigator.push(
+                                ctx,
+                                MaterialPageRoute(
+                                  builder: (_) => const QRScannerScreen(title: "Scan Product Barcode"),
+                                ),
+                              );
                               if (scanned != null && scanned is String && scanned.isNotEmpty) {
-                                setDialogState(() => companyBarcodeCtrl.text = scanned.trim());
+                                final clean = scanned.trim();
+                                setDialogState(() => companyBarcodeCtrl.text = clean);
                                 // Attempt auto-fetch name
                                 setDialogState(() => isFetchingObf = true);
-                                final obf = await fetchOpenBeautyFacts(scanned.trim());
+                                final obf = await fetchOpenBeautyFacts(clean);
                                 setDialogState(() {
                                   isFetchingObf = false;
                                   if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
@@ -1530,11 +1604,21 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
                         icon: const Icon(Icons.qr_code, color: Colors.indigo),
-                        tooltip: "Scan Shelf Sticker",
+                        tooltip: "Scan Shelf Sticker (Barcode or QR)",
                         onPressed: () async {
-                          final scanned = await Navigator.push(context, MaterialPageRoute(builder: (_) => const QRScannerScreen()));
+                          final scanned = await Navigator.push(
+                            ctx,
+                            MaterialPageRoute(
+                              builder: (_) => const QRScannerScreen(title: "Scan Shelf Barcode or QR"),
+                            ),
+                          );
                           if (scanned != null && scanned is String && scanned.isNotEmpty) {
-                            setDialogState(() => shelfCodeCtrl.text = scanned.trim().toUpperCase());
+                            final parsed = ShelfCodeBreakdown.parse(scanned.trim());
+                            setDialogState(() {
+                              shelfCodeCtrl.text = parsed.fullCode.isNotEmpty
+                                  ? parsed.fullCode
+                                  : scanned.trim().toUpperCase();
+                            });
                           }
                         },
                       ),
@@ -1902,7 +1986,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                       ),
                       TextButton(
                         style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero),
-                        onPressed: () => setState(() => pendingScannedItems.clear()),
+                        onPressed: () => setState(() => PendingItemsManager.clear()),
                         child: const Text("Clear All", style: TextStyle(color: Colors.grey, fontSize: 11)),
                       ),
                     ],
@@ -2212,12 +2296,135 @@ class _PosScreenState extends State<PosScreen> {
     setState(() {
       String code = (item['item_code'] ?? '').toString();
       rawItemCode = _parseToRaw(code);
+      activeItemName = (item['item_name'] ?? '').toString();
+      activeItemSub = "📍 Shelf: ${item['shelf_location'] ?? ''}";
+      activeConflicts = [];
       double p = (item['price'] as num?)?.toDouble() ?? 0.0;
       if (p > 0) {
         rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
       }
       focusedField = 1; // Advance directly to QTY
     });
+  }
+
+  void _resolveScannedBarcode(String code) {
+    if (code.isEmpty) {
+      setState(() {
+        activeItemName = "";
+        activeItemSub = "";
+        activeConflicts = [];
+      });
+      return;
+    }
+
+    final clean = code.trim();
+    final matches = _lookupAllMatches(clean);
+
+    if (matches.length == 1) {
+      _applyResolvedItem(matches.first);
+      return;
+    } else if (matches.length > 1) {
+      // Multiple items on shelf: Pick first by default, NO POPUP! Show inline choice chips
+      final first = matches.first;
+      setState(() {
+        String c = (first['item_code'] ?? '').toString();
+        rawItemCode = _parseToRaw(c);
+        activeItemName = (first['item_name'] ?? '').toString();
+        activeItemSub = "⚠️ ${matches.length} items at this shelf";
+        activeConflicts = matches;
+        double p = (first['price'] as num?)?.toDouble() ?? 0.0;
+        if (p > 0) {
+          rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+        }
+        focusedField = 1;
+      });
+      return;
+    }
+
+    // 2. Check local cosmeticDatabase (506 items)
+    for (var c in cosmeticDatabase) {
+      if ((c['barcode'] ?? '').toString().toUpperCase() == clean.toUpperCase()) {
+        final cName = (c['name'] ?? '').toString();
+        double p = (c['price'] as num?)?.toDouble() ?? 0.0;
+        setState(() {
+          rawItemCode = clean;
+          activeItemName = cName;
+          activeItemSub = "✨ Backup Catalog (Not shelved yet)";
+          activeConflicts = [];
+          if (p > 0) {
+            rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+          }
+          focusedField = 1; // Advance to QTY
+        });
+        // Silently log to pending queue for later review
+        PendingItemsManager.addPending(
+          barcode: clean,
+          name: cName,
+          price: p,
+          brand: (c['brand'] ?? '').toString(),
+          category: (c['category'] ?? 'Cosmetics').toString(),
+        );
+        return;
+      }
+    }
+
+    // 3. Check Open Facts Cloud (<2s) if 8+ digit commercial barcode
+    final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
+    if (clean.length >= 8 && digitsOnly.length == clean.length) {
+      setState(() {
+        rawItemCode = clean;
+        activeItemName = "Barcode $clean";
+        activeItemSub = "Checking cloud (<2s)...";
+        activeConflicts = [];
+        focusedField = 2; // Move directly to rate so cashier can enter price without waiting
+      });
+      fetchOpenBeautyFacts(clean).then((obf) {
+        if (!mounted) return;
+        if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
+          final officialName = obf['name']!;
+          setState(() {
+            if (rawItemCode == clean) {
+              activeItemName = officialName;
+              activeItemSub = "🌐 Cloud Recognized (Not shelved yet)";
+            }
+          });
+          PendingItemsManager.addPending(
+            barcode: clean,
+            name: officialName,
+            price: double.tryParse(rate) ?? 0.0,
+            brand: obf['brand'] ?? '',
+            category: obf['category'] ?? 'Cosmetics',
+          );
+        } else {
+          setState(() {
+            if (rawItemCode == clean) {
+              activeItemName = "Unassigned Product ($clean)";
+              activeItemSub = "📦 Not in database yet";
+            }
+          });
+          PendingItemsManager.addPending(
+            barcode: clean,
+            name: "Unassigned Product ($clean)",
+            price: double.tryParse(rate) ?? 0.0,
+          );
+        }
+      });
+      return;
+    }
+
+    // 4. Short / uncataloged code
+    setState(() {
+      rawItemCode = clean;
+      activeItemName = "Unassigned Item ($clean)";
+      activeItemSub = "📦 Not in database yet";
+      activeConflicts = [];
+      focusedField = 2; // Move to rate
+    });
+    PendingItemsManager.addPending(
+      barcode: clean,
+      name: "Unassigned Item ($clean)",
+      price: double.tryParse(rate) ?? 0.0,
+    );
   }
 
   void _showConflictSelectionSheet(List<Map<String, dynamic>> matches, String query) {
@@ -2431,6 +2638,10 @@ class _PosScreenState extends State<PosScreen> {
   String onlineAmount = "";
   String counterName = "Basement Counter";
   
+  String activeItemName = ""; 
+  String activeItemSub = "";
+  List<Map<String, dynamic>> activeConflicts = [];
+
   // Printer Setup
   BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
   List<BluetoothDevice> _devices = [];
@@ -2443,6 +2654,9 @@ class _PosScreenState extends State<PosScreen> {
     _loadCounterName();
     _initBluetooth();
     _syncInventoryFromCloud();
+    PendingItemsManager.load().then((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   void _initBluetooth() async {
@@ -2610,18 +2824,37 @@ class _PosScreenState extends State<PosScreen> {
 
   void addToCart() {
     if (rawItemCode.isEmpty || rate.isEmpty) return;
-    final match = _lookupItem(rawItemCode);
-    String itemName = match != null ? (match['item_name'] ?? '') : '';
+    String itemName = activeItemName;
     if (itemName.isEmpty) {
-      // Check backup database so cart item name is NEVER blank!
-      for (var c in cosmeticDatabase) {
-        if ((c['barcode'] ?? '').toString().toUpperCase() == rawItemCode.toUpperCase()) {
-          itemName = c['name'] ?? '';
-          break;
+      final match = _lookupItem(rawItemCode);
+      itemName = match != null ? (match['item_name'] ?? '').toString() : '';
+      if (itemName.isEmpty) {
+        for (var c in cosmeticDatabase) {
+          if ((c['barcode'] ?? '').toString().toUpperCase() == rawItemCode.toUpperCase()) {
+            itemName = (c['name'] ?? '').toString();
+            break;
+          }
         }
       }
     }
-    String displayTitle = itemName.isNotEmpty ? "$itemName\n$formattedItemCode" : formattedItemCode;
+    if (itemName.isEmpty) {
+      itemName = "Item $formattedItemCode";
+    }
+
+    // Save/update pending item with user-entered rate if not yet in inventory
+    double parsedRate = double.tryParse(rate) ?? 0.0;
+    if (parsedRate > 0) {
+      final match = _lookupItem(rawItemCode);
+      if (match == null) {
+        PendingItemsManager.addPending(
+          barcode: rawItemCode,
+          name: itemName,
+          price: parsedRate,
+        );
+      }
+    }
+
+    String displayTitle = "$itemName\n$formattedItemCode";
 
     setState(() {
       cart.insert(0, {
@@ -2635,6 +2868,9 @@ class _PosScreenState extends State<PosScreen> {
       rawItemCode = "";
       qty = "1"; 
       rate = "";
+      activeItemName = "";
+      activeItemSub = "";
+      activeConflicts = [];
       focusedField = 0; 
     });
   }
@@ -2645,6 +2881,9 @@ class _PosScreenState extends State<PosScreen> {
       rawItemCode = item["rawItemCode"];
       qty = item["qty"];
       rate = item["rate"];
+      activeItemName = item["itemName"] ?? "";
+      activeItemSub = "";
+      activeConflicts = [];
       focusedField = 0; 
       cart.removeAt(index); 
     });
@@ -2658,13 +2897,8 @@ class _PosScreenState extends State<PosScreen> {
     setState(() {
       if (value == "ENTER") {
         if (focusedField == 0) {
-          final matches = _lookupAllMatches(rawItemCode);
-          if (matches.length == 1) {
-            _applyResolvedItem(matches.first);
-            return;
-          } else if (matches.length > 1) {
-            _showConflictSelectionSheet(matches, rawItemCode);
-            return;
+          if (rawItemCode.isNotEmpty) {
+            _resolveScannedBarcode(rawItemCode);
           } else {
             focusedField = 1;
           }
@@ -2688,14 +2922,31 @@ class _PosScreenState extends State<PosScreen> {
         else if (focusedField == 0) {
           if (rawItemCode.isNotEmpty) {
             rawItemCode = rawItemCode.substring(0, rawItemCode.length - 1);
-            final matches = _lookupAllMatches(rawItemCode);
-            if (matches.length == 1) {
-              double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
-              if (p > 0) {
-                rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
-              }
-            } else {
+            if (rawItemCode.isEmpty) {
+              activeItemName = "";
+              activeItemSub = "";
+              activeConflicts = [];
               rate = "";
+            } else {
+              final matches = _lookupAllMatches(rawItemCode);
+              if (matches.length == 1) {
+                activeItemName = (matches.first['item_name'] ?? '').toString();
+                activeItemSub = "📍 Shelf: ${matches.first['shelf_location'] ?? ''}";
+                activeConflicts = [];
+                double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
+                if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+              } else if (matches.length > 1) {
+                activeItemName = (matches.first['item_name'] ?? '').toString();
+                activeItemSub = "⚠️ ${matches.length} items at this shelf";
+                activeConflicts = matches;
+                double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
+                if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+              } else {
+                activeItemName = "";
+                activeItemSub = "";
+                activeConflicts = [];
+                rate = "";
+              }
             }
           }
         }
@@ -2715,11 +2966,25 @@ class _PosScreenState extends State<PosScreen> {
             rawItemCode += value;
             final matches = _lookupAllMatches(rawItemCode);
             if (matches.length == 1) {
+              activeItemName = (matches.first['item_name'] ?? '').toString();
+              activeItemSub = "📍 Shelf: ${matches.first['shelf_location'] ?? ''}";
+              activeConflicts = [];
+              double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
+              if (p > 0) {
+                rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+              }
+            } else if (matches.length > 1) {
+              activeItemName = (matches.first['item_name'] ?? '').toString();
+              activeItemSub = "⚠️ ${matches.length} items at this shelf";
+              activeConflicts = matches;
               double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
               if (p > 0) {
                 rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
               }
             } else {
+              activeItemName = "";
+              activeItemSub = "";
+              activeConflicts = [];
               rate = "";
             }
           }
@@ -3066,6 +3331,21 @@ class _PosScreenState extends State<PosScreen> {
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.black), 
         actions: [
+          if (PendingItemsManager.items.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 6.0),
+              child: ActionChip(
+                avatar: const Icon(Icons.pending_actions, size: 16, color: Color(0xFFD97706)),
+                backgroundColor: const Color(0xFFFFFBEB),
+                side: const BorderSide(color: Color(0xFFF59E0B)),
+                label: Text(
+                  "${PendingItemsManager.items.length} Pending",
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                ),
+                tooltip: "Unassigned Scanned Barcodes (Assign Later)",
+                onPressed: _openItemCatalog,
+              ),
+            ),
           IconButton(
             tooltip: "Item Codes & Rates",
             icon: const Icon(Icons.menu_book, color: Colors.blueAccent),
@@ -3206,74 +3486,165 @@ class _PosScreenState extends State<PosScreen> {
               ),
             ),
           Container(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             decoration: const BoxDecoration(
               color: Colors.white,
               border: Border(top: BorderSide(color: Colors.black12, width: 1)),
             ),
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                () {
-                  final matches = _lookupAllMatches(rawItemCode);
-                  String? codeSubtext;
-                  Color? subColor;
-                  VoidCallback? onConflictTap;
-
-                  if (matches.length == 1) {
-                    codeSubtext = "${matches.first['item_name']} (₹${matches.first['price']})";
-                    subColor = focusedField == 0 ? Colors.greenAccent : Colors.green.shade700;
-                  } else if (matches.length > 1) {
-                    codeSubtext = "⚠️ ${matches.length} items (Tap to pick)";
-                    subColor = focusedField == 0 ? Colors.amberAccent : Colors.amber.shade800;
-                    onConflictTap = () => _showConflictSelectionSheet(matches, rawItemCode);
-                  } else if (rawItemCode.isNotEmpty) {
-                    for (var c in cosmeticDatabase) {
-                      if ((c['barcode'] ?? '').toString().toUpperCase() == rawItemCode.toUpperCase()) {
-                        codeSubtext = "✨ ${c['name']} (MRP ₹${c['price']}) • From Backup";
-                        subColor = focusedField == 0 ? Colors.cyanAccent : Colors.teal.shade700;
-                        break;
-                      }
-                    }
-                  }
-                  return _buildInputBox(
-                    "ITEM CODE",
-                    formattedItemCode,
-                    focusedField == 0,
-                    0,
-                    flex: 8,
-                    isCode: true,
-                    subtext: codeSubtext,
-                    subtextColor: subColor,
-                    onCustomTap: onConflictTap,
-                  );
-                }(),
-                const SizedBox(width: 8),
-                _buildInputBox("QTY", qty.isEmpty ? "—" : qty, focusedField == 1, 1, flex: 3),
-                const SizedBox(width: 8),
-                _buildInputBox("RATE", rate.isEmpty ? "" : "₹$rate", focusedField == 2, 2, flex: 4),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 4,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+                // Prominent Live Product Banner (Name appears on scan - NO popups during sale!)
+                if (activeItemName.isNotEmpty) ...[
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFEFF6FF), 
-                      border: Border.all(color: Colors.blueAccent.withOpacity(0.3), width: 1),
+                      color: activeConflicts.isNotEmpty
+                          ? const Color(0xFFFEF3C7)
+                          : const Color(0xFFECFDF5),
                       borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: activeConflicts.isNotEmpty
+                            ? const Color(0xFFF59E0B)
+                            : const Color(0xFF10B981),
+                        width: 1.2,
+                      ),
                     ),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text("TOTAL", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.blueAccent)),
-                        const SizedBox(height: 6),
-                        Text(
-                          totalPrice.isEmpty ? "—" : "₹$totalPrice",
-                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.black),
-                          textAlign: TextAlign.center,
+                        Row(
+                          children: [
+                            Icon(
+                              activeConflicts.isNotEmpty
+                                  ? Icons.shelves
+                                  : Icons.check_circle_outline,
+                              size: 16,
+                              color: activeConflicts.isNotEmpty
+                                  ? const Color(0xFFB45309)
+                                  : const Color(0xFF059669),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                activeItemName,
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: activeConflicts.isNotEmpty
+                                      ? const Color(0xFF78350F)
+                                      : const Color(0xFF065F46),
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (activeItemSub.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: activeConflicts.isNotEmpty
+                                      ? const Color(0xFFFDE68A)
+                                      : const Color(0xFFA7F3D0),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  activeItemSub,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: activeConflicts.isNotEmpty
+                                        ? const Color(0xFF92400E)
+                                        : const Color(0xFF065F46),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
+                        // Inline choice chips for multiple shelf items - NO POPUPS!
+                        if (activeConflicts.length > 1) ...[
+                          const SizedBox(height: 6),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: activeConflicts.map((c) {
+                                final isSelected = activeItemName == c['item_name'];
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 6.0),
+                                  child: ChoiceChip(
+                                    label: Text(
+                                      "${c['item_name']} (₹${c['price']})",
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                        color: isSelected ? Colors.white : Colors.black87,
+                                      ),
+                                    ),
+                                    selected: isSelected,
+                                    selectedColor: const Color(0xFFD97706),
+                                    onSelected: (_) {
+                                      setState(() {
+                                        activeItemName = (c['item_name'] ?? '').toString();
+                                        double p = (c['price'] as num?)?.toDouble() ?? 0.0;
+                                        if (p > 0) {
+                                          rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+                                        }
+                                        focusedField = 1;
+                                      });
+                                    },
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
+                ],
+                Row(
+                  children: [
+                    _buildInputBox(
+                      "ITEM CODE",
+                      formattedItemCode,
+                      focusedField == 0,
+                      0,
+                      flex: 8,
+                      isCode: true,
+                    ),
+                    const SizedBox(width: 8),
+                    _buildInputBox("QTY", qty.isEmpty ? "—" : qty, focusedField == 1, 1, flex: 3),
+                    const SizedBox(width: 8),
+                    _buildInputBox("RATE", rate.isEmpty ? "" : "₹$rate", focusedField == 2, 2, flex: 4),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 4,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF), 
+                          border: Border.all(color: Colors.blueAccent.withOpacity(0.3), width: 1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          children: [
+                            const Text("TOTAL", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.blueAccent)),
+                            const SizedBox(height: 6),
+                            Text(
+                              totalPrice.isEmpty ? "—" : "₹$totalPrice",
+                              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.black),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -3289,74 +3660,12 @@ class _PosScreenState extends State<PosScreen> {
                         if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
                           final scannedVal = barcodes.first.rawValue!;
                           final parsedRaw = _parseToRaw(scannedVal);
+                          HapticFeedback.mediumImpact();
                           setState(() {
                             rawItemCode = parsedRaw;
                             isScanning = false; // instantly close camera to show keypad
                           });
-                          final matches = _lookupAllMatches(parsedRaw);
-                          if (matches.length == 1) {
-                            _applyResolvedItem(matches.first);
-                          } else if (matches.length > 1) {
-                            _showConflictSelectionSheet(matches, parsedRaw);
-                          } else {
-                            // Check Master Reference Database / Backup
-                            bool foundInMaster = false;
-                            for (var c in cosmeticDatabase) {
-                              if ((c['barcode'] ?? '').toString().toUpperCase() == parsedRaw.toUpperCase()) {
-                                setState(() {
-                                  double p = (c['price'] as num?)?.toDouble() ?? 0.0;
-                                  if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
-                                  focusedField = 1;
-                                });
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text("Backup Recognized: ${c['name']} (MRP ₹$rate)"),
-                                    duration: const Duration(seconds: 3),
-                                    backgroundColor: Colors.teal,
-                                    action: SnackBarAction(
-                                      label: "ASSIGN SHELF",
-                                      textColor: Colors.amberAccent,
-                                      onPressed: () => _openItemCatalog(),
-                                    ),
-                                  ),
-                                );
-                                foundInMaster = true;
-                              }
-                            }
-                            if (!foundInMaster) {
-                              setState(() {
-                                focusedField = 2; // jump to rate
-                              });
-                              final digitsOnly = parsedRaw.replaceAll(RegExp(r'[^0-9]'), '');
-                              if (parsedRaw.length >= 8 && digitsOnly.length == parsedRaw.length) {
-                                fetchOpenBeautyFacts(parsedRaw).then((obf) {
-                                  if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty && mounted) {
-                                    if (!_ItemCatalogScreenState.pendingScannedItems.any((p) => (p['barcode'] ?? '') == parsedRaw)) {
-                                      _ItemCatalogScreenState.pendingScannedItems.insert(0, {
-                                        'barcode': parsedRaw,
-                                        'name': obf['name'],
-                                        'brand': obf['brand'] ?? '',
-                                        'price': 0.0,
-                                        'category': obf['category'] ?? 'Cosmetics',
-                                      });
-                                    }
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text("Cloud Recognized (<2s): ${obf['name']}"),
-                                        duration: const Duration(seconds: 4),
-                                        backgroundColor: Colors.teal.shade700,
-                                        action: SnackBarAction(
-                                          label: "ASSIGN SHELF",
-                                          textColor: Colors.amberAccent,
-                                          onPressed: () => _openItemCatalog(),
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                });
-                              }
-                            }
-                          }
+                          _resolveScannedBarcode(parsedRaw);
                         }
                       },
                     ),
@@ -4047,28 +4356,95 @@ typedef InventoryQrScreen = BarcodeLabelPrinterScreen;
 // QR CAMERA SCANNER SCREEN
 // ==========================================
 class QRScannerScreen extends StatefulWidget {
-  const QRScannerScreen({Key? key}) : super(key: key);
+  final String title;
+  const QRScannerScreen({Key? key, this.title = "Scan Barcode / QR Label"}) : super(key: key);
   @override
   State<QRScannerScreen> createState() => _QRScannerScreenState();
 }
 
 class _QRScannerScreenState extends State<QRScannerScreen> {
-  final MobileScannerController controller = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
+  late final MobileScannerController controller;
+  bool isDetected = false;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = MobileScannerController(); // Scans ALL 1D & 2D formats (Code 128, Code 39, EAN, UPC, QR)
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("Scan QR Label"), backgroundColor: Colors.black, foregroundColor: Colors.white),
-      body: MobileScanner(
-        controller: controller,
-        onDetect: (BarcodeCapture capture) {
-          final List<Barcode> barcodes = capture.barcodes;
-          if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-            final String code = barcodes.first.rawValue!;
-            controller.stop();
-            Navigator.pop(context, code);
-          }
-        },
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(widget.title),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flash_on),
+            tooltip: "Toggle Torch / Flashlight",
+            onPressed: () => controller.toggleTorch(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.flip_camera_ios),
+            tooltip: "Switch Camera",
+            onPressed: () => controller.switchCamera(),
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          MobileScanner(
+            controller: controller,
+            onDetect: (BarcodeCapture capture) {
+              if (isDetected) return;
+              final List<Barcode> barcodes = capture.barcodes;
+              if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+                final String code = barcodes.first.rawValue!.trim();
+                if (code.isNotEmpty) {
+                  isDetected = true;
+                  HapticFeedback.mediumImpact();
+                  controller.stop();
+                  Navigator.pop(context, code);
+                }
+              }
+            },
+          ),
+          Center(
+            child: Container(
+              width: 280,
+              height: 200,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.greenAccent, width: 2.5),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
+                    child: const Text("Align Barcode or QR Sticker", style: TextStyle(color: Colors.white, fontSize: 12)),
+                  ),
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
+                    child: const Text("Supports Shelf Stickers & Product Barcodes", style: TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
