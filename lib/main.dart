@@ -1636,14 +1636,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       await bluetooth.printNewLine();
       
       
-      await bluetooth.printLeftRight("PAYMENT", paymentMethod.toUpperCase(), 1);
-      if (paymentMethod == "Cash" && double.tryParse(amountTendered) != null) {
-        double tendered = double.tryParse(amountTendered)!;
-        await bluetooth.printLeftRight("Tendered:", "Rs${tendered.toStringAsFixed(2)}", 1);
-        await bluetooth.printLeftRight("Change:", "Rs${(tendered - cartTotal).toStringAsFixed(2)}", 1);
-      } else if (paymentMethod == "Hybrid") {
-        await bluetooth.printLeftRight("Cash:", "Rs${amountTendered}", 1);
-        await bluetooth.printLeftRight("Online:", "Rs${onlineAmount}", 1);
+      String pMethod = bill['payment_method']?.toString() ?? "Cash";
+      double pTendered = double.tryParse(bill['amount_tendered']?.toString() ?? "0") ?? 0.0;
+      await bluetooth.printLeftRight("PAYMENT", pMethod.toUpperCase(), 1);
+      if (pMethod == "Cash" && pTendered > 0) {
+        await bluetooth.printLeftRight("Tendered:", "Rs${pTendered.toStringAsFixed(2)}", 1);
+        await bluetooth.printLeftRight("Change:", "Rs${(pTendered - total).toStringAsFixed(2)}", 1);
       }
       await bluetooth.printNewLine();
 
