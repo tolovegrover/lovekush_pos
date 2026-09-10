@@ -548,6 +548,12 @@ const List<Map<String, dynamic>> cosmeticDatabase = [
   {"barcode": "8901012111162", "brand": "Clean & Clear", "name": "Clean & Clear Foaming Face Wash 100ml", "price": 175.0, "category": "Skincare"},
   {"barcode": "8901526012106", "brand": "Garnier", "name": "Garnier Micellar Cleansing Water 125ml", "price": 225.0, "category": "Skincare"},
   {"barcode": "8901207010100", "brand": "Dabur", "name": "Dabur Gulabari Premium Rose Water 120ml", "price": 85.0, "category": "Skincare"},
+  {"barcode": "8901030704414", "brand": "Glow & Lovely", "name": "Glow & Lovely Advanced Multivitamin Cream 50g", "price": 120.0, "category": "Skincare"},
+  {"barcode": "8901030704421", "brand": "Glow & Lovely", "name": "Glow & Lovely Advanced Multivitamin Cream 25g", "price": 65.0, "category": "Skincare"},
+  {"barcode": "8901030704438", "brand": "Glow & Lovely", "name": "Glow & Lovely Ayurvedic Care Face Cream 50g", "price": 135.0, "category": "Skincare"},
+  {"barcode": "8901030704445", "brand": "Glow & Lovely", "name": "Glow & Lovely Instant Glow Face Wash 50g", "price": 85.0, "category": "Skincare"},
+  {"barcode": "8901030704452", "brand": "Glow & Lovely", "name": "Glow & Lovely BB Cream 18g", "price": 99.0, "category": "Face"},
+  {"barcode": "8901030704469", "brand": "Fair & Lovely", "name": "Fair & Lovely Winter Glow Face Cream 50g", "price": 125.0, "category": "Skincare"},
   {"barcode": "8901030765941", "brand": "Ponds", "name": "Ponds Super Light Gel Moisturizer 100g", "price": 190.0, "category": "Skincare"},
   {"barcode": "8904256001007", "brand": "Nivea", "name": "Nivea Soft Light Moisturizing Cream 100ml", "price": 180.0, "category": "Skincare"},
   {"barcode": "8901030771102", "brand": "Lakme", "name": "Lakme Peach Milk Soft Cream 100g", "price": 165.0, "category": "Skincare"},
@@ -709,29 +715,38 @@ class ShelfCodeInputFormatter extends TextInputFormatter {
 }
 
 Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
-  try {
-    final client = HttpClient();
-    client.connectionTimeout = const Duration(seconds: 4);
-    final uri = Uri.parse("https://world.openbeautyfacts.org/api/v0/product/$barcode.json");
-    final request = await client.getUrl(uri);
-    final response = await request.close().timeout(const Duration(seconds: 4));
-    if (response.statusCode == 200) {
-      final body = await response.transform(utf8.decoder).join();
-      final data = json.decode(body);
-      if (data is Map && data['status'] == 1 && data['product'] != null) {
-        final prod = data['product'];
-        String name = (prod['product_name'] ?? prod['product_name_en'] ?? '').toString().trim();
-        String brand = (prod['brands'] ?? '').toString().trim();
-        String category = (prod['categories'] ?? '').toString().trim();
-        if (name.isNotEmpty) {
-          if (brand.isNotEmpty && !name.toLowerCase().contains(brand.toLowerCase())) {
-            name = "$brand $name";
+  final endpoints = [
+    "https://world.openbeautyfacts.org/api/v0/product/$barcode.json",
+    "https://world.openfoodfacts.org/api/v0/product/$barcode.json",
+    "https://world.openproductsfacts.org/api/v0/product/$barcode.json",
+  ];
+
+  for (final url in endpoints) {
+    try {
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 3);
+      final uri = Uri.parse(url);
+      final request = await client.getUrl(uri);
+      request.headers.set('User-Agent', 'LoveKushPOS/1.0 (Retail Scanner)');
+      final response = await request.close().timeout(const Duration(seconds: 3));
+      if (response.statusCode == 200) {
+        final body = await response.transform(utf8.decoder).join();
+        final data = json.decode(body);
+        if (data is Map && data['status'] == 1 && data['product'] != null) {
+          final prod = data['product'];
+          String name = (prod['product_name'] ?? prod['product_name_en'] ?? '').toString().trim();
+          String brand = (prod['brands'] ?? '').toString().trim();
+          String category = (prod['categories'] ?? '').toString().trim();
+          if (name.isNotEmpty) {
+            if (brand.isNotEmpty && !name.toLowerCase().contains(brand.toLowerCase())) {
+              name = "$brand $name";
+            }
+            return {'name': name, 'brand': brand, 'category': category};
           }
-          return {'name': name, 'brand': brand, 'category': category};
         }
       }
-    }
-  } catch (_) {}
+    } catch (_) {}
+  }
   return null;
 }
 
