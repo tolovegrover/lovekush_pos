@@ -14,6 +14,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'firebase_options.dart';
+import 'cosmetics_catalog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -478,112 +479,8 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
 // ==========================================
 // PRELOADED COSMETICS & ACCESSORIES DATABASE
 // ==========================================
-// MASTER COSMETICS & DAILY PRODUCTS DATABASE
-// (Open-source reference items with real EAN-13 barcodes)
+// Master cosmetics catalog (506 items) is loaded from cosmetics_catalog.dart
 // ==========================================
-const List<Map<String, dynamic>> cosmeticDatabase = [
-  // Eye Makeup
-  {"barcode": "8901030732585", "brand": "Lakme", "name": "Lakme Eyeconic Kajal Deep Black", "price": 190.0, "category": "Eyes"},
-  {"barcode": "8901526002701", "brand": "Maybelline", "name": "Maybelline Colossal Kajal 24HR", "price": 199.0, "category": "Eyes"},
-  {"barcode": "8904052402128", "brand": "Colorbar", "name": "Colorbar Just Smoky Kajal", "price": 450.0, "category": "Eyes"},
-  {"barcode": "8901030654061", "brand": "Elle 18", "name": "Elle 18 Eye Drama Kajal", "price": 100.0, "category": "Eyes"},
-  {"barcode": "8906090494429", "brand": "Sugar", "name": "Sugar Stroke of Genius Kohl", "price": 499.0, "category": "Eyes"},
-  {"barcode": "8901030368388", "brand": "Lakme", "name": "Lakme Insta Liquid Eyeliner Black", "price": 145.0, "category": "Eyes"},
-  {"barcode": "8901526001209", "brand": "Maybelline", "name": "Maybelline Hyper Glossy Liquid Liner", "price": 325.0, "category": "Eyes"},
-  {"barcode": "8904304300307", "brand": "Faces Canada", "name": "Faces Canada Magneteyes Eyeliner", "price": 249.0, "category": "Eyes"},
-  {"barcode": "8904325000508", "brand": "Swiss Beauty", "name": "Swiss Beauty Gel Eyeliner & Kajal", "price": 299.0, "category": "Eyes"},
-  {"barcode": "8904351000107", "brand": "Mars", "name": "Mars Waterproof Sketch Eyeliner", "price": 199.0, "category": "Eyes"},
-  {"barcode": "8901526002107", "brand": "Maybelline", "name": "Maybelline Hypercurl Waterproof Mascara", "price": 399.0, "category": "Eyes"},
-  {"barcode": "8901526003104", "brand": "Maybelline", "name": "Maybelline Colossal Waterproof Mascara", "price": 425.0, "category": "Eyes"},
-  {"barcode": "8904351000206", "brand": "Mars", "name": "Mars Fabulash Volume Mascara", "price": 249.0, "category": "Eyes"},
-  {"barcode": "8904325000607", "brand": "Swiss Beauty", "name": "Swiss Beauty Precision Eyebrow Pencil", "price": 149.0, "category": "Eyes"},
-  {"barcode": "8904000100106", "brand": "Miss Claire", "name": "Miss Claire Eyebrow Cake Powder", "price": 295.0, "category": "Eyes"},
-  {"barcode": "8904325000706", "brand": "Swiss Beauty", "name": "Swiss Beauty 9 Colors Eyeshadow Palette", "price": 299.0, "category": "Eyes"},
-  {"barcode": "8904123400101", "brand": "Generic", "name": "False Eyelashes with Glue Set", "price": 150.0, "category": "Eyes"},
-
-  // Lip Makeup
-  {"barcode": "8901030805173", "brand": "Lakme", "name": "Lakme Forever Matte Liquid Lipstick", "price": 349.0, "category": "Lips"},
-  {"barcode": "8901526004101", "brand": "Maybelline", "name": "Maybelline Superstay Matte Ink Lipstick", "price": 699.0, "category": "Lips"},
-  {"barcode": "8901526005108", "brand": "Maybelline", "name": "Maybelline Creamy Matte Lipstick", "price": 329.0, "category": "Lips"},
-  {"barcode": "8901030702670", "brand": "Elle 18", "name": "Elle 18 Color Pops Matte Lipstick", "price": 110.0, "category": "Lips"},
-  {"barcode": "8904052403101", "brand": "Colorbar", "name": "Colorbar Velvet Matte Lipstick", "price": 350.0, "category": "Lips"},
-  {"barcode": "8906090495105", "brand": "Sugar", "name": "Sugar Smudge Me Not Liquid Lipstick", "price": 499.0, "category": "Lips"},
-  {"barcode": "8904200100107", "brand": "Insight", "name": "Insight Non-Transfer Matte Lipstick", "price": 130.0, "category": "Lips"},
-  {"barcode": "8901234000105", "brand": "Blue Heaven", "name": "Blue Heaven Non-Transfer Lip Color", "price": 150.0, "category": "Lips"},
-  {"barcode": "8904325000805", "brand": "Swiss Beauty", "name": "Swiss Beauty Matte Lip Crayon", "price": 249.0, "category": "Lips"},
-  {"barcode": "8904351000305", "brand": "Mars", "name": "Mars Matte Lip Liner Pencil", "price": 99.0, "category": "Lips"},
-  {"barcode": "8904256000215", "brand": "Nivea", "name": "Nivea Fruity Shine Strawberry Lip Balm", "price": 199.0, "category": "Lips"},
-  {"barcode": "8901030652593", "brand": "Vaseline", "name": "Vaseline Lip Therapy Rosy Lips", "price": 120.0, "category": "Lips"},
-  {"barcode": "8901526006105", "brand": "Maybelline", "name": "Baby Lips Moisturizing Lip Balm", "price": 175.0, "category": "Lips"},
-
-  // Face Makeup
-  {"barcode": "8901526101107", "brand": "Maybelline", "name": "Maybelline Fit Me Matte Foundation", "price": 599.0, "category": "Face"},
-  {"barcode": "8901030612108", "brand": "Lakme", "name": "Lakme Invisible Finish Foundation", "price": 275.0, "category": "Face"},
-  {"barcode": "8901030623104", "brand": "Lakme", "name": "Lakme 9 to 5 Complexion Care CC Cream", "price": 325.0, "category": "Face"},
-  {"barcode": "8901088010109", "brand": "Spinz", "name": "Spinz BB Brightening Cream", "price": 95.0, "category": "Face"},
-  {"barcode": "8901030712105", "brand": "Ponds", "name": "Ponds White Beauty BB+ Cream", "price": 140.0, "category": "Face"},
-  {"barcode": "8901526011109", "brand": "Garnier", "name": "Garnier Skin Naturals BB Cream", "price": 175.0, "category": "Face"},
-  {"barcode": "8901526102104", "brand": "Maybelline", "name": "Maybelline Fit Me Compact Powder", "price": 249.0, "category": "Face"},
-  {"barcode": "8901030723101", "brand": "Lakme", "name": "Lakme Sun Expert Ultra Matte Compact", "price": 299.0, "category": "Face"},
-  {"barcode": "8906000010103", "brand": "White Tone", "name": "White Tone Face Powder 70g", "price": 110.0, "category": "Face"},
-  {"barcode": "8904325000904", "brand": "Swiss Beauty", "name": "Swiss Beauty Liquid Concealer", "price": 229.0, "category": "Face"},
-  {"barcode": "8904200100206", "brand": "Insight", "name": "Insight Concealer Palette 6-in-1", "price": 199.0, "category": "Face"},
-  {"barcode": "8901030745103", "brand": "Lakme", "name": "Lakme Absolute Blur Perfect Primer", "price": 450.0, "category": "Face"},
-  {"barcode": "8904200100305", "brand": "Insight", "name": "Insight 3-in-1 Long Lasting Primer", "price": 260.0, "category": "Face"},
-  {"barcode": "8904325001000", "brand": "Swiss Beauty", "name": "Swiss Beauty Makeup Fixer Setting Spray", "price": 249.0, "category": "Face"},
-  {"barcode": "8906090496102", "brand": "Sugar", "name": "Sugar Contour De Force Mini Blush", "price": 349.0, "category": "Face"},
-  {"barcode": "8904351000404", "brand": "Mars", "name": "Mars City Paradise Blusher & Highlighter", "price": 299.0, "category": "Face"},
-
-  // Nails
-  {"barcode": "8904052404108", "brand": "Colorbar", "name": "Colorbar Luxe Nail Lacquer", "price": 250.0, "category": "Nails"},
-  {"barcode": "8901030751104", "brand": "Elle 18", "name": "Elle 18 Nail Pops", "price": 60.0, "category": "Nails"},
-  {"barcode": "8904200100404", "brand": "Insight", "name": "Insight Long Wear Nail Polish", "price": 75.0, "category": "Nails"},
-  {"barcode": "8901030761103", "brand": "Lakme", "name": "Lakme True Wear Color Crush", "price": 160.0, "category": "Nails"},
-  {"barcode": "8901234000204", "brand": "Blue Heaven", "name": "Blue Heaven Dip Nail Polish Remover", "price": 99.0, "category": "Nails"},
-  {"barcode": "8904123400200", "brand": "Envy", "name": "Envy Gel Finish Nail Polish", "price": 120.0, "category": "Nails"},
-  {"barcode": "8904123400309", "brand": "Generic", "name": "Artificial Nails French Manicure (24 Pcs)", "price": 250.0, "category": "Nails"},
-
-  // Skin & Hair Care
-  {"barcode": "8901138500130", "brand": "Himalaya", "name": "Himalaya Purifying Neem Face Wash 100ml", "price": 150.0, "category": "Skincare"},
-  {"barcode": "8901012111162", "brand": "Clean & Clear", "name": "Clean & Clear Foaming Face Wash 100ml", "price": 175.0, "category": "Skincare"},
-  {"barcode": "8901526012106", "brand": "Garnier", "name": "Garnier Micellar Cleansing Water 125ml", "price": 225.0, "category": "Skincare"},
-  {"barcode": "8901207010100", "brand": "Dabur", "name": "Dabur Gulabari Premium Rose Water 120ml", "price": 85.0, "category": "Skincare"},
-  {"barcode": "8901030704414", "brand": "Glow & Lovely", "name": "Glow & Lovely Advanced Multivitamin Cream 50g", "price": 120.0, "category": "Skincare"},
-  {"barcode": "8901030704421", "brand": "Glow & Lovely", "name": "Glow & Lovely Advanced Multivitamin Cream 25g", "price": 65.0, "category": "Skincare"},
-  {"barcode": "8901030704438", "brand": "Glow & Lovely", "name": "Glow & Lovely Ayurvedic Care Face Cream 50g", "price": 135.0, "category": "Skincare"},
-  {"barcode": "8901030704445", "brand": "Glow & Lovely", "name": "Glow & Lovely Instant Glow Face Wash 50g", "price": 85.0, "category": "Skincare"},
-  {"barcode": "8901030704452", "brand": "Glow & Lovely", "name": "Glow & Lovely BB Cream 18g", "price": 99.0, "category": "Face"},
-  {"barcode": "8901030704469", "brand": "Fair & Lovely", "name": "Fair & Lovely Winter Glow Face Cream 50g", "price": 125.0, "category": "Skincare"},
-  {"barcode": "8901030765941", "brand": "Ponds", "name": "Ponds Super Light Gel Moisturizer 100g", "price": 190.0, "category": "Skincare"},
-  {"barcode": "8904256001007", "brand": "Nivea", "name": "Nivea Soft Light Moisturizing Cream 100ml", "price": 180.0, "category": "Skincare"},
-  {"barcode": "8901030771102", "brand": "Lakme", "name": "Lakme Peach Milk Soft Cream 100g", "price": 165.0, "category": "Skincare"},
-  {"barcode": "8904010100103", "brand": "Lotus", "name": "Lotus Herbals Safe Sun SPF 50 Sunscreen", "price": 395.0, "category": "Skincare"},
-  {"barcode": "8906009450101", "brand": "Biotique", "name": "Biotique Bio Dandelion Ageless Serum", "price": 230.0, "category": "Skincare"},
-  {"barcode": "8904040100108", "brand": "Streax", "name": "Streax Hair Serum with Walnut Oil 100ml", "price": 240.0, "category": "Hair"},
-  {"barcode": "8901526013103", "brand": "L'Oreal", "name": "L'Oreal Extraordinary Oil Hair Serum 100ml", "price": 549.0, "category": "Hair"},
-  {"barcode": "8901099011003", "brand": "Bajaj", "name": "Bajaj Almond Drops Hair Oil 100ml", "price": 75.0, "category": "Hair"},
-
-  // Bangles, Jewelry & Accessories (Store-level custom codes)
-  {"barcode": "LK-BGL-01", "brand": "LoveKush", "name": "Red Velvet Bangles Set (Size 2.4)", "price": 200.0, "category": "Bangles"},
-  {"barcode": "LK-BGL-02", "brand": "LoveKush", "name": "Red Velvet Bangles Set (Size 2.6)", "price": 200.0, "category": "Bangles"},
-  {"barcode": "LK-BGL-03", "brand": "LoveKush", "name": "Red Velvet Bangles Set (Size 2.8)", "price": 200.0, "category": "Bangles"},
-  {"barcode": "LK-BGL-04", "brand": "LoveKush", "name": "Maroon Velvet Bangles Set (Size 2.6)", "price": 200.0, "category": "Bangles"},
-  {"barcode": "LK-BGL-05", "brand": "LoveKush", "name": "Multicolor Glass Bangles Set (2 Dozen)", "price": 160.0, "category": "Bangles"},
-  {"barcode": "LK-BGL-06", "brand": "LoveKush", "name": "Gold Plated Kada Bangles (Pair)", "price": 350.0, "category": "Bangles"},
-  {"barcode": "LK-BGL-07", "brand": "LoveKush", "name": "Bridal Latkan Chuda Set", "price": 850.0, "category": "Bangles"},
-  {"barcode": "LK-ACC-01", "brand": "LoveKush", "name": "Velvet Bindi Packet (Maroon/Red)", "price": 40.0, "category": "Accessories"},
-  {"barcode": "LK-ACC-02", "brand": "Shilpa", "name": "Shilpa Fancy Stone Bindi Book", "price": 80.0, "category": "Accessories"},
-  {"barcode": "LK-ACC-03", "brand": "LoveKush", "name": "Round Golden Bindi Pack", "price": 50.0, "category": "Accessories"},
-  {"barcode": "LK-JWL-01", "brand": "LoveKush", "name": "Premium Pearl Stud Earrings", "price": 120.0, "category": "Jewelry"},
-  {"barcode": "LK-JWL-02", "brand": "LoveKush", "name": "Kundan Jhumka Traditional Earrings", "price": 280.0, "category": "Jewelry"},
-  {"barcode": "LK-JWL-03", "brand": "LoveKush", "name": "Oxidised Silver Boho Jhumki", "price": 150.0, "category": "Jewelry"},
-  {"barcode": "LK-ACC-04", "brand": "LoveKush", "name": "Metal Hair Clutchers Pack of 6", "price": 99.0, "category": "Accessories"},
-  {"barcode": "LK-ACC-05", "brand": "LoveKush", "name": "Satin Silk Scrunchies Pack of 3", "price": 80.0, "category": "Accessories"},
-  {"barcode": "LK-ACC-06", "brand": "LoveKush", "name": "Korean Hair Pins Pack of 4", "price": 120.0, "category": "Accessories"},
-  {"barcode": "LK-ACC-07", "brand": "LoveKush", "name": "Makeup Beauty Blender Sponge", "price": 60.0, "category": "Accessories"},
-  {"barcode": "LK-ACC-08", "brand": "LoveKush", "name": "Professional Makeup Brush Set (7 Pcs)", "price": 299.0, "category": "Accessories"},
-  {"barcode": "LK-ACC-09", "brand": "LoveKush", "name": "Safety Pins Golden Pack of 12", "price": 30.0, "category": "Accessories"},
-];
 
 // ==========================================
 // SHELF CODE BREAKDOWN & AUTO-DASH FORMATTER
