@@ -542,6 +542,21 @@ class PosScreen extends StatefulWidget {
 }
 
 class _PosScreenState extends State<PosScreen> {
+  Map<String, double> cloudInventory = {};
+  
+  void _syncInventoryFromCloud() async {
+    try {
+      final data = await Supabase.instance.client.from('inventory').select();
+      setState(() {
+        for (var item in data) {
+          cloudInventory[item['item_code'].toString()] = (item['price'] as num).toDouble();
+        }
+      });
+    } catch (e) {
+      print("Inventory Sync Error: $e");
+    }
+  }
+
   List<List<Map<String, dynamic>>> activeBills = [[]];
   int currentBillIndex = 0;
   List<Map<String, dynamic>> get cart => activeBills[currentBillIndex];
