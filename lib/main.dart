@@ -214,7 +214,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   @override
-
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       body: Center(
@@ -305,7 +305,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
   }
 
   @override
-
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text("MANAGE STAFF", style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
@@ -602,7 +602,7 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   @override
-
+  Widget build(BuildContext context) {
     if (isPreviewingBill) return buildPrintPreviewScreen();
 
     return Scaffold(
@@ -1051,7 +1051,7 @@ class _InventoryQrScreenState extends State<InventoryQrScreen> {
   String get locationCode => "${_floorCtrl.text}-${_rackCtrl.text}-${_shelfCtrl.text}-${_itemCtrl.text}".toUpperCase();
 
   @override
-
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Item QR Generator"), backgroundColor: Colors.black, foregroundColor: Colors.white),
       body: Padding(
@@ -1127,7 +1127,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   final MobileScannerController controller = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
 
   @override
-
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Scan QR Label"), backgroundColor: Colors.black, foregroundColor: Colors.white),
       body: MobileScanner(
