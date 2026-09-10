@@ -863,8 +863,8 @@ class _PosScreenState extends State<PosScreen> {
                     children: [
                       _buildKeypadRow([_key("1", "A"), _key("2", "B"), _key("3", "C"), _actionKey("⌫", const Color(0xFFEF4444))]), 
                       _buildKeypadRow([_key("4", "D"), _key("5", "E"), _key("6", "F"), _actionKey("◀", const Color(0xFFF59E0B))]),
-                      _buildKeypadRow([_key("7", "G"), _key("8", "H"), _key("9", "I"), _actionKey("ENTER", const Color(0xFF3B82F6), flex: 1, isEnter: true)]),
-                      _buildKeypadRow([_key(".", ""), _key("0", ""), _actionKey("📷 SCAN", Colors.black, isScan: true)]),
+                      _buildKeypadRow([_key("7", "G"), _key("8", "H"), _key("9", "I"), _key("00", "")]),
+                      _buildKeypadRow([_actionKey("📷 SCAN", Colors.black, isScan: true), _key("0", ""), _key(".", ""), _actionKey("ENTER", const Color(0xFF3B82F6), isEnter: true)]),
                     ],
                   ),
                 ),
