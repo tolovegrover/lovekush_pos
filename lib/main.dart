@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:app_links/app_links.dart';
 import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 import 'firebase_options.dart';
 
@@ -796,9 +797,22 @@ class _PosScreenState extends State<PosScreen> {
       await bluetooth.printNewLine();
       await bluetooth.printNewLine();
       await bluetooth.paperCut();
+      
+      // Save to Supabase Cloud
+      try {
+        await Supabase.instance.client.from('bills').insert({
+          'staff_name': widget.userName,
+          'counter_name': counterName,
+          'total_amount': cartTotal,
+          'items_json': cart,
+        });
+      } catch (dbError) {
+        print("Supabase Error: $dbError");
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Cloud Sync Failed: $dbError")));
+      }
 
       confirmPrint();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill Printed Successfully!")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill Printed & Saved to Cloud!")));
       
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Print Error: $e")));
