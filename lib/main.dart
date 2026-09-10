@@ -55,6 +55,13 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _emailController = TextEditingController();
+  
+  final Map<String, Map<String, dynamic>> phoneAuth = {
+    "8800452769": {"name": "Love Kush", "email": "tolovegrover@gmail.com", "isAdmin": true},
+    "8130550842": {"name": "Sanjeeta", "email": "sanjeetagrover@gmail.com", "isAdmin": true},
+    "9716839756": {"name": "Ved Prakash", "email": "vedprakash@demo.com", "isAdmin": true},
+    "9205809074": {"name": "Nisha", "email": "nishaankit60@gmail.com", "isAdmin": true},
+  };
   final TextEditingController _nameController = TextEditingController();
   
   bool isLinkSent = false;
@@ -250,7 +257,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(labelText: "Email Address", prefixIcon: const Icon(Icons.email_outlined), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                  decoration: InputDecoration(labelText: "Email or Phone Number", prefixIcon: const Icon(Icons.email_outlined), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
                 ),
                 const SizedBox(height: 24),
                 SizedBox(
