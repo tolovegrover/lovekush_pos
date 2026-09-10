@@ -1030,17 +1030,15 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       // 2. NOT in shop inventory! Check Master Reference Catalog:
       Map<String, dynamic>? masterMatch;
 
-      // Check local cosmeticDatabase
-      for (var c in cosmeticDatabase) {
-        if ((c['barcode'] ?? '').toString().toUpperCase() == clean.toUpperCase()) {
-          masterMatch = {
-            'name': c['name'],
-            'price': c['price'],
-            'category': c['category'],
-            'brand': c['brand'] ?? '',
-          };
-          break;
-        }
+      // Check local master cosmetics catalog (Instant O(1) hash map lookup)
+      final c = findCosmeticByBarcode(clean);
+      if (c != null) {
+        masterMatch = {
+          'name': c['name'],
+          'price': c['price'],
+          'category': c['category'],
+          'brand': c['brand'] ?? '',
+        };
       }
 
       // Check Supabase master_catalog if not found locally
@@ -2414,31 +2412,30 @@ class _PosScreenState extends State<PosScreen> {
       return;
     }
 
-    // 2. Check local cosmeticDatabase (506 items)
-    for (var c in cosmeticDatabase) {
-      if ((c['barcode'] ?? '').toString().toUpperCase() == clean.toUpperCase()) {
-        final cName = (c['name'] ?? '').toString();
-        double p = (c['price'] as num?)?.toDouble() ?? 0.0;
-        setState(() {
-          rawItemCode = clean;
-          activeItemName = cName;
-          activeItemSub = "✨ Backup Catalog (Not shelved yet)";
-          activeConflicts = [];
-          if (p > 0) {
-            rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
-          }
-          focusedField = 1; // Advance to QTY
-        });
-        // Silently log to pending queue for later review
-        PendingItemsManager.addPending(
-          barcode: clean,
-          name: cName,
-          price: p,
-          brand: (c['brand'] ?? '').toString(),
-          category: (c['category'] ?? 'Cosmetics').toString(),
-        );
-        return;
-      }
+    // 2. Check local master cosmetics catalog (Instant O(1) hash map lookup)
+    final c = findCosmeticByBarcode(clean);
+    if (c != null) {
+      final cName = (c['name'] ?? '').toString();
+      double p = (c['price'] as num?)?.toDouble() ?? 0.0;
+      setState(() {
+        rawItemCode = clean;
+        activeItemName = cName;
+        activeItemSub = "✨ Backup Catalog (Not shelved yet)";
+        activeConflicts = [];
+        if (p > 0) {
+          rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+        }
+        focusedField = 1; // Advance to QTY
+      });
+      // Silently log to pending queue for later review
+      PendingItemsManager.addPending(
+        barcode: clean,
+        name: cName,
+        price: p,
+        brand: (c['brand'] ?? '').toString(),
+        category: (c['category'] ?? 'Cosmetics').toString(),
+      );
+      return;
     }
 
     // 3. Check Open Facts Cloud (<2s) if 8+ digit commercial barcode
@@ -2944,15 +2941,14 @@ class _PosScreenState extends State<PosScreen> {
       double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
       if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
     } else {
-      for (var c in cosmeticDatabase) {
-        if ((c['barcode'] ?? '').toString().toUpperCase() == code.toUpperCase()) {
-          activeItemName = (c['name'] ?? '').toString();
-          activeItemSub = "✨ Backup Catalog (Not shelved yet)";
-          activeConflicts = [];
-          double p = (c['price'] as num?)?.toDouble() ?? 0.0;
-          if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
-          return;
-        }
+      final c = findCosmeticByBarcode(code);
+      if (c != null) {
+        activeItemName = (c['name'] ?? '').toString();
+        activeItemSub = "✨ Backup Catalog (Not shelved yet)";
+        activeConflicts = [];
+        double p = (c['price'] as num?)?.toDouble() ?? 0.0;
+        if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+        return;
       }
       final pending = PendingItemsManager.find(code);
       if (pending != null &&
@@ -3057,11 +3053,9 @@ class _PosScreenState extends State<PosScreen> {
           itemName.startsWith("Barcode ") ||
           itemName.startsWith("Unassigned") ||
           itemName.startsWith("Item ")) {
-        for (var c in cosmeticDatabase) {
-          if ((c['barcode'] ?? '').toString().toUpperCase() == rawItemCode.toUpperCase()) {
-            itemName = (c['name'] ?? '').toString();
-            break;
-          }
+        final c = findCosmeticByBarcode(rawItemCode);
+        if (c != null) {
+          itemName = (c['name'] ?? '').toString();
         }
       }
       if (itemName.isEmpty ||
@@ -3324,20 +3318,19 @@ class _PosScreenState extends State<PosScreen> {
            currentName.startsWith("Barcode ") ||
            currentName.startsWith("Item ") ||
            currentName.startsWith("Unassigned"))) {
-        for (var c in cosmeticDatabase) {
-          if ((c['barcode'] ?? '').toString().toUpperCase() == rawCode.toUpperCase()) {
-            item["itemName"] = (c['name'] ?? '').toString();
-            break;
+        final c = findCosmeticByBarcode(rawCode);
+        if (c != null) {
+          item["itemName"] = (c['name'] ?? '').toString();
+        } else {
+          final p = PendingItemsManager.find(rawCode);
+          if (p != null &&
+              (p['name'] ?? '').toString().isNotEmpty &&
+              !(p['name'] ?? '').toString().startsWith("Barcode ") &&
+              !(p['name'] ?? '').toString().startsWith("Item ") &&
+              !(p['name'] ?? '').toString().startsWith("Unassigned") &&
+              p['name'].toString() != "General Item") {
+            item["itemName"] = p['name'].toString();
           }
-        }
-        final p = PendingItemsManager.find(rawCode);
-        if (p != null &&
-            (p['name'] ?? '').toString().isNotEmpty &&
-            !(p['name'] ?? '').toString().startsWith("Barcode ") &&
-            !(p['name'] ?? '').toString().startsWith("Item ") &&
-            !(p['name'] ?? '').toString().startsWith("Unassigned") &&
-            p['name'].toString() != "General Item") {
-          item["itemName"] = p['name'].toString();
         }
       }
       item["itemName"] = cleanItemName(item["itemName"]?.toString(), barcode: rawCode);
