@@ -680,9 +680,21 @@ class _PosScreenState extends State<PosScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  const Icon(Icons.storefront, color: Colors.white, size: 40),
-                  const SizedBox(height: 12),
-                  const Text('लव कुश शॉपिङ्ग सेण्टर', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                  Row(
+                    children: [
+                      Container(
+                        height: 50,
+                        width: 50,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          image: DecorationImage(image: AssetImage('assets/logo.jpg'), fit: BoxFit.cover),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      const Expanded(child: Text('लव कुश शॉपिङ्ग सेण्टर', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5))),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
                   Text(widget.userName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
                   Text(widget.userEmail, style: const TextStyle(color: Colors.white54, fontSize: 12)),
                 ],
@@ -956,6 +968,8 @@ class _PosScreenState extends State<PosScreen> {
                   padding: const EdgeInsets.all(24),
                   child: Column(
                     children: [
+                      Image.asset('assets/logo_bw.jpg', height: 100),
+                      const SizedBox(height: 16),
                       const Text("लव कुश शॉपिङ्ग सेण्टर", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 8),
                       const Text("Basement Counter", style: TextStyle(fontSize: 16, color: Colors.black54)),
