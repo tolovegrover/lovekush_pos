@@ -32,7 +32,7 @@ void main() async {
 final List<String> adminEmails = [
   "tolovegrover@gmail.com",
   "sanjeetagrover@gmail.com",
-  "nishaankit60@gmail.com"
+  "mrsnishagrover@gmail.com"
 ];
 List<String> allowedStaffEmails = ["staff@demo.com"];
 
@@ -378,7 +378,7 @@ class _StaffManagementScreenState extends State<StaffManagementScreen> {
     final clean = email.trim().toLowerCase();
     if (clean == "tolovegrover@gmail.com") return "01";
     if (clean == "sanjeetagrover@gmail.com") return "02";
-    if (clean == "nishaankit60@gmail.com") return "03";
+    if (clean == "mrsnishagrover@gmail.com") return "03";
     int id = (clean.hashCode.abs() % 3) + 4;
     return id.toString().padLeft(2, '0');
   }
@@ -831,7 +831,7 @@ class _PosScreenState extends State<PosScreen> {
     final clean = email.trim().toLowerCase();
     if (clean == "tolovegrover@gmail.com") return "01";
     if (clean == "sanjeetagrover@gmail.com") return "02";
-    if (clean == "nishaankit60@gmail.com") return "03";
+    if (clean == "mrsnishagrover@gmail.com") return "03";
     int id = (clean.hashCode.abs() % 3) + 4; // 04, 05, 06
     return id.toString().padLeft(2, '0');
   }
