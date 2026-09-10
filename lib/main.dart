@@ -857,6 +857,85 @@ class _PosScreenState extends State<PosScreen> {
     });
   }
 
+  void _saveAndPrintBill() async {
+    // 1. Save to Supabase Cloud ALWAYS
+    try {
+      await Supabase.instance.client.from('bills').insert({
+        'staff_name': widget.userName,
+        'counter_name': counterName,
+        'total_amount': cartTotal,
+        'items_json': cart,
+      });
+    } catch (dbError) {
+      print("Supabase Error: $dbError");
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Cloud Sync Failed: $dbError")));
+      return; 
+    }
+
+    // 2. Try Printing if connected
+    if (_printerConnected) {
+      try {
+        bool? isConnected = await bluetooth.isConnected;
+        if (isConnected == true) {
+          ByteData bytesAsset = await rootBundle.load("assets/logo_bw.jpg");
+          Uint8List imageBytes = bytesAsset.buffer.asUint8List();
+          await bluetooth.printImageBytes(imageBytes);
+          
+          await bluetooth.printNewLine();
+          await bluetooth.printCustom("LOVE KUSH", 3, 1); 
+          await bluetooth.printCustom("SHOPPING CENTER", 2, 1); 
+          await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
+          
+          await bluetooth.printNewLine();
+          await bluetooth.printLeftRight("Item", "Qty x Rate", 1);
+          await bluetooth.printCustom("--------------------------------", 1, 1);
+          
+          for (var item in cart) {
+            String name = item["item"].toString();
+            if (name.length > 15) name = name.substring(0, 15);
+            String details = "${item["qty"]} x ₹${item["rate"]}";
+            await bluetooth.printLeftRight(name, details, 1);
+          }
+          
+          await bluetooth.printCustom("--------------------------------", 1, 1);
+          await bluetooth.printLeftRight("TOTAL", "₹${cartTotal.toStringAsFixed(2)}", 2); 
+          await bluetooth.printNewLine();
+          
+          await bluetooth.printCustom("Thank you for shopping!", 1, 1);
+          await bluetooth.printCustom("No Exchange / No Refund", 1, 1);
+          await bluetooth.printNewLine();
+          await bluetooth.printNewLine();
+          await bluetooth.paperCut();
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill Saved & Printed!")));
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Printer lost connection. Bill Saved to Cloud Only.")));
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Printer Error: $e. Bill Saved to Cloud Only.")));
+      }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill Saved to Cloud Only")));
+    }
+
+    // 3. Clear Cart
+    confirmPrint();
+  }
+
+  void confirmPrint() {
+    setState(() {
+      cart.clear();
+      if (activeBills.length > 1) {
+        activeBills.removeAt(currentBillIndex);
+        currentBillIndex = currentBillIndex > 0 ? currentBillIndex - 1 : 0;
+      }
+      rawItemCode = "";
+      qty = "1";
+      rate = "";
+      focusedField = 0;
+      isPreviewingBill = false;
+    });
+  }
+
   void executeBluetoothPrint() async {
     if (!_printerConnected) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please connect the printer in the Side Menu!")));
