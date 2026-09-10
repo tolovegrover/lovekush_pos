@@ -862,7 +862,7 @@ class _PosScreenState extends State<PosScreen> {
                         width: 50,
                         decoration: const BoxDecoration(
                           shape: BoxShape.circle,
-                          image: DecorationImage(image: AssetImage('assets/logo.jpg'), fit: BoxFit.cover),
+                          image: DecorationImage(image: AssetImage('assets/logo_bw.jpg'), fit: BoxFit.cover),
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -897,6 +897,14 @@ class _PosScreenState extends State<PosScreen> {
               leading: const Icon(Icons.receipt_long, color: Colors.black87),
               title: const Text('New Bill (POS)', style: TextStyle(fontWeight: FontWeight.bold)),
               onTap: () => Navigator.pop(context), 
+            ),
+            ListTile(
+              leading: Icon(Icons.print, color: _printerConnected ? Colors.green : Colors.black87),
+              title: Text(_printerConnected ? 'Printer Connected' : 'Connect Printer', style: TextStyle(fontWeight: FontWeight.bold, color: _printerConnected ? Colors.green : Colors.black87)),
+              onTap: () {
+                Navigator.pop(context);
+                _showPrinterDialog();
+              },
             ),
             ListTile(
               leading: const Icon(Icons.history, color: Colors.black54),
