@@ -2661,6 +2661,10 @@ class _PosScreenState extends State<PosScreen> {
   String onlineAmount = "";
   String counterName = "Basement Counter";
   
+  final TextEditingController _cashTenderedController = TextEditingController();
+  final TextEditingController _hybridCashController = TextEditingController();
+  final TextEditingController _hybridOnlineController = TextEditingController();
+
   String activeItemName = ""; 
   String activeItemSub = "";
   List<Map<String, dynamic>> activeConflicts = [];
@@ -2680,6 +2684,14 @@ class _PosScreenState extends State<PosScreen> {
     PendingItemsManager.load().then((_) {
       if (mounted) setState(() {});
     });
+  }
+
+  @override
+  void dispose() {
+    _cashTenderedController.dispose();
+    _hybridCashController.dispose();
+    _hybridOnlineController.dispose();
+    super.dispose();
   }
 
   void _initBluetooth() async {
@@ -3094,6 +3106,12 @@ class _PosScreenState extends State<PosScreen> {
       rawItemCode = "";
       qty = "1";
       rate = "";
+      amountTendered = "";
+      onlineAmount = "";
+      _cashTenderedController.clear();
+      _hybridCashController.clear();
+      _hybridOnlineController.clear();
+      paymentMethod = "Cash";
       focusedField = 0;
       isPreviewingBill = false;
     });
@@ -3125,10 +3143,22 @@ class _PosScreenState extends State<PosScreen> {
     }
 
     double finalChangeDue = 0.0;
+    double paidMoney = 0.0;
+    String dbPaymentMethod = paymentMethod;
+
     if (paymentMethod == 'Cash') {
-      finalChangeDue = (double.tryParse(amountTendered) ?? 0.0) - cartTotal;
+      double entered = double.tryParse(amountTendered) ?? 0.0;
+      paidMoney = entered > 0 ? entered : cartTotal.toDouble();
+      finalChangeDue = paidMoney >= cartTotal ? (paidMoney - cartTotal) : 0.0;
+    } else if (paymentMethod == 'Online') {
+      paidMoney = cartTotal.toDouble();
+      finalChangeDue = 0.0;
     } else if (paymentMethod == 'Hybrid') {
-      finalChangeDue = ((double.tryParse(amountTendered) ?? 0.0) + (double.tryParse(onlineAmount) ?? 0.0)) - cartTotal;
+      double cashPart = double.tryParse(amountTendered) ?? 0.0;
+      double onlinePart = double.tryParse(onlineAmount) ?? 0.0;
+      paidMoney = cashPart + onlinePart;
+      finalChangeDue = paidMoney >= cartTotal ? (paidMoney - cartTotal) : 0.0;
+      dbPaymentMethod = "Hybrid (Cash ₹${cashPart % 1 == 0 ? cashPart.toInt() : cashPart}, Online ₹${onlinePart % 1 == 0 ? onlinePart.toInt() : onlinePart})";
     }
 
     // Ensure every item in cart has its best possible resolved name
@@ -3167,8 +3197,8 @@ class _PosScreenState extends State<PosScreen> {
         'counter_name': counterName,
         'total_amount': cartTotal,
         'items_json': cart,
-        'payment_method': paymentMethod,
-        'amount_tendered': double.tryParse(amountTendered) ?? 0.0,
+        'payment_method': dbPaymentMethod,
+        'amount_tendered': paidMoney,
         'change_due': finalChangeDue,
       });
     } catch (dbError) {
@@ -3212,15 +3242,20 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printNewLine();
           
           await bluetooth.printLeftRight("PAYMENT", paymentMethod.toUpperCase(), 1);
-          if (paymentMethod == "Cash" && double.tryParse(amountTendered) != null) {
-            double tendered = double.tryParse(amountTendered)!;
-            await bluetooth.printLeftRight("Tendered:", "Rs${tendered.toStringAsFixed(2)}", 1);
-            await bluetooth.printLeftRight("Change:", "Rs${(tendered - cartTotal).toStringAsFixed(2)}", 1);
-          } else if (paymentMethod == "Hybrid") {
-            await bluetooth.printLeftRight("Cash:", "Rs${amountTendered}", 1);
-            await bluetooth.printLeftRight("Online:", "Rs${onlineAmount}", 1);
+          if (paymentMethod == "Cash") {
+            await bluetooth.printLeftRight("Paid Cash:", "Rs${paidMoney.toStringAsFixed(2)}", 1);
             if (finalChangeDue > 0) {
-              await bluetooth.printLeftRight("Change:", "Rs${finalChangeDue.toStringAsFixed(2)}", 1);
+              await bluetooth.printLeftRight("Change Returned:", "Rs${finalChangeDue.toStringAsFixed(2)}", 1);
+            }
+          } else if (paymentMethod == "Online") {
+            await bluetooth.printLeftRight("Online Paid:", "Rs${cartTotal.toStringAsFixed(2)}", 1);
+          } else if (paymentMethod == "Hybrid") {
+            double cash = double.tryParse(amountTendered) ?? 0.0;
+            double online = double.tryParse(onlineAmount) ?? 0.0;
+            await bluetooth.printLeftRight("Cash Paid:", "Rs${cash.toStringAsFixed(2)}", 1);
+            await bluetooth.printLeftRight("Online Paid:", "Rs${online.toStringAsFixed(2)}", 1);
+            if (finalChangeDue > 0) {
+              await bluetooth.printLeftRight("Change Returned:", "Rs${finalChangeDue.toStringAsFixed(2)}", 1);
             }
           }
           await bluetooth.printNewLine();
@@ -3770,12 +3805,19 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   Widget buildPrintPreviewScreen() {
+    double paidMoney = 0;
     double changeDue = 0;
-    if (paymentMethod == 'Cash' && double.tryParse(amountTendered) != null) {
-      changeDue = double.parse(amountTendered) - cartTotal;
+    if (paymentMethod == 'Cash') {
+      double entered = double.tryParse(amountTendered) ?? 0.0;
+      paidMoney = entered > 0 ? entered : cartTotal.toDouble();
+      changeDue = entered > 0 ? (entered - cartTotal) : 0.0;
+    } else if (paymentMethod == 'Online') {
+      paidMoney = cartTotal.toDouble();
+      changeDue = 0.0;
     } else if (paymentMethod == 'Hybrid') {
       double cash = double.tryParse(amountTendered) ?? 0.0;
       double online = double.tryParse(onlineAmount) ?? 0.0;
+      paidMoney = cash + online;
       changeDue = (cash + online) - cartTotal;
     }
     
@@ -3816,6 +3858,9 @@ class _PosScreenState extends State<PosScreen> {
                                       paymentMethod = method;
                                       amountTendered = "";
                                       onlineAmount = "";
+                                      _cashTenderedController.clear();
+                                      _hybridCashController.clear();
+                                      _hybridOnlineController.clear();
                                     });
                                   },
                                 );
@@ -3823,24 +3868,154 @@ class _PosScreenState extends State<PosScreen> {
                             ),
                             const SizedBox(height: 16),
                             if (paymentMethod == "Cash") ...[
+                              SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  children: [
+                                    ActionChip(
+                                      avatar: const Icon(Icons.check_circle, size: 16, color: Color(0xFF10B981)),
+                                      label: Text("Exact ₹$cartTotal", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                      backgroundColor: amountTendered == cartTotal.toString() ? const Color(0xFFD1FAE5) : null,
+                                      onPressed: () {
+                                        setState(() {
+                                          amountTendered = cartTotal.toString();
+                                          _cashTenderedController.text = amountTendered;
+                                        });
+                                      },
+                                    ),
+                                    const SizedBox(width: 8),
+                                    ...[50, 100, 200, 500, 1000, 2000]
+                                        .where((amt) => amt > cartTotal)
+                                        .take(3)
+                                        .map((amt) => Padding(
+                                              padding: const EdgeInsets.only(right: 8.0),
+                                              child: ActionChip(
+                                                avatar: const Icon(Icons.payments_outlined, size: 16, color: Colors.blueAccent),
+                                                label: Text("₹$amt", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                                backgroundColor: amountTendered == amt.toString() ? const Color(0xFFDBEAFE) : null,
+                                                onPressed: () {
+                                                  setState(() {
+                                                    amountTendered = amt.toString();
+                                                    _cashTenderedController.text = amountTendered;
+                                                  });
+                                                },
+                                              ),
+                                            )),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
                               TextField(
+                                controller: _cashTenderedController,
                                 keyboardType: TextInputType.number,
-                                decoration: const InputDecoration(labelText: "Cash Given (₹)", prefixIcon: Icon(Icons.money), border: OutlineInputBorder()),
+                                decoration: InputDecoration(
+                                  labelText: "Cash Given by Customer (₹)",
+                                  hintText: "Enter note given (e.g. 500) or leave for exact",
+                                  prefixIcon: const Icon(Icons.money),
+                                  border: const OutlineInputBorder(),
+                                  suffixIcon: amountTendered.isNotEmpty
+                                      ? IconButton(
+                                          icon: const Icon(Icons.clear, size: 18),
+                                          onPressed: () {
+                                            setState(() {
+                                              amountTendered = "";
+                                              _cashTenderedController.clear();
+                                            });
+                                          },
+                                        )
+                                      : null,
+                                ),
                                 onChanged: (val) => setState(() => amountTendered = val),
                               ),
                               const SizedBox(height: 12),
-                              Text("Change Due: ₹${changeDue.toStringAsFixed(2)}", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: changeDue >= 0 ? Colors.green : Colors.red)),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: changeDue >= 0 ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: changeDue >= 0 ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      changeDue >= 0 ? "💰 CHANGE TO RETURN:" : "⚠️ REMAINING DUE:",
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: changeDue >= 0 ? const Color(0xFF065F46) : const Color(0xFF991B1B),
+                                      ),
+                                    ),
+                                    Text(
+                                      "₹${changeDue.abs().toStringAsFixed(2)}",
+                                      style: TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w900,
+                                        color: changeDue >= 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ],
                             if (paymentMethod == "Hybrid") ...[
                               Row(
                                 children: [
-                                  Expanded(child: TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Cash (₹)", border: OutlineInputBorder()), onChanged: (val) => setState(() => amountTendered = val))),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _hybridCashController,
+                                      keyboardType: TextInputType.number,
+                                      decoration: const InputDecoration(labelText: "Cash (₹)", border: OutlineInputBorder()),
+                                      onChanged: (val) => setState(() => amountTendered = val),
+                                    ),
+                                  ),
                                   const SizedBox(width: 10),
-                                  Expanded(child: TextField(keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Online (₹)", border: OutlineInputBorder()), onChanged: (val) => setState(() => onlineAmount = val))),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _hybridOnlineController,
+                                      keyboardType: TextInputType.number,
+                                      decoration: const InputDecoration(labelText: "Online (₹)", border: OutlineInputBorder()),
+                                      onChanged: (val) => setState(() => onlineAmount = val),
+                                    ),
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 12),
-                              Text("Change Due: ₹${changeDue.toStringAsFixed(2)}", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: changeDue >= 0 ? Colors.green : Colors.red)),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: changeDue >= 0 ? const Color(0xFFECFDF5) : const Color(0xFFFEF2F2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: changeDue >= 0 ? const Color(0xFF10B981) : const Color(0xFFEF4444),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      changeDue >= 0 ? "💰 CHANGE TO RETURN:" : "⚠️ REMAINING DUE:",
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: changeDue >= 0 ? const Color(0xFF065F46) : const Color(0xFF991B1B),
+                                      ),
+                                    ),
+                                    Text(
+                                      "₹${changeDue.abs().toStringAsFixed(2)}",
+                                      style: TextStyle(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w900,
+                                        color: changeDue >= 0 ? const Color(0xFF047857) : const Color(0xFFDC2626),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ]
                           ],
                         ),
@@ -3881,6 +4056,34 @@ class _PosScreenState extends State<PosScreen> {
                           Text("₹${cartTotal.toStringAsFixed(2)}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      const Text("----------------------------------------", style: TextStyle(color: Colors.grey)),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("PAYMENT METHOD", style: TextStyle(fontSize: 14, color: Colors.black54, fontWeight: FontWeight.w600)),
+                          Text(paymentMethod.toUpperCase(), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("PAID MONEY", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                          Text("₹${paidMoney.toStringAsFixed(2)}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                        ],
+                      ),
+                      if (changeDue > 0) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text("CHANGE RETURNED", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
+                            Text("₹${changeDue.toStringAsFixed(2)}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF047857))),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -4629,11 +4832,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       
       
       String pMethod = bill['payment_method']?.toString() ?? "Cash";
-      double pTendered = double.tryParse(bill['amount_tendered']?.toString() ?? "0") ?? 0.0;
+      double pTendered = double.tryParse(bill['amount_tendered']?.toString() ?? "0") ?? total;
+      double pChange = double.tryParse(bill['change_due']?.toString() ?? "0") ?? (pTendered > total ? (pTendered - total) : 0.0);
       await bluetooth.printLeftRight("PAYMENT", pMethod.toUpperCase(), 1);
-      if (pMethod == "Cash" && pTendered > 0) {
-        await bluetooth.printLeftRight("Tendered:", "Rs${pTendered.toStringAsFixed(2)}", 1);
-        await bluetooth.printLeftRight("Change:", "Rs${(pTendered - total).toStringAsFixed(2)}", 1);
+      await bluetooth.printLeftRight("Paid Money:", "Rs${pTendered.toStringAsFixed(2)}", 1);
+      if (pChange > 0) {
+        await bluetooth.printLeftRight("Change Given:", "Rs${pChange.toStringAsFixed(2)}", 1);
       }
       await bluetooth.printNewLine();
 
@@ -4691,6 +4895,49 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   }).toList(),
                   const Divider(color: Colors.black, thickness: 1),
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [const Text("TOTAL", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)), Text("₹${bill['total_amount']}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18))]),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF3F4F6),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text("Payment Method:", style: TextStyle(color: Colors.black54, fontWeight: FontWeight.w600)),
+                            Text("${bill['payment_method'] ?? 'Cash'}", style: const TextStyle(fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text("Paid Money:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            Text(
+                              "₹${bill['amount_tendered'] ?? bill['total_amount']}",
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blueAccent),
+                            ),
+                          ],
+                        ),
+                        if ((bill['change_due'] as num?)?.toDouble() != null && (bill['change_due'] as num).toDouble() > 0) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text("Change Given:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF047857))),
+                              Text(
+                                "₹${bill['change_due']}",
+                                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Color(0xFF047857)),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 10),
                   Text("Staff: ${bill['staff_name']}", style: const TextStyle(color: Colors.black54)),
                   Text("Date: ${DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0]}", style: const TextStyle(color: Colors.black54)),
@@ -4792,7 +5039,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                   return ListTile(
                     leading: CircleAvatar(backgroundColor: Colors.black12, child: const Icon(Icons.receipt, color: Colors.black)),
                     title: Text("₹${bill['total_amount']}  (No: $bNo)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    subtitle: Text("Staff: ${bill['staff_name']} • Counter: ${bill['counter_name']}"),
+                    subtitle: Text("Paid: ₹${bill['amount_tendered'] ?? bill['total_amount']} • Change: ₹${bill['change_due'] ?? 0} (${bill['payment_method'] ?? 'Cash'})\nStaff: ${bill['staff_name']} • Counter: ${bill['counter_name']}"),
                     trailing: Text(DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0].substring(11), style: const TextStyle(color: Colors.black54)),
                     onTap: () => _showBillPreview(bill),
                   );
