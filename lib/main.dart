@@ -470,7 +470,7 @@ class _PosScreenState extends State<PosScreen> {
 
   void _initBluetooth() async {
     try {
-      List<BluetoothDevice> devices = await bluetooth.getBluetooths ?? [];
+      List<BluetoothDevice> devices = await bluetooth.getBondedDevices();
       setState(() => _devices = devices);
     } catch (e) {
       print("Bluetooth Error: $e");
