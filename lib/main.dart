@@ -904,20 +904,34 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     if (scannedCode != null && scannedCode is String && scannedCode.isNotEmpty) {
       final clean = scannedCode.trim();
 
-      // 1. First check active shop inventory
-      Map<String, dynamic>? shopMatch;
+      // 1. First check active shop inventory for matches
+      final List<Map<String, dynamic>> shopMatches = [];
+      final cleanUp = clean.toUpperCase();
+      final cleanNoDash = cleanUp.replaceAll('-', '').replaceAll(' ', '');
+
       for (var it in items) {
         final itCode = (it['item_code'] ?? '').toString().toUpperCase();
         final itBar = (it['company_barcode'] ?? '').toString().toUpperCase();
         final itShelf = (it['shelf_location'] ?? '').toString().toUpperCase();
-        if (itCode == clean.toUpperCase() || itBar == clean.toUpperCase() || itShelf == clean.toUpperCase()) {
-          shopMatch = it;
-          break;
+        final itItemNum = (it['item_number'] ?? '').toString().toUpperCase();
+        final itFullShelf = itItemNum.isNotEmpty ? '$itShelf-$itItemNum' : itShelf;
+
+        if (itCode == cleanUp ||
+            itBar == cleanUp ||
+            itShelf == cleanUp ||
+            itFullShelf == cleanUp ||
+            itCode.replaceAll('-', '') == cleanNoDash ||
+            itFullShelf.replaceAll('-', '') == cleanNoDash ||
+            itShelf.replaceAll('-', '') == cleanNoDash) {
+          shopMatches.add(it);
         }
       }
 
-      if (shopMatch != null) {
-        _showAddEditDialog(shopMatch);
+      if (shopMatches.length == 1) {
+        _showAddEditDialog(shopMatches.first);
+        return;
+      } else if (shopMatches.length > 1) {
+        _showCatalogConflictSheet(clean, shopMatches);
         return;
       }
 
@@ -985,6 +999,166 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         }
       }
     }
+  }
+
+  void _showCatalogConflictSheet(String query, List<Map<String, dynamic>> matches) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.75,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.shelves, color: Colors.amber.shade900, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "${matches.length} Products at Shelf",
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            "Location / Code: $query",
+                            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  "Tap a product to edit its details:",
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black54),
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: matches.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (c, idx) {
+                      final it = matches[idx];
+                      final name = it['item_name'] ?? 'Unnamed Item';
+                      final price = (it['price'] as num?)?.toDouble() ?? 0.0;
+                      final shelf = it['shelf_location'] ?? '';
+                      final itemNum = it['item_number'] ?? '';
+                      final barcode = it['company_barcode'] ?? '';
+                      final cat = it['category'] ?? '';
+
+                      return InkWell(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _showAddEditDialog(it);
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                          child: Row(
+                            children: [
+                              CircleAvatar(
+                                backgroundColor: const Color(0xFF6366F1).withOpacity(0.1),
+                                child: Text(
+                                  itemNum.isNotEmpty ? itemNum : "${idx + 1}",
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: Color(0xFF6366F1),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      name,
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      children: [
+                                        if (shelf.isNotEmpty)
+                                          Text("📍 Shelf: $shelf", style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                                        if (barcode.isNotEmpty)
+                                          Text("🏷️ $barcode", style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                        if (cat.isNotEmpty)
+                                          Text("• $cat", style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.shade50,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.green.shade200),
+                                ),
+                                child: Text(
+                                  "₹${price % 1 == 0 ? price.toInt() : price}",
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green.shade800),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(Icons.chevron_right, color: Colors.grey),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _showAddEditDialog(null, query);
+                  },
+                  icon: const Icon(Icons.add),
+                  label: Text("Add Another Product to $query"),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showRecognizedMasterProductDialog(String barcode, Map<String, dynamic> prod) {
@@ -1900,32 +2074,42 @@ class _PosScreenState extends State<PosScreen> {
     return clean;
   }
 
-  Map<String, dynamic>? _lookupItem(String query) {
-    if (query.isEmpty) return null;
+  List<Map<String, dynamic>> _lookupAllMatches(String query) {
+    if (query.isEmpty) return [];
     String cleanRaw = query.replaceAll(' ', '').trim().toUpperCase();
+    String cleanNoDash = cleanRaw.replaceAll('-', '');
+    final List<Map<String, dynamic>> matches = [];
+    final Set<String> seenCodes = {};
 
-    // 1. Direct match on company_barcode (e.g. 8901030732585)
+    void addMatch(Map<String, dynamic> it) {
+      String c = (it['item_code'] ?? '').toString();
+      if (c.isNotEmpty && !seenCodes.contains(c)) {
+        seenCodes.add(c);
+        matches.add(it);
+      }
+    }
+
+    // 1. Direct match on company_barcode (exact)
     for (var it in cloudInventory.values) {
       String cb = (it['company_barcode'] ?? '').toString().trim().toUpperCase();
-      if (cb.isNotEmpty && cb == cleanRaw) return it;
+      if (cb.isNotEmpty && (cb == cleanRaw || cb == cleanNoDash)) addMatch(it);
     }
 
     // 2. Direct match on item_code (exact)
     for (var it in cloudInventory.values) {
       String code = (it['item_code'] ?? '').toString().trim().toUpperCase();
-      if (code == cleanRaw) return it;
+      if (code == cleanRaw || code.replaceAll('-', '') == cleanNoDash) addMatch(it);
     }
 
-    // 3. Match on shelf location + item number (e.g. 01-03-C-134 or 01-03-C)
+    // 3. Match on shelf location + item number (e.g. 01-03-C-134) or shelf location (01-03-C)
     for (var it in cloudInventory.values) {
       String shelf = (it['shelf_location'] ?? '').toString().trim().toUpperCase();
       String itemNum = (it['item_number'] ?? '').toString().trim().toUpperCase();
       String fullShelf = itemNum.isNotEmpty ? "$shelf-$itemNum" : shelf;
-      if (fullShelf.isNotEmpty && (fullShelf == cleanRaw || fullShelf.replaceAll('-', '') == cleanRaw.replaceAll('-', ''))) {
-        return it;
-      }
-      if (shelf.isNotEmpty && (shelf == cleanRaw || shelf.replaceAll('-', '') == cleanRaw.replaceAll('-', ''))) {
-        return it;
+      if (fullShelf.isNotEmpty && (fullShelf == cleanRaw || fullShelf.replaceAll('-', '') == cleanNoDash)) {
+        addMatch(it);
+      } else if (shelf.isNotEmpty && (shelf == cleanRaw || shelf.replaceAll('-', '') == cleanNoDash)) {
+        addMatch(it);
       }
     }
 
@@ -1934,11 +2118,11 @@ class _PosScreenState extends State<PosScreen> {
     if (qCanon.isNotEmpty) {
       for (var it in cloudInventory.values) {
         String code = (it['item_code'] ?? '').toString();
-        if (_canonicalCode(code) == qCanon) return it;
+        if (_canonicalCode(code) == qCanon) addMatch(it);
         String shelf = (it['shelf_location'] ?? '').toString();
         String itemNum = (it['item_number'] ?? '').toString();
         String fullShelf = itemNum.isNotEmpty ? "$shelf-$itemNum" : shelf;
-        if (_canonicalCode(fullShelf) == qCanon) return it;
+        if (_canonicalCode(fullShelf) == qCanon || _canonicalCode(shelf) == qCanon) addMatch(it);
       }
     }
 
@@ -1946,15 +2130,198 @@ class _PosScreenState extends State<PosScreen> {
     String fCanon = _canonicalCode(formattedItemCode);
     if (fCanon.isNotEmpty && fCanon != qCanon) {
       for (var it in cloudInventory.values) {
-        if (_canonicalCode(it['item_code']?.toString() ?? '') == fCanon) return it;
+        if (_canonicalCode(it['item_code']?.toString() ?? '') == fCanon) addMatch(it);
         String shelf = (it['shelf_location'] ?? '').toString();
         String itemNum = (it['item_number'] ?? '').toString();
         String fullShelf = itemNum.isNotEmpty ? "$shelf-$itemNum" : shelf;
-        if (_canonicalCode(fullShelf) == fCanon) return it;
+        if (_canonicalCode(fullShelf) == fCanon || _canonicalCode(shelf) == fCanon) addMatch(it);
       }
     }
 
+    return matches;
+  }
+
+  Map<String, dynamic>? _lookupItem(String query) {
+    final matches = _lookupAllMatches(query);
+    if (matches.isNotEmpty) return matches.first;
     return null;
+  }
+
+  void _applyResolvedItem(Map<String, dynamic> item) {
+    setState(() {
+      String code = (item['item_code'] ?? '').toString();
+      rawItemCode = _parseToRaw(code);
+      double p = (item['price'] as num?)?.toDouble() ?? 0.0;
+      if (p > 0) {
+        rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+      }
+      focusedField = 1; // Advance directly to QTY
+    });
+  }
+
+  void _showConflictSelectionSheet(List<Map<String, dynamic>> matches, String query) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.75,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(Icons.touch_app, color: Colors.amber.shade900, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "Select Product (${matches.length} on Shelf)",
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            "Shelf / Code: $query",
+                            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  "Multiple items share this location. Tap to select:",
+                  style: TextStyle(fontSize: 13, color: Colors.black54, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: matches.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (c, idx) {
+                      final it = matches[idx];
+                      final name = it['item_name'] ?? 'Unnamed Product';
+                      final price = (it['price'] as num?)?.toDouble() ?? 0.0;
+                      final shelf = it['shelf_location'] ?? '';
+                      final itemNum = it['item_number'] ?? '';
+                      final barcode = it['company_barcode'] ?? '';
+                      final mrp = (it['mrp'] as num?)?.toDouble() ?? 0.0;
+
+                      return InkWell(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _applyResolvedItem(it);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text("Selected: $name (₹${price % 1 == 0 ? price.toInt() : price})"),
+                              duration: const Duration(milliseconds: 1500),
+                              backgroundColor: const Color(0xFF10B981),
+                            ),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981).withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    itemNum.isNotEmpty ? itemNum : "${idx + 1}",
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                      color: Color(0xFF047857),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      name,
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Row(
+                                      children: [
+                                        if (shelf.isNotEmpty)
+                                          Text("📍 $shelf", style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                                        if (shelf.isNotEmpty && barcode.isNotEmpty)
+                                          Text(" • ", style: TextStyle(color: Colors.grey.shade400)),
+                                        if (barcode.isNotEmpty)
+                                          Text("🏷️ $barcode", style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                                        if (mrp > price) ...[
+                                          Text(" • ", style: TextStyle(color: Colors.grey.shade400)),
+                                          Text("MRP ₹${mrp % 1 == 0 ? mrp.toInt() : mrp}",
+                                              style: TextStyle(fontSize: 12, color: Colors.grey.shade500, decoration: TextDecoration.lineThrough)),
+                                        ],
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  "₹${price % 1 == 0 ? price.toInt() : price}",
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _openItemCatalog() async {
@@ -2221,14 +2588,16 @@ class _PosScreenState extends State<PosScreen> {
     setState(() {
       if (value == "ENTER") {
         if (focusedField == 0) {
-          final match = _lookupItem(rawItemCode);
-          if (match != null) {
-            double p = (match['price'] as num?)?.toDouble() ?? 0.0;
-            if (p > 0 && rate.isEmpty) {
-              rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
-            }
+          final matches = _lookupAllMatches(rawItemCode);
+          if (matches.length == 1) {
+            _applyResolvedItem(matches.first);
+            return;
+          } else if (matches.length > 1) {
+            _showConflictSelectionSheet(matches, rawItemCode);
+            return;
+          } else {
+            focusedField = 1;
           }
-          focusedField = 1;
         }
         else if (focusedField == 1) focusedField = 2;
         else if (focusedField == 2) addToCart();
@@ -2249,12 +2618,14 @@ class _PosScreenState extends State<PosScreen> {
         else if (focusedField == 0) {
           if (rawItemCode.isNotEmpty) {
             rawItemCode = rawItemCode.substring(0, rawItemCode.length - 1);
-            final match = _lookupItem(rawItemCode);
-            if (match != null) {
-              double p = (match['price'] as num?)?.toDouble() ?? 0.0;
+            final matches = _lookupAllMatches(rawItemCode);
+            if (matches.length == 1) {
+              double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
               if (p > 0) {
                 rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
               }
+            } else {
+              rate = "";
             }
           }
         }
@@ -2272,12 +2643,14 @@ class _PosScreenState extends State<PosScreen> {
         if (focusedField == 0) {
           if (value != ".") {
             rawItemCode += value;
-            final match = _lookupItem(rawItemCode);
-            if (match != null) {
-              double p = (match['price'] as num?)?.toDouble() ?? 0.0;
+            final matches = _lookupAllMatches(rawItemCode);
+            if (matches.length == 1) {
+              double p = (matches.first['price'] as num?)?.toDouble() ?? 0.0;
               if (p > 0) {
                 rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
               }
+            } else {
+              rate = "";
             }
           }
         }
@@ -2770,7 +3143,32 @@ class _PosScreenState extends State<PosScreen> {
             ),
             child: Row(
               children: [
-                _buildInputBox("ITEM CODE", formattedItemCode, focusedField == 0, 0, flex: 8, isCode: true, subtext: _lookupItem(rawItemCode)?['item_name']),
+                () {
+                  final matches = _lookupAllMatches(rawItemCode);
+                  String? codeSubtext;
+                  Color? subColor;
+                  VoidCallback? onConflictTap;
+
+                  if (matches.length == 1) {
+                    codeSubtext = "${matches.first['item_name']} (₹${matches.first['price']})";
+                    subColor = focusedField == 0 ? Colors.greenAccent : Colors.green.shade700;
+                  } else if (matches.length > 1) {
+                    codeSubtext = "⚠️ ${matches.length} items (Tap to pick)";
+                    subColor = focusedField == 0 ? Colors.amberAccent : Colors.amber.shade800;
+                    onConflictTap = () => _showConflictSelectionSheet(matches, rawItemCode);
+                  }
+                  return _buildInputBox(
+                    "ITEM CODE",
+                    formattedItemCode,
+                    focusedField == 0,
+                    0,
+                    flex: 8,
+                    isCode: true,
+                    subtext: codeSubtext,
+                    subtextColor: subColor,
+                    onCustomTap: onConflictTap,
+                  );
+                }(),
                 const SizedBox(width: 8),
                 _buildInputBox("QTY", qty.isEmpty ? "—" : qty, focusedField == 1, 1, flex: 3),
                 const SizedBox(width: 8),
@@ -2811,18 +3209,44 @@ class _PosScreenState extends State<PosScreen> {
                       onDetect: (capture) {
                         final List<Barcode> barcodes = capture.barcodes;
                         if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+                          final scannedVal = barcodes.first.rawValue!;
+                          final parsedRaw = _parseToRaw(scannedVal);
                           setState(() {
-                            rawItemCode = _parseToRaw(barcodes.first.rawValue!);
-                            final match = _lookupItem(rawItemCode);
-                            if (match != null) {
-                              double p = (match['price'] as num?)?.toDouble() ?? 0.0;
-                              if (p > 0) {
-                                rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
-                              }
-                            }
-                            focusedField = 1; // jump to qty
+                            rawItemCode = parsedRaw;
                             isScanning = false; // instantly close camera to show keypad
                           });
+                          final matches = _lookupAllMatches(parsedRaw);
+                          if (matches.length == 1) {
+                            _applyResolvedItem(matches.first);
+                          } else if (matches.length > 1) {
+                            _showConflictSelectionSheet(matches, parsedRaw);
+                          } else {
+                            // Check Master Reference Database
+                            bool foundInMaster = false;
+                            for (var c in cosmeticDatabase) {
+                              if ((c['barcode'] ?? '').toString().toUpperCase() == parsedRaw.toUpperCase()) {
+                                setState(() {
+                                  double p = (c['price'] as num?)?.toDouble() ?? 0.0;
+                                  if (p > 0) rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+                                  focusedField = 1;
+                                });
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text("Recognized Master Product: ${c['name']} (MRP ₹$rate)"),
+                                    duration: const Duration(seconds: 2),
+                                    backgroundColor: Colors.teal,
+                                  ),
+                                );
+                                foundInMaster = true;
+                                break;
+                              }
+                            }
+                            if (!foundInMaster) {
+                              setState(() {
+                                focusedField = 2; // jump to rate
+                              });
+                            }
+                          }
                         }
                       },
                     ),
@@ -3007,11 +3431,27 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
-  Widget _buildInputBox(String label, String value, bool isFocused, int fieldIndex, {required int flex, bool isCode = false, String? subtext}) {
+  Widget _buildInputBox(
+    String label,
+    String value,
+    bool isFocused,
+    int fieldIndex, {
+    required int flex,
+    bool isCode = false,
+    String? subtext,
+    Color? subtextColor,
+    VoidCallback? onCustomTap,
+  }) {
     return Expanded(
       flex: flex,
       child: GestureDetector(
-        onTap: () => setState(() => focusedField = fieldIndex),
+        onTap: () {
+          if (onCustomTap != null) {
+            onCustomTap();
+          } else {
+            setState(() => focusedField = fieldIndex);
+          }
+        },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
@@ -3034,7 +3474,7 @@ class _PosScreenState extends State<PosScreen> {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: isFocused ? Colors.greenAccent : Colors.green.shade700,
+                    color: subtextColor ?? (isFocused ? Colors.greenAccent : Colors.green.shade700),
                   ),
                   textAlign: TextAlign.center,
                   maxLines: 1,
