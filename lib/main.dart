@@ -6639,48 +6639,23 @@ class _LoveKushShoppingStoreScreenState extends State<LoveKushShoppingStoreScree
           .from('inventory')
           .select()
           .order('item_name');
-      List<Map<String, dynamic>> list = List<Map<String, dynamic>>.from(res);
-      list = list.where((item) {
+      final list = List<Map<String, dynamic>>.from(res);
+      // STRICT FILTER: Only products actually in shop inventory with valid prices
+      final realItems = list.where((item) {
         final price = (item['price'] as num?)?.toDouble() ?? 0.0;
-        return price > 0;
+        final isOnline = item['is_online'];
+        final name = (item['item_name'] ?? '').toString().trim();
+        return (isOnline == null || isOnline == true) && price > 0 && name.isNotEmpty;
       }).toList();
 
-      if (list.length < 15) {
-        final existingCodes = list.map((e) => (e['item_code'] ?? '').toString()).toSet();
-        for (final c in cosmeticDatabase.take(50)) {
-          final bar = c['barcode']?.toString() ?? '';
-          if (!existingCodes.contains(bar)) {
-            list.add({
-              'item_code': bar,
-              'item_name': c['name'],
-              'price': (c['price'] as num).toDouble(),
-              'mrp': ((c['price'] as num) * 1.15).roundToDouble(),
-              'category': c['category'] ?? 'Cosmetics',
-              'stock_qty': 12,
-              'is_online': true,
-            });
-          }
-        }
-      }
-
       setState(() {
-        products = list;
+        products = realItems;
         isLoading = false;
       });
-    } catch (_) {
-      final fallback = cosmeticDatabase.take(50).map((c) {
-        return {
-          'item_code': c['barcode']?.toString() ?? '',
-          'item_name': c['name'],
-          'price': (c['price'] as num).toDouble(),
-          'mrp': ((c['price'] as num) * 1.15).roundToDouble(),
-          'category': c['category'] ?? 'Cosmetics',
-          'stock_qty': 15,
-          'is_online': true,
-        };
-      }).toList();
+    } catch (e) {
+      debugPrint("Error loading live store inventory: $e");
       setState(() {
-        products = fallback;
+        products = [];
         isLoading = false;
       });
     }
