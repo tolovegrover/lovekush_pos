@@ -4997,8 +4997,9 @@ class _PosScreenState extends State<PosScreen> {
                 child: Text("ADMIN CONTROLS", style: TextStyle(color: Colors.blueAccent, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
               ),
               ListTile(
-                leading: const Icon(Icons.dashboard, color: Colors.blueAccent),
-                title: const Text('Admin Dashboard (Past Bills)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                leading: const Icon(Icons.dashboard_customize_outlined, color: Colors.blueAccent),
+                title: const Text('Admin Dashboard & Past Bills', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+                subtitle: const Text('Sales reports, cash flow, festive trends & past bills'),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
@@ -5020,40 +5021,23 @@ class _PosScreenState extends State<PosScreen> {
               title: const Text('New Bill (POS)', style: TextStyle(fontWeight: FontWeight.bold)),
               onTap: () => Navigator.pop(context), 
             ),
-            ListTile(
-              leading: const Icon(Icons.print_outlined, color: Colors.black87),
-              title: const Text('Reprint Last Bill', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text('Preview receipt first & print duplicate copy'),
-              onTap: () {
-                Navigator.pop(context);
-                _openReprintLastBillPreview();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.history, color: Colors.black87),
-              title: const Text('Past Bills & Reprint', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text('Browse sales, view preview & reprint'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
-              },
-            ),
+            if (!widget.isAdmin)
+              ListTile(
+                leading: const Icon(Icons.history, color: Colors.black87),
+                title: const Text('Past Bills & Reprint', style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text('Browse sales & reprint receipts'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.price_change_outlined, color: Colors.blueAccent),
               title: const Text('Item Codes & Rates', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-              subtitle: const Text('Lookup, edit, and map item rates'),
+              subtitle: const Text('Lookup, edit rates & print barcode labels'),
               onTap: () {
                 Navigator.pop(context);
                 _openItemCatalog();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.qr_code_2, color: Colors.indigo),
-              title: const Text('Print Barcode Labels', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
-              subtitle: const Text('3 Print Sizes: Large, Medium, Compact'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const BarcodeLabelPrinterScreen()));
               },
             ),
             ListTile(
