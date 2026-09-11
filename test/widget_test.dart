@@ -132,5 +132,31 @@ void main() {
       final hasBarcodeList = results.any((r) => r['source'] == 'Barcode-List' || r['name'].toString().toUpperCase().contains("LAKME"));
       expect(hasBarcodeList, isTrue);
     });
+
+    test('Master catalog recognizes Patanjali, Mysore Sandal, Set Wet and Mamaearth in 0ms', () {
+      final dantKanti = findCosmeticByBarcode("8904109450327");
+      expect(dantKanti, isNotNull);
+      expect(dantKanti!['name'], contains("Dant Kanti"));
+      expect(dantKanti['brand'], "Patanjali");
+
+      final mysoreSandal = findCosmeticByBarcode("8901287100013");
+      expect(mysoreSandal, isNotNull);
+      expect(mysoreSandal!['name'], contains("Mysore Sandal"));
+
+      final setWet = findCosmeticByBarcode("8901088069724");
+      expect(setWet, isNotNull);
+      expect(setWet!['brand'], "Set Wet");
+
+      final mamaearth = findCosmeticByBarcode("8904417305258");
+      expect(mamaearth, isNotNull);
+      expect(mamaearth!['brand'], "Mamaearth");
+    });
+
+    test('resolveBarcodeOnlineMulti includes Go-UPC registry for Indian retail barcodes', () async {
+      final results = await resolveBarcodeOnlineMulti("8901030767609");
+      expect(results.isNotEmpty, isTrue);
+      final hasGoUpcOrMatch = results.any((r) => r['source'] == 'Go-UPC' || r['name'].toString().toLowerCase().contains("lakme"));
+      expect(hasGoUpcOrMatch, isTrue);
+    });
   });
 }

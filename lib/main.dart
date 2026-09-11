@@ -851,11 +851,61 @@ Future<List<Map<String, dynamic>>> resolveBarcodeOnlineMulti(String barcode) asy
     }
   }
 
+  // 5. Go-UPC.com lookup (Comprehensive Indian barcode database)
+  Future<void> queryGoUpc() async {
+    HttpClient? client;
+    try {
+      client = HttpClient();
+      client.connectionTimeout = const Duration(milliseconds: 2800);
+      final uri = Uri.parse("https://go-upc.com/search?q=$clean");
+      final req = await client.getUrl(uri);
+      req.headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      final resp = await req.close().timeout(const Duration(milliseconds: 2800));
+      if (resp.statusCode == 200) {
+        final html = await resp.transform(utf8.decoder).join();
+        final nameMatch = RegExp(r'<h1[^>]*class="product-name"[^>]*>(.*?)</h1>', caseSensitive: false, dotAll: true).firstMatch(html);
+        if (nameMatch != null) {
+          String rawName = nameMatch.group(1)!.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+          rawName = rawName
+              .replaceAll('&amp;', '&')
+              .replaceAll('&#39;', "'")
+              .replaceAll('&quot;', '"')
+              .replaceAll('&lt;', '<')
+              .replaceAll('&gt;', '>');
+
+          // Extract brand if available
+          String brand = '';
+          final brandMatch = RegExp(r'<td[^>]*class="metadata-label"[^>]*>Brand</td>\s*<td[^>]*>(.*?)</td>', caseSensitive: false, dotAll: true).firstMatch(html);
+          if (brandMatch != null) {
+            brand = brandMatch.group(1)!.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+            brand = brand.replaceAll('&amp;', '&').replaceAll('&#39;', "'").replaceAll('&quot;', '"');
+          }
+
+          // Extract category if available
+          String category = 'Cosmetics';
+          final catMatch = RegExp(r'<td[^>]*class="metadata-label"[^>]*>Category</td>\s*<td[^>]*>(.*?)</td>', caseSensitive: false, dotAll: true).firstMatch(html);
+          if (catMatch != null) {
+            category = catMatch.group(1)!.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+            category = category.replaceAll('&amp;', '&').replaceAll('&#39;', "'").replaceAll('&quot;', '"');
+          }
+
+          if (rawName.isNotEmpty && rawName != clean && !rawName.toLowerCase().contains("not found")) {
+            addResult(rawName, brand, 0.0, category, 'Go-UPC');
+          }
+        }
+      }
+    } catch (_) {
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
   await Future.wait([
     queryUpcItemDb(),
     ...openFactsEndpoints.map((e) => queryOpenFacts(e.$1, e.$2)),
     queryRetailWebSearch(),
     queryBarcodeList(),
+    queryGoUpc(),
   ]).timeout(const Duration(milliseconds: 3200), onTimeout: () => []);
 
   return results;
