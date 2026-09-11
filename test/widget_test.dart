@@ -125,5 +125,12 @@ void main() {
       PendingRateChangesManager.remove("0103C134");
       expect(PendingRateChangesManager.items.isEmpty, isTrue);
     });
+
+    test('resolveBarcodeOnlineMulti includes barcode-list.com in multi-registry lookup', () async {
+      final results = await resolveBarcodeOnlineMulti("8901030673214");
+      expect(results.isNotEmpty, isTrue);
+      final hasBarcodeList = results.any((r) => r['source'] == 'Barcode-List' || r['name'].toString().toUpperCase().contains("LAKME"));
+      expect(hasBarcodeList, isTrue);
+    });
   });
 }

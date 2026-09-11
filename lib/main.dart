@@ -807,10 +807,55 @@ Future<List<Map<String, dynamic>>> resolveBarcodeOnlineMulti(String barcode) asy
     }
   }
 
+  // 4. Barcode-List.com lookup (Database of barcodes and goods conformity)
+  Future<void> queryBarcodeList() async {
+    HttpClient? client;
+    try {
+      client = HttpClient();
+      client.connectionTimeout = const Duration(milliseconds: 2800);
+      final uri = Uri.parse("https://barcode-list.com/barcode/EN/Search.htm?barcode=$clean");
+      final req = await client.getUrl(uri);
+      req.headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+      final resp = await req.close().timeout(const Duration(milliseconds: 2800));
+      if (resp.statusCode == 200) {
+        final html = await resp.transform(utf8.decoder).join();
+
+        // 1) Match pageTitle: <h1 class="pageTitle" ...>PRODUCT NAME - Barcode: 123456</h2>
+        final titleMatch = RegExp(r'<h1[^>]*class="pageTitle"[^>]*>\s*(.*?)\s*-\s*Barcode:\s*[0-9]+', caseSensitive: false).firstMatch(html);
+        if (titleMatch != null) {
+          String title = titleMatch.group(1)!.trim();
+          if (title.isNotEmpty && !title.toLowerCase().startsWith("search for") && title != clean) {
+            addResult(title, '', 0.0, 'Cosmetics', 'Barcode-List');
+          }
+        }
+
+        // 2) Match randomBarcodes table rows
+        final tableMatch = RegExp(r'<table[^>]*class="randomBarcodes"[^>]*>(.*?)</table>', caseSensitive: false, dotAll: true).firstMatch(html);
+        if (tableMatch != null) {
+          final tableContent = tableMatch.group(1)!;
+          final rowMatches = RegExp(r'<tr[^>]*>(.*?)</tr>', caseSensitive: false, dotAll: true).allMatches(tableContent);
+          for (var row in rowMatches) {
+            final tdMatches = RegExp(r'<td[^>]*>(.*?)</td>', caseSensitive: false, dotAll: true).allMatches(row.group(1)!).toList();
+            if (tdMatches.length >= 3) {
+              String prodName = tdMatches[2].group(1)!.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+              if (prodName.isNotEmpty && prodName != clean && !prodName.toLowerCase().startsWith("search for")) {
+                addResult(prodName, '', 0.0, 'Cosmetics', 'Barcode-List');
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
   await Future.wait([
     queryUpcItemDb(),
     ...openFactsEndpoints.map((e) => queryOpenFacts(e.$1, e.$2)),
     queryRetailWebSearch(),
+    queryBarcodeList(),
   ]).timeout(const Duration(milliseconds: 3200), onTimeout: () => []);
 
   return results;
