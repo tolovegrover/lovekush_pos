@@ -45,5 +45,52 @@ void main() {
       expect(coldCream, isNotNull);
       expect(coldCream!['name'], contains("Ponds White Beauty Cold Cream 55ml"));
     });
+
+    test('Master catalog recognizes Lakme 9to5 Double Duty and Kajal instantly', () {
+      final doubleDuty = findCosmeticByBarcode("8901030767609");
+      expect(doubleDuty, isNotNull);
+      expect(doubleDuty!['name'], contains("Lakme 9 To 5 Double Duty"));
+      expect(doubleDuty['price'], 349.0);
+
+      final kajal = findCosmeticByBarcode("8901030673214");
+      expect(kajal, isNotNull);
+      expect(kajal!['name'], contains("Lakme Eyeconic Kajal"));
+      expect(kajal['price'], 190.0);
+
+      final searchResults = searchCosmeticsByName("lakme double duty");
+      expect(searchResults.isNotEmpty, isTrue);
+      expect(searchResults.any((p) => p['name'].toString().contains("Double Duty")), isTrue);
+    });
+
+    test('extractDualRates parses rates from price and description JSON correctly', () {
+      // 1. Single rate item
+      final singleItem = {
+        'price': 190.0,
+        'description': 'Regular kajal',
+      };
+      expect(extractDualRates(singleItem), [190.0]);
+
+      // 2. Dual rates in description JSON
+      final dualItem = {
+        'price': 210.0,
+        'description': '{"notes":"Price hiked","dual_rates":[190.0, 210.0]}',
+      };
+      final rates = extractDualRates(dualItem);
+      expect(rates, [190.0, 210.0]);
+
+      // 3. Dual rates in dual_rates key directly
+      final dualKeyItem = {
+        'price': 349.0,
+        'dual_rates': [320.0, 349.0],
+      };
+      expect(extractDualRates(dualKeyItem), [320.0, 349.0]);
+
+      // 4. Duplicate removal and sorting
+      final dupItem = {
+        'price': 190.0,
+        'description': '{"dual_rates":[210.0, 190.0, 190.0, 210.0]}',
+      };
+      expect(extractDualRates(dupItem), [190.0, 210.0]);
+    });
   });
 }

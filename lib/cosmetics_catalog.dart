@@ -20,7 +20,31 @@ const List<Map<String, dynamic>> cosmeticDatabase = [
   {"barcode": "8901030704544", "brand": "Glow & Handsome", "name": "Glow & Handsome Instant Brightness Cream 25g", "price": 70.0, "category": "Skincare"},
   {"barcode": "8901030704551", "brand": "Glow & Handsome", "name": "Glow & Handsome Instant Brightness Face Wash 100g", "price": 160.0, "category": "Skincare"},
   {"barcode": "8901030704568", "brand": "Glow & Handsome", "name": "Glow & Handsome Oil Control Face Wash 100g", "price": 165.0, "category": "Skincare"},
+  {"barcode": "8901030673214", "brand": "Lakme", "name": "Lakme Eyeconic Kajal Deep Black 0.35g", "price": 190.0, "category": "Eyes"},
   {"barcode": "8901030732585", "brand": "Lakme", "name": "Lakme Eyeconic Kajal Deep Black", "price": 190.0, "category": "Eyes"},
+  {"barcode": "8901030767609", "brand": "Lakme", "name": "Lakme 9 To 5 Double Duty Lip & Cheek Water Stain (Sunset Kiss, 9ml)", "price": 349.0, "category": "Lips"},
+  {"barcode": "8901030986109", "brand": "Lakme", "name": "Lakme 9 to 5 Double Duty Dual Finish Compact Powder (Ivory, 9g)", "price": 299.0, "category": "Face"},
+  {"barcode": "8901030986116", "brand": "Lakme", "name": "Lakme 9 to 5 Double Duty Dual Finish Compact Powder (Beige, 9g)", "price": 299.0, "category": "Face"},
+  {"barcode": "8901030986673", "brand": "Lakme", "name": "Lakme 9 to 5 Double Duty Lip & Cheek Mousse (Nude Cushion)", "price": 375.0, "category": "Lips"},
+  {"barcode": "8901030986611", "brand": "Lakme", "name": "Lakme 9 to 5 Double Duty Lip & Cheek Mousse (Burgundy Lush)", "price": 375.0, "category": "Lips"},
+  {"barcode": "8901030997259", "brand": "Vaseline", "name": "Vaseline Healthy Bright Daily Brightening Body Lotion 100ml", "price": 115.0, "category": "Skincare"},
+  {"barcode": "8901030997266", "brand": "Vaseline", "name": "Vaseline Healthy Bright Daily Brightening Body Lotion 200ml", "price": 225.0, "category": "Skincare"},
+  {"barcode": "8901030997273", "brand": "Vaseline", "name": "Vaseline Healthy Bright Daily Brightening Body Lotion 400ml", "price": 399.0, "category": "Skincare"},
+  {"barcode": "8901030997280", "brand": "Vaseline", "name": "Vaseline Deep Restore Body Lotion 100ml", "price": 115.0, "category": "Skincare"},
+  {"barcode": "8901030997297", "brand": "Vaseline", "name": "Vaseline Deep Restore Body Lotion 200ml", "price": 225.0, "category": "Skincare"},
+  {"barcode": "8901030997303", "brand": "Vaseline", "name": "Vaseline Deep Restore Body Lotion 400ml", "price": 399.0, "category": "Skincare"},
+  {"barcode": "8901030997310", "brand": "Vaseline", "name": "Vaseline Cocoa Glow Body Lotion 100ml", "price": 140.0, "category": "Skincare"},
+  {"barcode": "8901030997327", "brand": "Vaseline", "name": "Vaseline Cocoa Glow Body Lotion 200ml", "price": 265.0, "category": "Skincare"},
+  {"barcode": "8901030997334", "brand": "Vaseline", "name": "Vaseline Aloe Fresh Body Lotion 100ml", "price": 115.0, "category": "Skincare"},
+  {"barcode": "8901030997341", "brand": "Vaseline", "name": "Vaseline Aloe Fresh Body Lotion 200ml", "price": 225.0, "category": "Skincare"},
+  {"barcode": "8904135205113", "brand": "Ayur", "name": "Ayur Herbals Cold Cream with Aloe Vera 80ml", "price": 70.0, "category": "Skincare"},
+  {"barcode": "8904135205120", "brand": "Ayur", "name": "Ayur Herbals Cold Cream with Aloe Vera 200ml", "price": 140.0, "category": "Skincare"},
+  {"barcode": "8904135205137", "brand": "Ayur", "name": "Ayur Herbals Cold Cream with Aloe Vera 500ml", "price": 260.0, "category": "Skincare"},
+  {"barcode": "8904135205014", "brand": "Ayur", "name": "Ayur Herbals All Purpose Cream with Aloe Vera 80ml", "price": 65.0, "category": "Skincare"},
+  {"barcode": "8904135205021", "brand": "Ayur", "name": "Ayur Herbals All Purpose Cream with Aloe Vera 200ml", "price": 130.0, "category": "Skincare"},
+  {"barcode": "8904135205038", "brand": "Ayur", "name": "Ayur Herbals Deep Cleansing Milk with Aloe Vera 100ml", "price": 60.0, "category": "Skincare"},
+  {"barcode": "8904135205045", "brand": "Ayur", "name": "Ayur Herbals Deep Cleansing Milk with Aloe Vera 200ml", "price": 110.0, "category": "Skincare"},
+  {"barcode": "8904135205052", "brand": "Ayur", "name": "Ayur Herbals Deep Cleansing Milk with Aloe Vera 500ml", "price": 220.0, "category": "Skincare"},
   {"barcode": "8901030732592", "brand": "Lakme", "name": "Lakme Eyeconic Kajal Classic Brown", "price": 275.0, "category": "Eyes"},
   {"barcode": "8901030732608", "brand": "Lakme", "name": "Lakme Eyeconic Kajal Regal Green", "price": 275.0, "category": "Eyes"},
   {"barcode": "8901030732615", "brand": "Lakme", "name": "Lakme Eyeconic Kajal Royal Blue", "price": 275.0, "category": "Eyes"},
@@ -1055,3 +1079,18 @@ Map<String, dynamic>? findCosmeticByBarcode(String barcode) {
   final clean = barcode.trim().toUpperCase();
   return cosmeticBarcodeMap[clean];
 }
+
+List<Map<String, dynamic>> searchCosmeticsByName(String query, {int limit = 15}) {
+  final clean = query.trim().toLowerCase();
+  if (clean.isEmpty) return [];
+  final terms = clean.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+
+  return cosmeticDatabase.where((item) {
+    final name = (item['name'] ?? '').toString().toLowerCase();
+    final brand = (item['brand'] ?? '').toString().toLowerCase();
+    final category = (item['category'] ?? '').toString().toLowerCase();
+    final full = "$brand $name $category";
+    return terms.every((term) => full.contains(term));
+  }).take(limit).toList();
+}
+

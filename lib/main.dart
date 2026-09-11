@@ -656,39 +656,52 @@ class ShelfCodeInputFormatter extends TextInputFormatter {
   }
 }
 
-Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
+// ==========================================
+// MULTI-API ONLINE BARCODE RESOLVER
+// (Queries Open Beauty Facts, Open Food Facts, UPCitemdb, and Indian Retail registries)
+// ==========================================
+Future<List<Map<String, dynamic>>> resolveBarcodeOnlineMulti(String barcode) async {
   final clean = barcode.replaceAll(RegExp(r'[^0-9]'), '').trim();
-  if (clean.length < 8) return null;
+  if (clean.length < 8) return [];
 
-  final endpoints = [
-    "https://world.openbeautyfacts.org/api/v0/product/$clean.json",
-    "https://in.openfoodfacts.org/api/v0/product/$clean.json",
-    "https://world.openfoodfacts.org/api/v0/product/$clean.json",
-    "https://world.openproductsfacts.org/api/v0/product/$clean.json",
-  ];
+  final List<Map<String, dynamic>> results = [];
+  final Set<String> seenNames = {};
 
-  Future<Map<String, String>?> queryEndpoint(String url) async {
+  void addResult(String name, String brand, double price, String category, String source) {
+    String cName = cleanItemName(name, barcode: clean);
+    if (cName.isNotEmpty && cName != clean && !seenNames.contains(cName.toLowerCase())) {
+      seenNames.add(cName.toLowerCase());
+      results.add({
+        'name': cName,
+        'brand': brand,
+        'price': price,
+        'category': category.isNotEmpty ? category : 'Cosmetics',
+        'source': source,
+      });
+    }
+  }
+
+  // 1. UPCitemdb lookup (covers Indian FMCG / Cosmetics)
+  Future<void> queryUpcItemDb() async {
     HttpClient? client;
     try {
       client = HttpClient();
-      client.connectionTimeout = const Duration(milliseconds: 2400);
-      final uri = Uri.parse(url);
-      final request = await client.getUrl(uri);
-      request.headers.set('User-Agent', 'LoveKushPOS/1.0 (Retail Scanner; Retail; India)');
-      final response = await request.close().timeout(const Duration(milliseconds: 2500));
-      if (response.statusCode == 200) {
-        final body = await response.transform(utf8.decoder).join();
+      client.connectionTimeout = const Duration(milliseconds: 2800);
+      final uri = Uri.parse("https://api.upcitemdb.com/prod/trial/lookup?upc=$clean");
+      final req = await client.getUrl(uri);
+      req.headers.set('User-Agent', 'LoveKushPOS/1.0 (Retail Scanner; Retail; India)');
+      final resp = await req.close().timeout(const Duration(milliseconds: 2800));
+      if (resp.statusCode == 200) {
+        final body = await resp.transform(utf8.decoder).join();
         final data = json.decode(body);
-        if (data is Map && data['status'] == 1 && data['product'] != null) {
-          final prod = data['product'];
-          String name = (prod['product_name'] ?? prod['product_name_en'] ?? prod['generic_name'] ?? '').toString().trim();
-          String brand = (prod['brands'] ?? '').toString().trim();
-          String category = (prod['categories'] ?? '').toString().trim();
-          if (name.isNotEmpty) {
-            if (brand.isNotEmpty && !name.toLowerCase().contains(brand.toLowerCase())) {
-              name = "$brand $name";
+        if (data is Map && data['items'] is List) {
+          for (var it in data['items']) {
+            String title = (it['title'] ?? '').toString().trim();
+            String brand = (it['brand'] ?? '').toString().trim();
+            double p = (it['lowest_recorded_price'] as num?)?.toDouble() ?? 0.0;
+            if (title.isNotEmpty) {
+              addResult(title, brand, p, 'Cosmetics', 'UPC Database');
             }
-            return {'name': name, 'brand': brand, 'category': category.isNotEmpty ? category : 'Cosmetics'};
           }
         }
       }
@@ -696,95 +709,188 @@ Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
     } finally {
       client?.close(force: true);
     }
-    return null;
   }
 
-  try {
-    final completer = Completer<Map<String, String>?>();
-    int pending = endpoints.length;
+  // 2. Open Facts Endpoints (Open Beauty, Open Food, Open Products)
+  final openFactsEndpoints = [
+    ("https://world.openbeautyfacts.org/api/v0/product/$clean.json", "Open Beauty Facts"),
+    ("https://in.openfoodfacts.org/api/v0/product/$clean.json", "Open Food Facts India"),
+    ("https://world.openfoodfacts.org/api/v0/product/$clean.json", "Open Food Facts"),
+    ("https://world.openproductsfacts.org/api/v0/product/$clean.json", "Open Products Facts"),
+  ];
 
-    for (final url in endpoints) {
-      queryEndpoint(url).then((result) {
-        if (!completer.isCompleted) {
-          if (result != null) {
-            completer.complete(result);
-          } else {
-            pending--;
-            if (pending <= 0) completer.complete(null);
+  Future<void> queryOpenFacts(String url, String source) async {
+    HttpClient? client;
+    try {
+      client = HttpClient();
+      client.connectionTimeout = const Duration(milliseconds: 2400);
+      final uri = Uri.parse(url);
+      final req = await client.getUrl(uri);
+      req.headers.set('User-Agent', 'LoveKushPOS/1.0 (Retail Scanner; Retail; India)');
+      final resp = await req.close().timeout(const Duration(milliseconds: 2500));
+      if (resp.statusCode == 200) {
+        final body = await resp.transform(utf8.decoder).join();
+        final data = json.decode(body);
+        if (data is Map && data['status'] == 1 && data['product'] != null) {
+          final prod = data['product'];
+          String name = (prod['product_name'] ?? prod['product_name_en'] ?? prod['generic_name'] ?? '').toString().trim();
+          String brand = (prod['brands'] ?? '').toString().trim();
+          String cat = (prod['categories'] ?? '').toString().trim();
+          if (name.isNotEmpty) {
+            if (brand.isNotEmpty && !name.toLowerCase().contains(brand.toLowerCase())) {
+              name = "$brand $name";
+            }
+            addResult(name, brand, 0.0, cat, source);
           }
         }
-      }).catchError((_) {
-        if (!completer.isCompleted) {
-          pending--;
-          if (pending <= 0) completer.complete(null);
-        }
-      });
+      }
+    } catch (_) {
+    } finally {
+      client?.close(force: true);
     }
-
-    return await completer.future.timeout(
-      const Duration(milliseconds: 2600),
-      onTimeout: () => null,
-    );
-  } catch (_) {
-    return null;
   }
+
+  // 3. DuckDuckGo Retail Slug Extractor (BigBasket, Blinkit, Nykaa, Amazon India)
+  Future<void> queryRetailWebSearch() async {
+    HttpClient? client;
+    try {
+      client = HttpClient();
+      client.connectionTimeout = const Duration(milliseconds: 3000);
+      final uri = Uri.parse("https://html.duckduckgo.com/html/?q=$clean");
+      final req = await client.getUrl(uri);
+      req.headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0');
+      final resp = await req.close().timeout(const Duration(milliseconds: 3000));
+      if (resp.statusCode == 200) {
+        final body = await resp.transform(utf8.decoder).join();
+        final reg = RegExp(r'uddg=([^&]+)');
+        final matches = reg.allMatches(body);
+        for (var m in matches) {
+          final rawUrl = Uri.decodeComponent(m.group(1)!);
+          if (rawUrl.contains("bigbasket.com/pd/") ||
+              rawUrl.contains("blinkit.com/prn/") ||
+              rawUrl.contains("nykaa.com/") ||
+              rawUrl.contains("amazon.in/")) {
+            final slugMatch = RegExp(r'/([^/]+)/?$').firstMatch(rawUrl.split('?')[0]);
+            if (slugMatch != null) {
+              String slug = slugMatch.group(1)!.replaceAll('-', ' ').replaceAll(RegExp(r'^[0-9]+\s*'), '').trim();
+              if (slug.isNotEmpty && slug.length > 3) {
+                final words = slug.split(' ').map((w) => w.isNotEmpty ? "${w[0].toUpperCase()}${w.substring(1)}" : "").join(' ');
+                addResult(words, '', 0.0, 'Cosmetics', 'Retail Online Registry');
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
+  await Future.wait([
+    queryUpcItemDb(),
+    ...openFactsEndpoints.map((e) => queryOpenFacts(e.$1, e.$2)),
+    queryRetailWebSearch(),
+  ]).timeout(const Duration(milliseconds: 3200), onTimeout: () => []);
+
+  return results;
+}
+
+Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
+  final list = await resolveBarcodeOnlineMulti(barcode);
+  if (list.isNotEmpty) {
+    final first = list.first;
+    return {
+      'name': first['name']?.toString() ?? '',
+      'brand': first['brand']?.toString() ?? '',
+      'category': first['category']?.toString() ?? 'Cosmetics',
+      'price': (first['price']?.toString() ?? '0.0'),
+    };
+  }
+  return null;
 }
 
 // ==========================================
-// AUTO-INGESTION INTO SUPABASE FOR FUTURE FINALIZATION
+// DUAL-STOCK / MULTI-RATE RETIREMENT & PERSISTENCE
 // ==========================================
-// Automatically saves scanned products to Supabase (master_catalog and inventory with shelf_location: 'PENDING')
-// so shop database permanently stores it for offline O(1) recall and future owner shelf assignment.
+List<double> extractDualRates(Map<String, dynamic> item) {
+  final Set<double> rates = {};
+  double primary = (item['price'] as num?)?.toDouble() ?? 0.0;
+  if (primary > 0) rates.add(primary);
+
+  if (item['dual_rates'] is List) {
+    for (var r in (item['dual_rates'] as List)) {
+      double d = (r as num).toDouble();
+      if (d > 0) rates.add(d);
+    }
+  }
+
+  final desc = item['description']?.toString() ?? '';
+  if (desc.startsWith('{') && desc.contains('dual_rates')) {
+    try {
+      final parsed = json.decode(desc);
+      if (parsed is Map && parsed['dual_rates'] is List) {
+        for (var r in (parsed['dual_rates'] as List)) {
+          double d = (r as num).toDouble();
+          if (d > 0) rates.add(d);
+        }
+      }
+    } catch (_) {}
+  }
+
+  final list = rates.toList();
+  list.sort();
+  return list;
+}
+
+// ==========================================
+// AUTO-INGESTION INTO SUPABASE
+// ==========================================
 Future<void> autoIngestProductToDatabase({
   required String barcode,
   required String name,
   String brand = '',
   String category = 'Cosmetics',
   double price = 0.0,
+  List<double>? dualRates,
 }) async {
   final clean = barcode.trim();
   if (clean.isEmpty) return;
   final cleanName = cleanItemName(name, barcode: clean).isNotEmpty
       ? cleanItemName(name, barcode: clean)
-      : clean;
+      : '';
+
+  // CRITICAL FIX: NEVER save uncatalogued raw barcodes or price 0 items into inventory!
+  if (cleanName.isEmpty || cleanName == clean || price <= 0) {
+    return;
+  }
 
   try {
-    // 1. If it has a recognized non-barcode name, auto-save to master_catalog
-    if (cleanName != clean && cleanName.isNotEmpty) {
-      try {
-        await Supabase.instance.client.from('master_catalog').upsert({
-          'barcode': clean,
-          'product_name': cleanName,
-          'brand': brand,
-          'category': category.isNotEmpty ? category : 'Cosmetics',
-          'mrp': price > 0 ? price : 0.0,
-        }, onConflict: 'barcode');
-      } catch (_) {}
+    Map<String, dynamic> payload = {
+      'item_code': clean,
+      'item_name': cleanName,
+      'company_barcode': clean,
+      'price': price,
+      'mrp': price,
+      'stock_qty': 10,
+      'shelf_location': 'PENDING',
+      'category': category.isNotEmpty ? category : 'Cosmetics',
+      'is_online': true,
+    };
+    if (dualRates != null && dualRates.length > 1) {
+      payload['description'] = json.encode({'dual_rates': dualRates});
     }
 
-    // 2. Auto-save into inventory with shelf_location: 'PENDING'
+    await Supabase.instance.client.from('inventory').upsert(payload, onConflict: 'item_code');
+  } catch (_) {
     try {
       await Supabase.instance.client.from('inventory').upsert({
         'item_code': clean,
         'item_name': cleanName,
-        'company_barcode': clean,
         'price': price,
-        'mrp': price,
-        'stock_qty': 1,
-        'shelf_location': 'PENDING',
-        'category': category.isNotEmpty ? category : 'Cosmetics',
-        'is_online': false,
-      }, onConflict: 'item_code');
-    } catch (_) {
-      try {
-        await Supabase.instance.client.from('inventory').upsert({
-          'item_code': clean,
-          'item_name': cleanName,
-          'price': price,
-        });
-      } catch (_) {}
-    }
-  } catch (_) {}
+      });
+    } catch (_) {}
+  }
 }
 
 // ==========================================
@@ -1086,6 +1192,57 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     } catch (_) {}
   }
 
+  Future<void> _retireOldRateInCatalog(Map<String, dynamic> item, double oldRateToRemove, double newPrimaryRate) async {
+    final itemCode = item['item_code']?.toString() ?? '';
+    if (itemCode.isEmpty) return;
+
+    Map<String, dynamic> descObj = {};
+    final curDesc = item['description']?.toString() ?? '';
+    if (curDesc.startsWith('{')) {
+      try { descObj = json.decode(curDesc); } catch (_) {}
+    } else if (curDesc.isNotEmpty) {
+      descObj['notes'] = curDesc;
+    }
+
+    List<double> currentDual = extractDualRates(item);
+    currentDual.removeWhere((r) => (r - oldRateToRemove).abs() < 0.01);
+    if (!currentDual.contains(newPrimaryRate)) {
+      currentDual.add(newPrimaryRate);
+    }
+    final remainingDual = currentDual.length <= 1 ? <double>[] : currentDual;
+    descObj['dual_rates'] = remainingDual;
+    final jsonDesc = json.encode(descObj);
+
+    try {
+      await Supabase.instance.client.from('inventory').update({
+        'price': newPrimaryRate,
+        'description': jsonDesc,
+      }).eq('item_code', itemCode);
+
+      setState(() {
+        item['price'] = newPrimaryRate;
+        item['description'] = jsonDesc;
+        item['dual_rates'] = remainingDual;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("✅ Retired ₹${oldRateToRemove % 1 == 0 ? oldRateToRemove.toInt() : oldRateToRemove}! Sole rate is now ₹${newPrimaryRate % 1 == 0 ? newPrimaryRate.toInt() : newPrimaryRate}."),
+            backgroundColor: const Color(0xFF10B981),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error updating rate: $e"), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   void _showQuickStockDialog(Map<String, dynamic> item) {
     final code = item['item_code']?.toString() ?? '';
     final name = item['item_name']?.toString() ?? 'Item';
@@ -1275,22 +1432,21 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         } catch (_) {}
       }
 
-      // Check Open Beauty Facts if 8+ digit commercial barcode
+      // Check Multi-API online resolver if 8+ digit commercial barcode
       final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
       if (masterMatch == null && clean.length >= 8 && digitsOnly.length == clean.length) {
-        final obf = await fetchOpenBeautyFacts(clean);
-        if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
-          masterMatch = {
-            'name': obf['name'],
-            'price': 0.0,
-            'category': obf['category'] ?? 'Cosmetics',
-            'brand': obf['brand'] ?? '',
-          };
+        final onlineResults = await resolveBarcodeOnlineMulti(clean);
+        if (onlineResults.length == 1) {
+          masterMatch = onlineResults.first;
+        } else if (onlineResults.length > 1) {
+          if (mounted) {
+            _showOnlineConflictDialogInCatalog(clean, onlineResults);
+            return;
+          }
         }
       }
 
-      // 3. Recognized in Master Catalog / Backup OR New Item:
-      // Record in pending queue so it NEVER goes empty or gets lost!
+      // 3. Recognized in Master Catalog / Online OR New Item:
       if (masterMatch != null) {
         PendingItemsManager.addPending(
           barcode: clean,
@@ -1299,30 +1455,27 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
           price: (masterMatch['price'] as num?)?.toDouble() ?? 0.0,
           category: masterMatch['category'] ?? 'Cosmetics',
         );
-        autoIngestProductToDatabase(
-          barcode: clean,
-          name: masterMatch['name'] ?? '',
-          brand: masterMatch['brand'] ?? '',
-          price: (masterMatch['price'] as num?)?.toDouble() ?? 0.0,
-          category: masterMatch['category'] ?? 'Cosmetics',
-        );
+        double mPrice = (masterMatch['price'] as num?)?.toDouble() ?? 0.0;
+        if (mPrice > 0) {
+          autoIngestProductToDatabase(
+            barcode: clean,
+            name: masterMatch['name'] ?? '',
+            brand: masterMatch['brand'] ?? '',
+            price: mPrice,
+            category: masterMatch['category'] ?? 'Cosmetics',
+          );
+        }
         setState(() {});
         if (mounted) {
           _showRecognizedMasterProductDialog(clean, masterMatch);
         }
       } else {
-        // Unrecognized barcode: record in pending & auto-ingest with clean barcode number
+        // Unrecognized barcode: Do NOT auto-save price 0!
         PendingItemsManager.addPending(
           barcode: clean,
           name: clean,
           brand: '',
           price: 0.0,
-          category: 'General',
-        );
-        autoIngestProductToDatabase(
-          barcode: clean,
-          name: clean,
-          brand: '',
           category: 'General',
         );
         setState(() {});
@@ -1335,6 +1488,77 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         }
       }
     }
+  }
+
+  void _showOnlineConflictDialogInCatalog(String barcode, List<Map<String, dynamic>> results) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: Colors.blue.shade100, borderRadius: BorderRadius.circular(8)),
+                      child: Icon(Icons.travel_explore, color: Colors.blue.shade900, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text("Select Matching Product", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text("Barcode: $barcode", style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text("Multiple possible options found online. Tap to assign to shelf:", style: TextStyle(fontSize: 13, color: Colors.black87)),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: results.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (c, idx) {
+                      final prod = results[idx];
+                      final name = prod['name'] ?? '';
+                      final price = (prod['price'] as num?)?.toDouble() ?? 0.0;
+                      final source = prod['source'] ?? 'Online';
+
+                      return ListTile(
+                        title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        subtitle: Text("Source: $source", style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                        trailing: price > 0
+                            ? Text("₹${price % 1 == 0 ? price.toInt() : price}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Color(0xFF10B981)))
+                            : const Text("Enter Rate", style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.bold)),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _showRecognizedMasterProductDialog(barcode, prod);
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _showCatalogConflictSheet(String query, List<Map<String, dynamic>> matches) {
@@ -2203,6 +2427,9 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       final qty = (it['stock_qty'] as num?)?.toInt() ?? 0;
       return qty <= 0;
     }).toList();
+    final dualRateItems = items.where((it) {
+      return extractDualRates(it).length > 1;
+    }).toList();
 
     final filtered = items.where((it) {
       final q = searchQuery.toLowerCase();
@@ -2216,6 +2443,9 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       if (stockFilter == "pending") {
         final shelf = (it['shelf_location'] ?? '').toString().trim().toUpperCase();
         return shelf == 'PENDING' || shelf.isEmpty;
+      }
+      if (stockFilter == "dual_rates") {
+        return extractDualRates(it).length > 1;
       }
       if (stockFilter == "low") return qty > 0 && qty <= 5;
       if (stockFilter == "out") return qty <= 0;
@@ -2333,6 +2563,14 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                     selectedColor: Colors.redAccent,
                     labelStyle: TextStyle(color: stockFilter == "out" ? Colors.white : Colors.black87, fontWeight: FontWeight.bold, fontSize: 12),
                     onSelected: (_) => setState(() => stockFilter = "out"),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: Text("🏷️ Dual Rates (${dualRateItems.length})"),
+                    selected: stockFilter == "dual_rates",
+                    selectedColor: Colors.purple.shade800,
+                    labelStyle: TextStyle(color: stockFilter == "dual_rates" ? Colors.white : Colors.black87, fontWeight: FontWeight.bold, fontSize: 12),
+                    onSelected: (_) => setState(() => stockFilter = "dual_rates"),
                   ),
                 ],
               ),
@@ -2574,6 +2812,64 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                                     ],
                                   ),
 
+                                  // Dual-Rate Batch Banner & Retirement Actions
+                                  if (extractDualRates(item).length > 1) ...[
+                                    const SizedBox(height: 8),
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFAF5FF),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: const Color(0xFFC084FC)),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              const Icon(Icons.style, size: 14, color: Color(0xFF7E22CE)),
+                                              const SizedBox(width: 6),
+                                              Expanded(
+                                                child: Text(
+                                                  "🏷️ Dual Stock Rates: ${extractDualRates(item).map((r) => '₹${r % 1 == 0 ? r.toInt() : r}').join(' & ')}",
+                                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF6B21A8)),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Wrap(
+                                            spacing: 6,
+                                            runSpacing: 4,
+                                            children: extractDualRates(item).map((rate) {
+                                              final isPrimary = (rate - price).abs() < 0.01;
+                                              return ActionChip(
+                                                avatar: isPrimary
+                                                    ? const Icon(Icons.check, size: 13, color: Colors.white)
+                                                    : const Icon(Icons.close, size: 13, color: Colors.red),
+                                                label: Text(
+                                                  isPrimary
+                                                      ? "Primary: ₹${rate % 1 == 0 ? rate.toInt() : rate}"
+                                                      : "Old Stock Finished? Clear ₹${rate % 1 == 0 ? rate.toInt() : rate}",
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: isPrimary ? Colors.white : Colors.red.shade900,
+                                                  ),
+                                                ),
+                                                backgroundColor: isPrimary ? const Color(0xFF7E22CE) : Colors.red.shade50,
+                                                side: BorderSide(color: isPrimary ? const Color(0xFF7E22CE) : Colors.red.shade200),
+                                                onPressed: isPrimary
+                                                    ? null
+                                                    : () => _retireOldRateInCatalog(item, rate, price),
+                                              );
+                                            }).toList(),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+
                                   // Quick Interactive Stock Adjustment Bar
                                   Container(
                                     margin: const EdgeInsets.only(top: 8),
@@ -2687,6 +2983,7 @@ class _PosScreenState extends State<PosScreen> {
           cloudInventory.clear();
           for (var item in data) {
             String code = item['item_code'].toString();
+            final dual = extractDualRates(item);
             cloudInventory[code] = {
               'item_code': code,
               'item_name': item['item_name']?.toString() ?? '',
@@ -2698,6 +2995,8 @@ class _PosScreenState extends State<PosScreen> {
               'mrp': (item['mrp'] as num?)?.toDouble() ?? 0.0,
               'stock_qty': (item['stock_qty'] as num?)?.toInt() ?? 10,
               'is_online': item['is_online'] == true,
+              'description': item['description']?.toString() ?? '',
+              'dual_rates': dual,
             };
           }
         });
@@ -2705,6 +3004,62 @@ class _PosScreenState extends State<PosScreen> {
     } catch (e) {
       print("Inventory Sync Error: $e");
     }
+  }
+
+  Future<void> updateItemDualRates({
+    required String itemCode,
+    required double primaryPrice,
+    required List<double> dualRates,
+  }) async {
+    try {
+      Map<String, dynamic> descObj = {};
+      if (cloudInventory.containsKey(itemCode)) {
+        final curDesc = cloudInventory[itemCode]?['description']?.toString() ?? '';
+        if (curDesc.startsWith('{')) {
+          try { descObj = json.decode(curDesc); } catch (_) {}
+        } else if (curDesc.isNotEmpty) {
+          descObj['notes'] = curDesc;
+        }
+      }
+      descObj['dual_rates'] = dualRates;
+      final jsonDesc = json.encode(descObj);
+
+      await Supabase.instance.client.from('inventory').update({
+        'price': primaryPrice,
+        'description': jsonDesc,
+      }).eq('item_code', itemCode);
+
+      if (mounted) {
+        setState(() {
+          if (cloudInventory.containsKey(itemCode)) {
+            cloudInventory[itemCode]!['price'] = primaryPrice;
+            cloudInventory[itemCode]!['description'] = jsonDesc;
+            cloudInventory[itemCode]!['dual_rates'] = dualRates;
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint("Error updating dual rates: $e");
+    }
+  }
+
+  Future<void> retireOldRate({
+    required String itemCode,
+    required double oldRateToRemove,
+    required double newPrimaryRate,
+  }) async {
+    final item = cloudInventory[itemCode];
+    if (item == null) return;
+    final currentDual = List<double>.from(item['dual_rates'] ?? []);
+    currentDual.removeWhere((r) => (r - oldRateToRemove).abs() < 0.01);
+    if (!currentDual.contains(newPrimaryRate)) {
+      currentDual.add(newPrimaryRate);
+    }
+    await updateItemDualRates(
+      itemCode: itemCode,
+      primaryPrice: newPrimaryRate,
+      dualRates: currentDual.length <= 1 ? [] : currentDual,
+    );
   }
 
   String _canonicalCode(String s) {
@@ -2810,6 +3165,18 @@ class _PosScreenState extends State<PosScreen> {
     });
   }
 
+  void _applyResolvedItemWithPrice(Map<String, dynamic> item, double chosenPrice) {
+    setState(() {
+      String code = (item['item_code'] ?? '').toString();
+      rawItemCode = _parseToRaw(code);
+      activeItemName = (item['item_name'] ?? '').toString();
+      activeItemSub = "📍 Shelf: ${item['shelf_location'] ?? ''}";
+      activeConflicts = [];
+      rate = chosenPrice % 1 == 0 ? chosenPrice.toInt().toString() : chosenPrice.toString();
+      focusedField = 1; // Advance directly to QTY
+    });
+  }
+
   void _resolveScannedBarcode(String code) {
     if (code.isEmpty) {
       setState(() {
@@ -2824,10 +3191,16 @@ class _PosScreenState extends State<PosScreen> {
     final matches = _lookupAllMatches(clean);
 
     if (matches.length == 1) {
-      _applyResolvedItem(matches.first);
+      final item = matches.first;
+      final dualRates = extractDualRates(item);
+      if (dualRates.length > 1) {
+        _showDualRateSelectionSheet(item, dualRates);
+        return;
+      }
+      _applyResolvedItem(item);
       return;
     } else if (matches.length > 1) {
-      // Multiple items on shelf: Pick first by default, NO POPUP! Show inline choice chips
+      // Multiple items on shelf: Pick first by default
       final first = matches.first;
       setState(() {
         String c = (first['item_code'] ?? '').toString();
@@ -2859,7 +3232,6 @@ class _PosScreenState extends State<PosScreen> {
         }
         focusedField = 1; // Advance to QTY
       });
-      // Silently log to pending queue & auto-ingest into DB
       PendingItemsManager.addPending(
         barcode: clean,
         name: cName,
@@ -2877,76 +3249,83 @@ class _PosScreenState extends State<PosScreen> {
       return;
     }
 
-    // 3. Check Online Open Facts Catalogs (<2.5s) if 8+ digit commercial barcode
+    // 3. Multi-API Online Search across Open Facts, UPCitemdb & Retail Registries
     final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
     if (clean.length >= 8 && digitsOnly.length == clean.length) {
       setState(() {
         rawItemCode = clean;
-        activeItemName = clean; // Clean barcode number! Never "General Item"!
-        activeItemSub = "🔍 Searching online catalog (<2.5s)...";
+        activeItemName = clean;
+        activeItemSub = "🔍 Searching Indian product registries (<3s)...";
         activeConflicts = [];
-        focusedField = 2; // Move directly to rate so cashier can enter price without waiting
+        focusedField = 2; // Allow typing rate while searching
       });
-      fetchOpenBeautyFacts(clean).then((obf) {
+
+      resolveBarcodeOnlineMulti(clean).then((results) {
         if (!mounted) return;
-        if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
-          final officialName = obf['name']!;
-          final officialBrand = obf['brand'] ?? '';
-          final officialCategory = obf['category'] ?? 'Cosmetics';
+        if (results.isEmpty) {
+          // Uncataloged barcode
+          setState(() {
+            if (rawItemCode == clean) {
+              activeItemName = clean;
+              activeItemSub = "📦 Uncataloged barcode (Tap to search/name)";
+            }
+          });
+          PendingItemsManager.addPending(
+            barcode: clean,
+            name: clean,
+            price: double.tryParse(rate) ?? 0.0,
+          );
+          _showUncatalogedBarcodeOptions(clean);
+        } else if (results.length == 1) {
+          // Single match: No conflict! Apply directly
+          final prod = results.first;
+          final officialName = prod['name'].toString();
+          final officialBrand = prod['brand']?.toString() ?? '';
+          final officialCategory = prod['category']?.toString() ?? 'Cosmetics';
+          final officialPrice = (prod['price'] as num?)?.toDouble() ?? 0.0;
+          final source = prod['source']?.toString() ?? 'Cloud';
+
           setState(() {
             if (rawItemCode == clean) {
               activeItemName = officialName;
-              activeItemSub = "🌐 Cloud Recognized & Auto-Saved";
+              activeItemSub = "🌐 Found via $source";
+              if (officialPrice > 0 && rate.isEmpty) {
+                rate = officialPrice % 1 == 0 ? officialPrice.toInt().toString() : officialPrice.toString();
+                focusedField = 1; // Advance to QTY
+              } else if (rate.isEmpty) {
+                focusedField = 2; // Cashier types rate
+              }
             }
-            // Reactive backfill: Update any item already placed in the cart during active sale
             for (var i = 0; i < cart.length; i++) {
               final cRaw = (cart[i]['rawItemCode'] ?? '').toString();
               final cName = (cart[i]['itemName'] ?? '').toString();
-              if (cRaw == clean &&
-                  (cName.isEmpty ||
-                   cName == clean ||
-                   cName == "General Item" ||
-                   cName.startsWith("Barcode") ||
-                   cName.startsWith("Unassigned") ||
-                   cName.startsWith("Item "))) {
+              if (cRaw == clean && (cName.isEmpty || cName == clean || cName == "General Item")) {
                 cart[i]['itemName'] = officialName;
                 cart[i]['item'] = "$officialName\n$clean";
               }
             }
           });
+
+          double finalP = double.tryParse(rate) ?? officialPrice;
           PendingItemsManager.addPending(
             barcode: clean,
             name: officialName,
-            price: double.tryParse(rate) ?? 0.0,
+            price: finalP,
             brand: officialBrand,
             category: officialCategory,
           );
-          autoIngestProductToDatabase(
-            barcode: clean,
-            name: officialName,
-            brand: officialBrand,
-            category: officialCategory,
-            price: double.tryParse(rate) ?? 0.0,
-          );
+          if (finalP > 0) {
+            autoIngestProductToDatabase(
+              barcode: clean,
+              name: officialName,
+              brand: officialBrand,
+              category: officialCategory,
+              price: finalP,
+            );
+          }
         } else {
-          setState(() {
-            if (rawItemCode == clean) {
-              activeItemName = clean; // Clean barcode number!
-              activeItemSub = "📦 Uncataloged barcode (Auto-saved, tap to name)";
-            }
-          });
-          PendingItemsManager.addPending(
-            barcode: clean,
-            name: clean,
-            price: double.tryParse(rate) ?? 0.0,
-          );
-          autoIngestProductToDatabase(
-            barcode: clean,
-            name: clean,
-            brand: '',
-            category: 'General',
-            price: double.tryParse(rate) ?? 0.0,
-          );
+          // Multiple options found online: Show conflict picker
+          _showOnlineConflictSelectionSheet(clean, results);
         }
       });
       return;
@@ -2955,22 +3334,558 @@ class _PosScreenState extends State<PosScreen> {
     // 4. Short / uncataloged code
     setState(() {
       rawItemCode = clean;
-      activeItemName = clean; // Clean barcode number!
-      activeItemSub = "📦 Uncataloged (Auto-saved, tap to name)";
+      activeItemName = clean;
+      activeItemSub = "📦 Uncataloged (Tap to search/name)";
       activeConflicts = [];
-      focusedField = 2; // Move to rate
+      focusedField = 2;
     });
     PendingItemsManager.addPending(
       barcode: clean,
       name: clean,
       price: double.tryParse(rate) ?? 0.0,
     );
-    autoIngestProductToDatabase(
-      barcode: clean,
-      name: clean,
-      brand: '',
-      category: 'General',
-      price: double.tryParse(rate) ?? 0.0,
+    _showUncatalogedBarcodeOptions(clean);
+  }
+
+  void _showDualRateSelectionSheet(Map<String, dynamic> item, List<double> dualRates) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final itemName = (item['item_name'] ?? 'Product').toString();
+        final itemCode = (item['item_code'] ?? '').toString();
+        final oldRate = dualRates.first;
+        final newRate = dualRates.last;
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: Colors.amber.shade100, borderRadius: BorderRadius.circular(8)),
+                      child: Icon(Icons.style, color: Colors.amber.shade900, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(itemName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          const Text("Dual Stock on Shelf • Select batch rate", style: TextStyle(color: Colors.black54, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text("Which batch rate is printed on this item?", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const SizedBox(height: 12),
+                Row(
+                  children: dualRates.map((r) {
+                    final isOld = (r == oldRate && dualRates.length > 1);
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isOld ? Colors.grey.shade100 : const Color(0xFF10B981),
+                            foregroundColor: isOld ? Colors.black87 : Colors.white,
+                            side: BorderSide(color: isOld ? Colors.grey.shade400 : const Color(0xFF059669), width: 1.5),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            _applyResolvedItemWithPrice(item, r);
+                          },
+                          child: Column(
+                            children: [
+                              Text("₹${r % 1 == 0 ? r.toInt() : r}", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+                              Text(isOld ? "Old Batch" : "New Batch", style: TextStyle(fontSize: 11, color: isOld ? Colors.black54 : Colors.white70)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.inventory_2_outlined, color: Colors.red.shade700, size: 20),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              "Old Rate (₹${oldRate % 1 == 0 ? oldRate.toInt() : oldRate}) Stock Finished?",
+                              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red.shade900, fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        "Click below if all old ₹${oldRate % 1 == 0 ? oldRate.toInt() : oldRate} pieces are sold out. Next time scanning will be 100% conflict-free at ₹${newRate % 1 == 0 ? newRate.toInt() : newRate}!",
+                        style: const TextStyle(fontSize: 11.5, color: Colors.black87),
+                      ),
+                      const SizedBox(height: 8),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.check_circle_outline, size: 18),
+                        label: Text("Mark ₹${oldRate % 1 == 0 ? oldRate.toInt() : oldRate} Finished & Keep ₹${newRate % 1 == 0 ? newRate.toInt() : newRate} Default"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          await retireOldRate(
+                            itemCode: itemCode,
+                            oldRateToRemove: oldRate,
+                            newPrimaryRate: newRate,
+                          );
+                          _applyResolvedItemWithPrice(item, newRate);
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text("✅ Old ₹$oldRate rate finished! Future scans will be conflict-free at ₹$newRate."),
+                                backgroundColor: const Color(0xFF10B981),
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showRateChangeApprovalPrompt({
+    required Map<String, dynamic> item,
+    required double oldRate,
+    required double newRate,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final itemName = (item['item_name'] ?? 'Product').toString();
+        final itemCode = (item['item_code'] ?? '').toString();
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: Colors.blue.shade100, borderRadius: BorderRadius.circular(8)),
+                      child: Icon(Icons.price_change, color: Colors.blue.shade900, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("Rate Change: $itemName", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text("Catalog Price: ₹$oldRate ➔ Current Bill: ₹$newRate",
+                              style: const TextStyle(color: Color(0xFFBE185D), fontWeight: FontWeight.bold, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text("How should future scans for this item be handled?", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const SizedBox(height: 12),
+                ListTile(
+                  tileColor: Colors.amber.shade50,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: Colors.amber.shade200)),
+                  leading: const Icon(Icons.splitscreen, color: Colors.orange),
+                  title: const Text("Dual Stock (I have both on shelf)", style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text("Keep both ₹$oldRate (old) & ₹$newRate (new). Scanning in future will ask which batch."),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await updateItemDualRates(
+                      itemCode: itemCode,
+                      primaryPrice: newRate,
+                      dualRates: [oldRate, newRate],
+                    );
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("Dual stock enabled! Both ₹$oldRate and ₹$newRate are active."), backgroundColor: Colors.orange.shade800),
+                      );
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+                ListTile(
+                  tileColor: Colors.green.shade50,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: Colors.green.shade200)),
+                  leading: const Icon(Icons.check_circle, color: Colors.green),
+                  title: Text("Approve New Rate (₹$newRate)", style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text("Old ₹$oldRate stock finished. Permanently update catalog price to ₹$newRate."),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    await updateItemDualRates(
+                      itemCode: itemCode,
+                      primaryPrice: newRate,
+                      dualRates: [],
+                    );
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("Catalog updated! New price is ₹$newRate."), backgroundColor: Colors.green.shade700),
+                      );
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+                ListTile(
+                  tileColor: Colors.grey.shade100,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  leading: const Icon(Icons.receipt_long, color: Colors.grey),
+                  title: const Text("Just This Bill Only"),
+                  subtitle: const Text("Temporary manual discount or price override for this customer only."),
+                  onTap: () => Navigator.pop(ctx),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showOnlineConflictSelectionSheet(String barcode, List<Map<String, dynamic>> results) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: Colors.blue.shade100, borderRadius: BorderRadius.circular(8)),
+                      child: Icon(Icons.travel_explore, color: Colors.blue.shade900, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text("Select Matching Product", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text("Barcode: $barcode", style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text("Multiple options found in online databases. Tap the matching product:", style: TextStyle(fontSize: 13, color: Colors.black87)),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: results.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (c, idx) {
+                      final prod = results[idx];
+                      final name = prod['name'] ?? '';
+                      final price = (prod['price'] as num?)?.toDouble() ?? 0.0;
+                      final source = prod['source'] ?? 'Online';
+
+                      return ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        subtitle: Text("Source: $source", style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                        trailing: price > 0
+                            ? Text("₹${price % 1 == 0 ? price.toInt() : price}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Color(0xFF10B981)))
+                            : Text("Enter Rate", style: TextStyle(color: Colors.orange.shade800, fontSize: 12, fontWeight: FontWeight.bold)),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          setState(() {
+                            rawItemCode = barcode;
+                            activeItemName = name;
+                            activeItemSub = "🌐 $source";
+                            if (price > 0) {
+                              rate = price % 1 == 0 ? price.toInt().toString() : price.toString();
+                              focusedField = 1; // Move to QTY
+                            } else {
+                              rate = "";
+                              focusedField = 2; // Move to RATE
+                            }
+                          });
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.search),
+                  label: const Text("Search Different Name in Catalog"),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _showMasterCatalogSearchDialog(barcode);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showMasterCatalogSearchDialog(String barcode) {
+    String searchTxt = "";
+    List<Map<String, dynamic>> searchList = [];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom,
+                  left: 16,
+                  right: 16,
+                  top: 16,
+                ),
+                child: SizedBox(
+                  height: MediaQuery.of(context).size.height * 0.75,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(color: Colors.pink.shade100, borderRadius: BorderRadius.circular(8)),
+                            child: const Icon(Icons.auto_stories, color: Color(0xFFBE185D), size: 24),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text("Find & Bind Product", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                Text("Barcode: $barcode", style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                          IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: "Type name (e.g. lakme 9, ponds, ayur)...",
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        ),
+                        onChanged: (val) {
+                          setSheetState(() {
+                            searchTxt = val;
+                            searchList = searchCosmeticsByName(val, limit: 15);
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: searchList.isEmpty
+                            ? Center(
+                                child: Text(
+                                  searchTxt.isEmpty ? "Type brand or product name to search" : "No matching items found",
+                                  style: const TextStyle(color: Colors.grey),
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: searchList.length,
+                                separatorBuilder: (_, __) => const Divider(height: 1),
+                                itemBuilder: (c, idx) {
+                                  final it = searchList[idx];
+                                  final name = it['name'] ?? '';
+                                  final p = (it['price'] as num?)?.toDouble() ?? 0.0;
+                                  final cat = it['category'] ?? '';
+
+                                  return ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                    subtitle: Text(cat, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                                    trailing: Text("₹${p % 1 == 0 ? p.toInt() : p}",
+                                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Color(0xFF10B981))),
+                                    onTap: () {
+                                      Navigator.pop(ctx);
+                                      setState(() {
+                                        rawItemCode = barcode;
+                                        activeItemName = name;
+                                        activeItemSub = "💄 Catalog Bound ($cat)";
+                                        if (p > 0) {
+                                          rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
+                                          focusedField = 1; // Move to QTY
+                                        } else {
+                                          focusedField = 2; // Move to RATE
+                                        }
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showUncatalogedBarcodeOptions(String barcode) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(8)),
+                      child: Icon(Icons.qr_code_scanner, color: Colors.orange.shade900, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text("Uncataloged Barcode", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text("Code: $barcode", style: const TextStyle(color: Colors.black54, fontSize: 13)),
+                        ],
+                      ),
+                    ),
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(ctx)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text("This barcode was not found online or in store stock. How would you like to handle it?",
+                    style: TextStyle(fontSize: 13, color: Colors.black87)),
+                const SizedBox(height: 16),
+                ListTile(
+                  tileColor: Colors.pink.shade50,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: Colors.pink.shade200)),
+                  leading: const Icon(Icons.search, color: Color(0xFFBE185D)),
+                  title: const Text("Search in 1,000+ Master Catalog", style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text("Type product name (e.g. 'lakme 9', 'ponds') to pick and bind this barcode permanently."),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showMasterCatalogSearchDialog(barcode);
+                  },
+                ),
+                const SizedBox(height: 10),
+                ListTile(
+                  tileColor: Colors.blue.shade50,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: Colors.blue.shade200)),
+                  leading: const Icon(Icons.edit_note, color: Color(0xFF1E40AF)),
+                  title: const Text("Type Custom Product Name", style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text("Enter product name in prompt box and enter rate on keypad."),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _promptRenameActiveItem();
+                  },
+                ),
+                const SizedBox(height: 10),
+                ListTile(
+                  tileColor: Colors.grey.shade100,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  leading: const Icon(Icons.flash_on, color: Colors.grey),
+                  title: const Text("Quick Bill with Barcode Number"),
+                  subtitle: const Text("Keep barcode number as item name for this bill and enter rate directly."),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() {
+                      rawItemCode = barcode;
+                      activeItemName = barcode;
+                      focusedField = 2; // Keypad on rate
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -3568,6 +4483,17 @@ class _PosScreenState extends State<PosScreen> {
           name: itemName,
           price: parsedRate,
         );
+      } else {
+        // Item exists in inventory! Check if cashier changed the rate from catalog price:
+        final catPrice = (match['price'] as num?)?.toDouble() ?? 0.0;
+        final existingDual = extractDualRates(match);
+        if (catPrice > 0 && (catPrice - parsedRate).abs() >= 0.01 && !existingDual.contains(parsedRate)) {
+          _showRateChangeApprovalPrompt(
+            item: match,
+            oldRate: catPrice,
+            newRate: parsedRate,
+          );
+        }
       }
     }
 
