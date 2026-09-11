@@ -102,5 +102,28 @@ void main() {
         }
       }
     });
+
+    test('PendingRateChangesManager tracks manual rate overrides for catalog approval', () {
+      PendingRateChangesManager.clear();
+      expect(PendingRateChangesManager.items.isEmpty, isTrue);
+
+      PendingRateChangesManager.addRateChange(
+        itemCode: "0103C134",
+        barcode: "8901030673214",
+        itemName: "Lakme Eyeconic Kajal",
+        oldRate: 190.0,
+        newRate: 210.0,
+      );
+
+      expect(PendingRateChangesManager.items.length, 1);
+      final entry = PendingRateChangesManager.items.first;
+      expect(entry['item_code'], "0103C134");
+      expect(entry['old_rate'], 190.0);
+      expect(entry['new_rate'], 210.0);
+
+      // Removing by code
+      PendingRateChangesManager.remove("0103C134");
+      expect(PendingRateChangesManager.items.isEmpty, isTrue);
+    });
   });
 }
