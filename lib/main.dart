@@ -698,9 +698,28 @@ Future<List<Map<String, dynamic>>> resolveBarcodeOnlineMulti(String barcode) asy
           for (var it in data['items']) {
             String title = (it['title'] ?? '').toString().trim();
             String brand = (it['brand'] ?? '').toString().trim();
-            double p = (it['lowest_recorded_price'] as num?)?.toDouble() ?? 0.0;
+            // CRITICAL FIX: UPCitemdb lowest_recorded_price is in US DOLLARS (e.g. $10.08)!
+            // NEVER use foreign currency prices as Indian INR MRP! Always set price = 0.0
+            // so the cashier can type the genuine Indian MRP from the product box.
             if (title.isNotEmpty) {
-              addResult(title, brand, p, 'Cosmetics', 'UPC Database');
+              addResult(title, brand, 0.0, 'Cosmetics', 'UPC Database');
+            }
+          }
+        }
+      } else if (resp.statusCode == 429 || resp.statusCode != 200) {
+        // Fallback to web page scraper if trial API limit is reached
+        final webUri = Uri.parse("https://www.upcitemdb.com/upc/$clean");
+        final webReq = await client.getUrl(webUri);
+        webReq.headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+        final webResp = await webReq.close().timeout(const Duration(milliseconds: 2800));
+        if (webResp.statusCode == 200) {
+          final webHtml = await webResp.transform(utf8.decoder).join();
+          final titleMatch = RegExp(r'<title>(.*?)(?:\s*\|\s*upcitemdb\.com)?</title>', caseSensitive: false).firstMatch(webHtml);
+          if (titleMatch != null) {
+            String title = titleMatch.group(1)!.replaceAll('| upcitemdb.com', '').trim();
+            title = title.replaceAll(RegExp(r'^(?:EAN|UPC)\s+[0-9]+\s*-\s*', caseSensitive: false), '').trim();
+            if (title.isNotEmpty && !title.toLowerCase().contains("not found") && !title.toLowerCase().contains("search") && title != clean) {
+              addResult(title, '', 0.0, 'Cosmetics', 'UPC Database');
             }
           }
         }
@@ -713,10 +732,11 @@ Future<List<Map<String, dynamic>>> resolveBarcodeOnlineMulti(String barcode) asy
 
   // 2. Open Facts Endpoints (Open Beauty, Open Food, Open Products)
   final openFactsEndpoints = [
+    ("https://world.openbeautyfacts.org/api/v2/product/$clean.json", "Open Beauty Facts"),
     ("https://world.openbeautyfacts.org/api/v0/product/$clean.json", "Open Beauty Facts"),
-    ("https://in.openfoodfacts.org/api/v0/product/$clean.json", "Open Food Facts India"),
-    ("https://world.openfoodfacts.org/api/v0/product/$clean.json", "Open Food Facts"),
-    ("https://world.openproductsfacts.org/api/v0/product/$clean.json", "Open Products Facts"),
+    ("https://in.openfoodfacts.org/api/v2/product/$clean.json", "Open Food Facts India"),
+    ("https://world.openfoodfacts.org/api/v2/product/$clean.json", "Open Food Facts"),
+    ("https://world.openproductsfacts.org/api/v2/product/$clean.json", "Open Products Facts"),
   ];
 
   Future<void> queryOpenFacts(String url, String source) async {
@@ -726,12 +746,12 @@ Future<List<Map<String, dynamic>>> resolveBarcodeOnlineMulti(String barcode) asy
       client.connectionTimeout = const Duration(milliseconds: 2400);
       final uri = Uri.parse(url);
       final req = await client.getUrl(uri);
-      req.headers.set('User-Agent', 'LoveKushPOS/1.0 (Retail Scanner; Retail; India)');
+      req.headers.set('User-Agent', 'LoveKushPOS/1.0 (Retail Scanner; Retail; India; contact: lovekush@retail.in)');
       final resp = await req.close().timeout(const Duration(milliseconds: 2500));
       if (resp.statusCode == 200) {
         final body = await resp.transform(utf8.decoder).join();
         final data = json.decode(body);
-        if (data is Map && data['status'] == 1 && data['product'] != null) {
+        if (data is Map && (data['status'] == 1 || data['status'] == 'success') && data['product'] != null) {
           final prod = data['product'];
           String name = (prod['product_name'] ?? prod['product_name_en'] ?? prod['generic_name'] ?? '').toString().trim();
           String brand = (prod['brands'] ?? '').toString().trim();
@@ -3157,6 +3177,7 @@ class _PosScreenState extends State<PosScreen> {
       activeItemName = (item['item_name'] ?? '').toString();
       activeItemSub = "📍 Shelf: ${item['shelf_location'] ?? ''}";
       activeConflicts = [];
+      activeOnlineSuggestions = [];
       double p = (item['price'] as num?)?.toDouble() ?? 0.0;
       if (p > 0) {
         rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
@@ -3172,6 +3193,7 @@ class _PosScreenState extends State<PosScreen> {
       activeItemName = (item['item_name'] ?? '').toString();
       activeItemSub = "📍 Shelf: ${item['shelf_location'] ?? ''}";
       activeConflicts = [];
+      activeOnlineSuggestions = [];
       rate = chosenPrice % 1 == 0 ? chosenPrice.toInt().toString() : chosenPrice.toString();
       focusedField = 1; // Advance directly to QTY
     });
@@ -3183,6 +3205,7 @@ class _PosScreenState extends State<PosScreen> {
         activeItemName = "";
         activeItemSub = "";
         activeConflicts = [];
+        activeOnlineSuggestions = [];
       });
       return;
     }
@@ -3208,6 +3231,7 @@ class _PosScreenState extends State<PosScreen> {
         activeItemName = (first['item_name'] ?? '').toString();
         activeItemSub = "⚠️ ${matches.length} items at this shelf";
         activeConflicts = matches;
+        activeOnlineSuggestions = [];
         double p = (first['price'] as num?)?.toDouble() ?? 0.0;
         if (p > 0) {
           rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
@@ -3227,6 +3251,7 @@ class _PosScreenState extends State<PosScreen> {
         activeItemName = cName;
         activeItemSub = "💄 Cosmetics Catalog (${c['category'] ?? 'Beauty'})";
         activeConflicts = [];
+        activeOnlineSuggestions = [];
         if (p > 0) {
           rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
         }
@@ -3256,6 +3281,7 @@ class _PosScreenState extends State<PosScreen> {
         rawItemCode = clean;
         activeItemName = clean;
         activeItemSub = "🔍 Searching Indian product registries (<3s)...";
+        activeOnlineSuggestions = [];
         activeConflicts = [];
         focusedField = 2; // Allow typing rate while searching
       });
@@ -3263,11 +3289,14 @@ class _PosScreenState extends State<PosScreen> {
       resolveBarcodeOnlineMulti(clean).then((results) {
         if (!mounted) return;
         if (results.isEmpty) {
-          // Uncataloged barcode
+          // Uncategorized barcode: Quiet fallback, NO BLOCKING POPUP!
           setState(() {
             if (rawItemCode == clean) {
               activeItemName = clean;
-              activeItemSub = "📦 Uncataloged barcode (Tap to search/name)";
+              activeItemSub = "📦 Uncategorized Barcode";
+              activeOnlineSuggestions = [];
+              activeConflicts = [];
+              focusedField = 2; // Move directly to rate so cashier can type and proceed
             }
           });
           PendingItemsManager.addPending(
@@ -3275,67 +3304,37 @@ class _PosScreenState extends State<PosScreen> {
             name: clean,
             price: double.tryParse(rate) ?? 0.0,
           );
-          _showUncatalogedBarcodeOptions(clean);
         } else if (results.length == 1) {
           // Single match: No conflict! Apply directly
           final prod = results.first;
-          final officialName = prod['name'].toString();
-          final officialBrand = prod['brand']?.toString() ?? '';
-          final officialCategory = prod['category']?.toString() ?? 'Cosmetics';
-          final officialPrice = (prod['price'] as num?)?.toDouble() ?? 0.0;
-          final source = prod['source']?.toString() ?? 'Cloud';
-
+          _applySuggestion(clean, prod);
+        } else {
+          // Multiple options found online: Show conflict picker and retain suggestions!
           setState(() {
             if (rawItemCode == clean) {
-              activeItemName = officialName;
-              activeItemSub = "🌐 Found via $source";
-              if (officialPrice > 0 && rate.isEmpty) {
-                rate = officialPrice % 1 == 0 ? officialPrice.toInt().toString() : officialPrice.toString();
-                focusedField = 1; // Advance to QTY
-              } else if (rate.isEmpty) {
-                focusedField = 2; // Cashier types rate
-              }
-            }
-            for (var i = 0; i < cart.length; i++) {
-              final cRaw = (cart[i]['rawItemCode'] ?? '').toString();
-              final cName = (cart[i]['itemName'] ?? '').toString();
-              if (cRaw == clean && (cName.isEmpty || cName == clean || cName == "General Item")) {
-                cart[i]['itemName'] = officialName;
-                cart[i]['item'] = "$officialName\n$clean";
-              }
+              activeOnlineSuggestions = results;
+              activeConflicts = results.map((r) => {
+                'item_name': r['name'] ?? '',
+                'price': (r['price'] as num?)?.toDouble() ?? 0.0,
+                'source': r['source'] ?? 'Online',
+                'brand': r['brand'] ?? '',
+                'category': r['category'] ?? 'Cosmetics',
+              }).toList();
+              activeItemSub = "💡 ${results.length} Suggestions (Tap to choose)";
             }
           });
-
-          double finalP = double.tryParse(rate) ?? officialPrice;
-          PendingItemsManager.addPending(
-            barcode: clean,
-            name: officialName,
-            price: finalP,
-            brand: officialBrand,
-            category: officialCategory,
-          );
-          if (finalP > 0) {
-            autoIngestProductToDatabase(
-              barcode: clean,
-              name: officialName,
-              brand: officialBrand,
-              category: officialCategory,
-              price: finalP,
-            );
-          }
-        } else {
-          // Multiple options found online: Show conflict picker
           _showOnlineConflictSelectionSheet(clean, results);
         }
       });
       return;
     }
 
-    // 4. Short / uncataloged code
+    // 4. Short / uncataloged code - Quiet fallback, NO BLOCKING POPUP!
     setState(() {
       rawItemCode = clean;
       activeItemName = clean;
-      activeItemSub = "📦 Uncataloged (Tap to search/name)";
+      activeItemSub = "📦 Uncategorized";
+      activeOnlineSuggestions = [];
       activeConflicts = [];
       focusedField = 2;
     });
@@ -3344,7 +3343,57 @@ class _PosScreenState extends State<PosScreen> {
       name: clean,
       price: double.tryParse(rate) ?? 0.0,
     );
-    _showUncatalogedBarcodeOptions(clean);
+  }
+
+  void _applySuggestion(String barcode, Map<String, dynamic> prod) {
+    final officialName = prod['name']?.toString() ?? (prod['item_name']?.toString() ?? barcode);
+    final officialBrand = prod['brand']?.toString() ?? '';
+    final officialCategory = prod['category']?.toString() ?? 'Cosmetics';
+    final officialPrice = (prod['price'] as num?)?.toDouble() ?? 0.0;
+    final source = prod['source']?.toString() ?? 'Online';
+
+    setState(() {
+      rawItemCode = barcode;
+      activeItemName = officialName;
+      activeItemSub = "🌐 $source";
+      activeOnlineSuggestions = [prod];
+      if (officialPrice > 0 && rate.isEmpty) {
+        rate = officialPrice % 1 == 0 ? officialPrice.toInt().toString() : officialPrice.toString();
+        focusedField = 1; // Advance to QTY
+      } else if (rate.isEmpty) {
+        focusedField = 2; // Cashier types rate
+      }
+      for (var i = 0; i < cart.length; i++) {
+        final cRaw = (cart[i]['rawItemCode'] ?? '').toString();
+        final cName = (cart[i]['itemName'] ?? '').toString();
+        if (cRaw == barcode && (cName.isEmpty || cName == barcode || cName == "General Item")) {
+          cart[i]['itemName'] = officialName;
+          cart[i]['item'] = "$officialName\n$barcode";
+          if (officialPrice > 0) {
+            cart[i]['price'] = officialPrice;
+            cart[i]['total'] = officialPrice * ((cart[i]['qty'] as num?)?.toInt() ?? 1);
+          }
+        }
+      }
+    });
+
+    double finalP = double.tryParse(rate) ?? officialPrice;
+    PendingItemsManager.addPending(
+      barcode: barcode,
+      name: officialName,
+      price: finalP,
+      brand: officialBrand,
+      category: officialCategory,
+    );
+    if (finalP > 0) {
+      autoIngestProductToDatabase(
+        barcode: barcode,
+        name: officialName,
+        brand: officialBrand,
+        category: officialCategory,
+        price: finalP,
+      );
+    }
   }
 
   void _showDualRateSelectionSheet(Map<String, dynamic> item, List<double> dualRates) {
@@ -3652,18 +3701,7 @@ class _PosScreenState extends State<PosScreen> {
                             : Text("Enter Rate", style: TextStyle(color: Colors.orange.shade800, fontSize: 12, fontWeight: FontWeight.bold)),
                         onTap: () {
                           Navigator.pop(ctx);
-                          setState(() {
-                            rawItemCode = barcode;
-                            activeItemName = name;
-                            activeItemSub = "🌐 $source";
-                            if (price > 0) {
-                              rate = price % 1 == 0 ? price.toInt().toString() : price.toString();
-                              focusedField = 1; // Move to QTY
-                            } else {
-                              rate = "";
-                              focusedField = 2; // Move to RATE
-                            }
-                          });
+                          _applySuggestion(barcode, prod);
                         },
                       );
                     },
@@ -4107,6 +4145,7 @@ class _PosScreenState extends State<PosScreen> {
   String activeItemName = ""; 
   String activeItemSub = "";
   List<Map<String, dynamic>> activeConflicts = [];
+  List<Map<String, dynamic>> activeOnlineSuggestions = [];
 
   // Printer Setup
   BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
@@ -4516,6 +4555,7 @@ class _PosScreenState extends State<PosScreen> {
       activeItemName = "";
       activeItemSub = "";
       activeConflicts = [];
+      activeOnlineSuggestions = [];
       focusedField = 0; 
     });
   }
@@ -4529,6 +4569,7 @@ class _PosScreenState extends State<PosScreen> {
       activeItemName = item["itemName"] ?? "";
       activeItemSub = "";
       activeConflicts = [];
+      activeOnlineSuggestions = [];
       focusedField = 0; 
       cart.removeAt(index); 
     });
@@ -5326,40 +5367,56 @@ class _PosScreenState extends State<PosScreen> {
                             ],
                           ),
                         ),
-                        // Inline choice chips for multiple shelf items - NO POPUPS!
-                        if (activeConflicts.length > 1) ...[
+                        // Inline choice chips for suggestions & conflicts - NEVER LOST ON BACK!
+                        if (activeConflicts.length > 1 || activeOnlineSuggestions.length > 1) ...[
                           const SizedBox(height: 6),
                           SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: Row(
-                              children: activeConflicts.map((c) {
-                                final isSelected = activeItemName == c['item_name'];
-                                return Padding(
-                                  padding: const EdgeInsets.only(right: 6.0),
-                                  child: ChoiceChip(
-                                    label: Text(
-                                      "${c['item_name']} (₹${c['price']})",
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                        color: isSelected ? Colors.white : Colors.black87,
+                              children: [
+                                if (activeOnlineSuggestions.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 6.0),
+                                    child: ActionChip(
+                                      avatar: const Icon(Icons.travel_explore, size: 14, color: Colors.blueAccent),
+                                      backgroundColor: Colors.blue.shade50,
+                                      side: BorderSide(color: Colors.blue.shade300),
+                                      label: Text(
+                                        "All Suggestions (${activeOnlineSuggestions.length})",
+                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.blueAccent),
                                       ),
+                                      onPressed: () => _showOnlineConflictSelectionSheet(rawItemCode, activeOnlineSuggestions),
                                     ),
-                                    selected: isSelected,
-                                    selectedColor: const Color(0xFFD97706),
-                                    onSelected: (_) {
-                                      setState(() {
-                                        activeItemName = (c['item_name'] ?? '').toString();
-                                        double p = (c['price'] as num?)?.toDouble() ?? 0.0;
-                                        if (p > 0) {
-                                          rate = p % 1 == 0 ? p.toInt().toString() : p.toString();
-                                        }
-                                        focusedField = 1;
-                                      });
-                                    },
                                   ),
-                                );
-                              }).toList(),
+                                ...activeConflicts.map((c) {
+                                  final isSelected = activeItemName == c['item_name'];
+                                  double p = (c['price'] as num?)?.toDouble() ?? 0.0;
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 6.0),
+                                    child: ChoiceChip(
+                                      label: Text(
+                                        p > 0 ? "${c['item_name']} (₹${p % 1 == 0 ? p.toInt() : p})" : "${c['item_name']}",
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                          color: isSelected ? Colors.white : Colors.black87,
+                                        ),
+                                      ),
+                                      selected: isSelected,
+                                      selectedColor: const Color(0xFFD97706),
+                                      onSelected: (_) {
+                                        _applySuggestion(rawItemCode, {
+                                          'name': c['item_name'],
+                                          'price': p,
+                                          'brand': c['brand'] ?? '',
+                                          'category': c['category'] ?? 'Cosmetics',
+                                          'source': c['source'] ?? 'Online',
+                                        });
+                                      },
+                                    ),
+                                  );
+                                }).toList(),
+                              ],
                             ),
                           ),
                         ],

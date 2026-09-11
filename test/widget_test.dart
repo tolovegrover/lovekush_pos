@@ -92,5 +92,15 @@ void main() {
       };
       expect(extractDualRates(dupItem), [190.0, 210.0]);
     });
+
+    test('resolveBarcodeOnlineMulti never returns foreign USD prices as INR rate', () async {
+      final results = await resolveBarcodeOnlineMulti("8901030673214");
+      // If found online via UPC database or Open Facts, the price must NOT be foreign USD ($3.49 or $10.08)
+      for (var r in results) {
+        if (r['source'] == 'UPC Database') {
+          expect(r['price'], 0.0, reason: "Foreign currency prices must never be used as Indian INR MRP!");
+        }
+      }
+    });
   });
 }
