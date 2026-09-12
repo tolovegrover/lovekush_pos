@@ -49,11 +49,11 @@ class PdfReceiptService {
     return [];
   }
 
-  /// Generate a clean, high-resolution PDF receipt document for a bill
+  /// Generate a clean, minimal, thermal-style PDF receipt document for a bill
   static Future<Uint8List> generateReceiptPdf(
     Map<String, dynamic> bill, {
     Uint8List? logoBytes,
-    PdfPageFormat pageFormat = PdfPageFormat.a5,
+    PdfPageFormat? pageFormat,
   }) async {
     final doc = pw.Document();
 
@@ -65,7 +65,6 @@ class PdfReceiptService {
     final String paymentMethod = (bill['payment_method'] ?? "Cash").toString();
     final double amountTendered = _toDouble(bill['amount_tendered'], totalAmount);
     final double changeDue = _toDouble(bill['change_due'], amountTendered > totalAmount ? (amountTendered - totalAmount) : 0.0);
-
 
     DateTime billDate = DateTime.now();
     if (bill['created_at'] != null) {
@@ -89,7 +88,7 @@ class PdfReceiptService {
 
     // 3. Extract items safely
     final rawItems = _extractItems(bill['items_json']);
-    final List<List<String>> tableData = [];
+    final List<_ReceiptItem> receiptItems = [];
     int totalQty = 0;
 
     for (int i = 0; i < rawItems.length; i++) {
@@ -100,199 +99,342 @@ class PdfReceiptService {
       final lineTotal = _toDouble(item['total'] ?? item['price'], qty * rate);
       totalQty += qty;
 
-      tableData.add([
-        (i + 1).toString(),
-        itemName,
-        qty.toString(),
-        "Rs ${rate.toStringAsFixed(2)}",
-        "Rs ${lineTotal.toStringAsFixed(2)}",
-      ]);
+      receiptItems.add(_ReceiptItem(
+        name: itemName,
+        qty: qty,
+        rate: rate,
+        lineTotal: lineTotal,
+      ));
     }
 
-    // 4. Build Document Pages
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: pageFormat,
-        margin: const pw.EdgeInsets.all(18),
-        build: (pw.Context context) {
-          return [
-            // Store Header with Logo and Details
-            pw.Row(
-              crossAxisAlignment: pw.CrossAxisAlignment.center,
+    // 4. Build Minimal Thermal-Style Receipt Content
+    List<pw.Widget> buildReceiptWidgets(pw.Context context) {
+      return [
+        // Store Logo (Centered & Crisp)
+        if (logoImage != null) ...[
+          pw.Center(
+            child: pw.Container(
+              width: 48,
+              height: 48,
+              margin: const pw.EdgeInsets.only(bottom: 4),
+              child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+            ),
+          ),
+        ],
+
+        // Store Titles
+        pw.Center(
+          child: pw.Text(
+            "LOVE KUSH",
+            style: pw.TextStyle(
+              fontSize: 14,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.black,
+            ),
+          ),
+        ),
+        pw.Center(
+          child: pw.Text(
+            "SHOPPING CENTER",
+            style: pw.TextStyle(
+              fontSize: 11,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.black,
+            ),
+          ),
+        ),
+        pw.SizedBox(height: 1),
+        pw.Center(
+          child: pw.Text(
+            counterName.toUpperCase(),
+            style: const pw.TextStyle(
+              fontSize: 8,
+              color: PdfColors.grey800,
+            ),
+          ),
+        ),
+        pw.Center(
+          child: pw.Text(
+            "*** RETAIL CASH MEMO ***",
+            style: pw.TextStyle(
+              fontSize: 7.5,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.grey700,
+            ),
+          ),
+        ),
+
+        // Bill No & Code 128 Barcode
+        if (billNo != "N/A" && billNo.isNotEmpty) ...[
+          pw.SizedBox(height: 3),
+          pw.Center(
+            child: pw.Text(
+              "BILL NO: $billNo",
+              style: pw.TextStyle(
+                fontSize: 9,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.black,
+              ),
+            ),
+          ),
+          pw.SizedBox(height: 2),
+          pw.Center(
+            child: pw.BarcodeWidget(
+              barcode: pw.Barcode.code128(),
+              data: billNo,
+              width: 140,
+              height: 26,
+              drawText: false,
+            ),
+          ),
+        ],
+
+        // Date, Cashier, Payment Mode
+        pw.SizedBox(height: 4),
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text("Date: $formattedDate", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black)),
+            pw.Text("Cashier: $staffName", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black)),
+          ],
+        ),
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(
+              "Payment: ${paymentMethod.toUpperCase()}",
+              style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+            ),
+          ],
+        ),
+
+        // Dashed Tear Line
+        pw.SizedBox(height: 2),
+        pw.Divider(thickness: 0.8, color: PdfColors.black, borderStyle: pw.BorderStyle.dashed),
+
+        // Column Headers
+        pw.Row(
+          children: [
+            pw.Expanded(
+              flex: 5,
+              child: pw.Text("ITEM", style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+            ),
+            pw.Expanded(
+              flex: 4,
+              child: pw.Text("QTY x RATE", textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+            ),
+            pw.Expanded(
+              flex: 3,
+              child: pw.Text("AMOUNT", textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+            ),
+          ],
+        ),
+        pw.Divider(thickness: 0.5, color: PdfColors.grey600, borderStyle: pw.BorderStyle.dashed),
+
+        // Minimal Item Rows (Thermal printer style)
+        for (final item in receiptItems) ...[
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                if (logoImage != null) ...[
-                  pw.Container(
-                    width: 52,
-                    height: 52,
-                    decoration: pw.BoxDecoration(
-                      borderRadius: pw.BorderRadius.circular(6),
-                      border: pw.Border.all(color: PdfColors.grey400, width: 0.5),
-                    ),
-                    child: pw.ClipRRect(
-                      horizontalRadius: 6,
-                      verticalRadius: 6,
-                      child: pw.Image(logoImage, fit: pw.BoxFit.contain),
-                    ),
-                  ),
-                  pw.SizedBox(width: 12),
-                ],
-                pw.Expanded(
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        "LOVE KUSH SHOPPING CENTER",
-                        style: pw.TextStyle(
-                          fontSize: 14,
-                          fontWeight: pw.FontWeight.bold,
-                          color: PdfColors.blue900,
-                        ),
-                      ),
-                      pw.SizedBox(height: 2),
-                      pw.Text(
-                        "${counterName.toUpperCase()} | RETAIL CASH MEMO",
-                        style: const pw.TextStyle(
-                          fontSize: 9,
-                          color: PdfColors.grey700,
-                        ),
-                      ),
-                    ],
-                  ),
+                pw.Text(
+                  item.name,
+                  style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
                 ),
-                // Bill Barcode
-                if (billNo != "N/A" && billNo.isNotEmpty) ...[
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.end,
-                    children: [
-                      pw.BarcodeWidget(
-                        barcode: pw.Barcode.code128(),
-                        data: billNo,
-                        width: 120,
-                        height: 32,
-                        drawText: false,
+                pw.SizedBox(height: 1),
+                pw.Row(
+                  children: [
+                    pw.SizedBox(width: 4),
+                    pw.Expanded(
+                      child: pw.Text(
+                        "${item.qty} x Rs ${item.rate.toStringAsFixed(2)}",
+                        style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
                       ),
-                      pw.SizedBox(height: 2),
-                      pw.Text(
-                        "BILL: $billNo",
-                        style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                ],
+                    ),
+                    pw.Text(
+                      "Rs ${item.lineTotal.toStringAsFixed(2)}",
+                      style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                    ),
+                  ],
+                ),
               ],
             ),
-            pw.SizedBox(height: 8),
-            pw.Divider(thickness: 0.8, color: PdfColors.grey400),
+          ),
+        ],
 
-            // Metadata Row: Date, Cashier, Payment Method
+        // Dashed Divider
+        pw.Divider(thickness: 0.8, color: PdfColors.black, borderStyle: pw.BorderStyle.dashed),
+
+        // Totals & Paid Details
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text("Total Items: ${receiptItems.length} (Qty: $totalQty)", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
+          ],
+        ),
+        pw.SizedBox(height: 2),
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            pw.Text(
+              "TOTAL AMOUNT:",
+              style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+            ),
+            pw.Text(
+              "Rs ${totalAmount.toStringAsFixed(2)}",
+              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+            ),
+          ],
+        ),
+        if (paymentMethod.toLowerCase().contains("cash") || amountTendered > totalAmount) ...[
+          pw.SizedBox(height: 2),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text("Paid Money:", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
+              pw.Text("Rs ${amountTendered.toStringAsFixed(2)}", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black)),
+            ],
+          ),
+          if (changeDue > 0) ...[
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text("Date: $formattedDate", style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.grey800)),
-                pw.Text("Cashier: $staffName", style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.grey800)),
-                pw.Text(
-                  "Payment: ${paymentMethod.toUpperCase()}",
-                  style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.blue800),
-                ),
+                pw.Text("Change Return:", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
+                pw.Text("Rs ${changeDue.toStringAsFixed(2)}", style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
               ],
             ),
-            pw.SizedBox(height: 6),
+          ],
+        ],
 
-            // Items Table
-            pw.TableHelper.fromTextArray(
-              context: context,
-              headers: ["#", "Item Description", "Qty", "Rate", "Amount"],
-              data: tableData,
-              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 8.5, color: PdfColors.white),
-              headerDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFF1E3A8A)),
-              cellStyle: const pw.TextStyle(fontSize: 8.5),
-              cellPadding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-              columnWidths: {
-                0: const pw.FixedColumnWidth(22),
-                1: const pw.FlexColumnWidth(5),
-                2: const pw.FixedColumnWidth(32),
-                3: const pw.FixedColumnWidth(58),
-                4: const pw.FixedColumnWidth(64),
-              },
-              cellAlignments: {
-                0: pw.Alignment.center,
-                1: pw.Alignment.centerLeft,
-                2: pw.Alignment.center,
-                3: pw.Alignment.centerRight,
-                4: pw.Alignment.centerRight,
-              },
-            ),
-            pw.SizedBox(height: 8),
+        // Dashed Divider
+        pw.Divider(thickness: 0.8, color: PdfColors.black, borderStyle: pw.BorderStyle.dashed),
 
-            // Summary / Totals Section
-            pw.Container(
-              padding: const pw.EdgeInsets.all(8),
-              decoration: pw.BoxDecoration(
-                color: PdfColors.grey100,
-                borderRadius: pw.BorderRadius.circular(6),
-                border: pw.Border.all(color: PdfColors.grey300, width: 0.5),
+        // Terms & Conditions (Strict policy requested by user)
+        pw.Container(
+          padding: const pw.EdgeInsets.symmetric(vertical: 2),
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Center(
+                child: pw.Text(
+                  "TERMS & CONDITIONS",
+                  style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                ),
               ),
-              child: pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: pw.CrossAxisAlignment.center,
+              pw.SizedBox(height: 2.5),
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        "Total Items: ${rawItems.length}  |  Total Qty: $totalQty",
-                        style: const pw.TextStyle(fontSize: 8.5, color: PdfColors.grey700),
-                      ),
-                      if (paymentMethod == "Cash" || paymentMethod == "Hybrid") ...[
-                        pw.SizedBox(height: 2),
-                        pw.Text(
-                          "Paid: Rs ${amountTendered.toStringAsFixed(2)}${changeDue > 0 ? "  |  Change: Rs ${changeDue.toStringAsFixed(2)}" : ""}",
-                          style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
-                        ),
-                      ],
-                    ],
-                  ),
-                  pw.Row(
-                    children: [
-                      pw.Text(
-                        "GRAND TOTAL: ",
-                        style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800),
-                      ),
-                      pw.Text(
-                        "Rs ${totalAmount.toStringAsFixed(2)}",
-                        style: pw.TextStyle(
-                          fontSize: 14,
-                          fontWeight: pw.FontWeight.bold,
-                          color: const PdfColor.fromInt(0xFF047857),
-                        ),
-                      ),
-                    ],
+                  pw.Text("- ", style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+                  pw.Expanded(
+                    child: pw.Text(
+                      "No Return / No Refund.",
+                      style: pw.TextStyle(fontSize: 6.8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                    ),
                   ),
                 ],
               ),
-            ),
-            pw.SizedBox(height: 12),
+              pw.SizedBox(height: 1.5),
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text("- ", style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+                  pw.Expanded(
+                    child: pw.Text(
+                      "Only exchange within 24 hours (with original bill).",
+                      style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
+                    ),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 1.5),
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text("- ", style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+                  pw.Expanded(
+                    child: pw.Text(
+                      "No exchange of lipstick, nail polish, creams, cut astar, and laces etc. (cut from thaan or usable) and any opened bottle.",
+                      style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
 
-            // Footer Notice
-            pw.Center(
+        // Footer Thank You
+        pw.Divider(thickness: 0.5, color: PdfColors.grey600, borderStyle: pw.BorderStyle.dashed),
+        pw.Center(
+          child: pw.Column(
+            children: [
+              pw.Text(
+                "*** THANK YOU FOR SHOPPING! ***",
+                style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+              ),
+              pw.SizedBox(height: 1),
+              pw.Text(
+                "*** VISIT AGAIN ***",
+                style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey700),
+              ),
+            ],
+          ),
+        ),
+      ];
+    }
+
+    // Default to standard 80mm continuous receipt roll
+    final PdfPageFormat format = pageFormat ??
+        const PdfPageFormat(
+          80 * PdfPageFormat.mm,
+          double.infinity,
+          marginAll: 4 * PdfPageFormat.mm,
+        );
+
+    if (format.height == double.infinity) {
+      doc.addPage(
+        pw.Page(
+          pageFormat: format,
+          build: (pw.Context context) {
+            return pw.Container(
+              color: PdfColors.white,
               child: pw.Column(
-                children: [
-                  pw.Text(
-                    "Thank you for shopping with us! Visit Again.",
-                    style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800),
-                  ),
-                  pw.SizedBox(height: 2),
-                  pw.Text(
-                    "No Exchange / No Refund without original bill | Digital WhatsApp Invoice",
-                    style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey600),
-                  ),
-                ],
+                mainAxisSize: pw.MainAxisSize.min,
+                crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                children: buildReceiptWidgets(context),
+              ),
+            );
+          },
+        ),
+      );
+    } else {
+      doc.addPage(
+        pw.MultiPage(
+          pageFormat: format,
+          margin: const pw.EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          build: (pw.Context context) => [
+            pw.Center(
+              child: pw.Container(
+                width: 76 * PdfPageFormat.mm,
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(
+                  color: PdfColors.white,
+                  border: pw.Border.all(color: PdfColors.grey400, width: 0.8),
+                  borderRadius: pw.BorderRadius.circular(6),
+                ),
+                child: pw.Column(
+                  mainAxisSize: pw.MainAxisSize.min,
+                  crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                  children: buildReceiptWidgets(context),
+                ),
               ),
             ),
-          ];
-        },
-      ),
-    );
+          ],
+        ),
+      );
+    }
 
     return doc.save();
   }
@@ -337,8 +479,13 @@ class PdfReceiptService {
     buffer.writeln("💰 *GRAND TOTAL: ₹${totalAmount.toStringAsFixed(2)}*");
     buffer.writeln("💳 *Payment:* ${paymentMethod.toUpperCase()}");
     buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+    buffer.writeln("📌 *Exchange Policy:*");
+    buffer.writeln("• No Return / No Refund.");
+    buffer.writeln("• Only exchange within 24 hours (with original bill).");
+    buffer.writeln("• No exchange of lipstick, nail polish, creams, cut astar, laces, etc. and any opened bottle.");
+    buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
     buffer.writeln("🙏 *Thank you for shopping with us!*");
-    buffer.writeln("🌿 _Digital PDF Bill attached below._");
+    buffer.writeln("🌿 _Digital PDF Bill attached._");
 
     return buffer.toString();
   }
@@ -649,9 +796,13 @@ class PdfReceiptService {
                 allowSharing: true,
                 canChangePageFormat: false,
                 canChangeOrientation: false,
-                initialPageFormat: PdfPageFormat.a5,
+                initialPageFormat: const PdfPageFormat(
+                  80 * PdfPageFormat.mm,
+                  double.infinity,
+                  marginAll: 4 * PdfPageFormat.mm,
+                ),
                 pdfFileName: "LoveKush_Bill_$safeBillNo.pdf",
-                maxPageWidth: 550,
+                maxPageWidth: 420,
                 loadingWidget: const Center(
                   child: CircularProgressIndicator(),
                 ),
@@ -668,4 +819,18 @@ class PdfReceiptService {
       },
     );
   }
+}
+
+class _ReceiptItem {
+  final String name;
+  final int qty;
+  final double rate;
+  final double lineTotal;
+
+  const _ReceiptItem({
+    required this.name,
+    required this.qty,
+    required this.rate,
+    required this.lineTotal,
+  });
 }

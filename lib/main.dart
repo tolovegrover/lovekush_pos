@@ -6571,10 +6571,10 @@ Future<void> executeReprintThermalBill({
     if (pChange > 0) {
       await bluetooth.printLeftRight("Change Given:", "Rs${pChange.toStringAsFixed(2)}", 1);
     }
-    await bluetooth.printNewLine();
-
     await bluetooth.printCustom("Thank you for shopping!", 1, 1);
-    await bluetooth.printCustom("No Exchange / No Refund", 1, 1);
+    await bluetooth.printCustom("No Return / No Refund", 1, 1);
+    await bluetooth.printCustom("Exchange within 24hrs with bill", 1, 1);
+    await bluetooth.printCustom("No cosmetic/cut-astar exchange", 1, 1);
     await bluetooth.printCustom("*** DUPLICATE COPY ***", 1, 1);
     await bluetooth.printNewLine();
     await bluetooth.printNewLine();
@@ -6827,7 +6827,9 @@ void showReceiptPreviewDialog({
                         ),
                         const SizedBox(height: 8),
                         const Text("Thank you for shopping!", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
-                        const Text("No Exchange / No Refund", style: TextStyle(fontSize: 11, color: Colors.black45)),
+                        const SizedBox(height: 2),
+                        const Text("No Return / No Refund | Only Exchange within 24hrs", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87)),
+                        const Text("No exchange of lipstick, nail polish, creams, cut astar, laces or opened bottles", style: TextStyle(fontSize: 10, color: Colors.black54), textAlign: TextAlign.center),
                         const SizedBox(height: 4),
                         const Text("*** DUPLICATE COPY ***", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.2, color: Colors.redAccent)),
                       ],
