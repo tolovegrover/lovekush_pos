@@ -4053,7 +4053,7 @@ class _PosScreenState extends State<PosScreen> {
   String paymentMethod = "Cash";
   String amountTendered = "";
   String onlineAmount = "";
-  String counterName = "Basement Counter";
+  String counterName = "";
   
   final TextEditingController _cashTenderedController = TextEditingController();
   final TextEditingController _hybridCashController = TextEditingController();
@@ -4178,7 +4178,8 @@ class _PosScreenState extends State<PosScreen> {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
       setState(() {
-        counterName = prefs.getString('counterName') ?? "Basement Counter";
+        final saved = prefs.getString('counterName') ?? "";
+        counterName = saved.toLowerCase().contains("basement") ? "" : saved;
       });
     }
   }
@@ -4747,7 +4748,9 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printNewLine();
           await bluetooth.printCustom("LOVE KUSH", 3, 1); 
           await bluetooth.printCustom("SHOPPING CENTER", 2, 1); 
-          await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
+          if (counterName.isNotEmpty && !counterName.toLowerCase().contains("basement")) {
+            await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
+          }
           await bluetooth.printCustom("BILL NO: $billNumber", 1, 1);
           try {
             final barcodeBytes = await generateBarcodeImageBytes(billNumber, width: 340, height: 60);
@@ -4800,9 +4803,7 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printNewLine();
 
           await bluetooth.printCustom("Thank you for shopping!", 1, 1);
-          await bluetooth.printCustom("No Return / No Refund", 1, 1);
-          await bluetooth.printCustom("Exchange within 24hrs with bill", 1, 1);
-          await bluetooth.printCustom("No cosmetic/cut-fabric exchange", 1, 1);
+          await bluetooth.printCustom("NO RETURN * NO REFUND * NO EXCHANGE", 1, 1);
           await bluetooth.printNewLine();
           await bluetooth.printNewLine();
           await bluetooth.paperCut();
@@ -5710,8 +5711,7 @@ class _PosScreenState extends State<PosScreen> {
                       // 2. RECEIPT PREVIEW
                       const SizedBox(height: 16),
                       const Text("लव कुश शॉपिङ्ग सेण्टर", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
-                      const SizedBox(height: 8),
-                      const Text("Basement Counter", style: TextStyle(fontSize: 16, color: Colors.black54)),
+                      const SizedBox(height: 4),
                       Text("Served by: ${widget.userName}", style: const TextStyle(fontSize: 14, color: Colors.black45, fontStyle: FontStyle.italic)),
                       const SizedBox(height: 16),
                       const Text("----------------------------------------", style: TextStyle(color: Colors.grey)),
@@ -6514,7 +6514,7 @@ Future<void> executeReprintThermalBill({
         ? (bill['items_json'] as List<dynamic>)
         : (bill['items_json'] is String ? (json.decode(bill['items_json']) as List<dynamic>) : []);
     String bNo = (bill['bill_number'] ?? "N/A").toString();
-    String counterName = (bill['counter_name'] ?? "Basement Counter").toString();
+    String counterName = (bill['counter_name'] ?? "").toString();
     final rawTotal = bill['total_amount'];
     double total = rawTotal is num ? rawTotal.toDouble() : (double.tryParse(rawTotal?.toString() ?? '0') ?? 0.0);
 
@@ -6527,7 +6527,9 @@ Future<void> executeReprintThermalBill({
     await bluetooth.printNewLine();
     await bluetooth.printCustom("LOVE KUSH", 3, 1);
     await bluetooth.printCustom("SHOPPING CENTER", 2, 1);
-    await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
+    if (counterName.isNotEmpty && !counterName.toLowerCase().contains("basement")) {
+      await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
+    }
 
     if (bNo != "N/A" && bNo.isNotEmpty) {
       await bluetooth.printCustom("BILL NO: $bNo", 1, 1);
@@ -6574,9 +6576,7 @@ Future<void> executeReprintThermalBill({
       await bluetooth.printLeftRight("Change Given:", "Rs${pChange.toStringAsFixed(2)}", 1);
     }
     await bluetooth.printCustom("Thank you for shopping!", 1, 1);
-    await bluetooth.printCustom("No Return / No Refund", 1, 1);
-    await bluetooth.printCustom("Exchange within 24hrs with bill", 1, 1);
-    await bluetooth.printCustom("No cosmetic/cut-astar exchange", 1, 1);
+    await bluetooth.printCustom("NO RETURN * NO REFUND * NO EXCHANGE", 1, 1);
     await bluetooth.printCustom("*** DUPLICATE COPY ***", 1, 1);
     await bluetooth.printNewLine();
     await bluetooth.printNewLine();
@@ -6601,7 +6601,7 @@ void showReceiptPreviewDialog({
       ? (bill['items_json'] as List<dynamic>)
       : (bill['items_json'] is String ? (json.decode(bill['items_json']) as List<dynamic>) : []);
   final String bNo = (bill['bill_number'] ?? "N/A").toString();
-  final String counterName = (bill['counter_name'] ?? "Basement Counter").toString();
+  final String counterName = (bill['counter_name'] ?? "").toString();
   final rawTotal = bill['total_amount'];
   final double total = rawTotal is num ? rawTotal.toDouble() : (double.tryParse(rawTotal?.toString() ?? '0') ?? 0.0);
   final String pMethod = (bill['payment_method'] ?? "Cash").toString();
@@ -6690,11 +6690,13 @@ void showReceiptPreviewDialog({
                           style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87, letterSpacing: 0.8),
                           textAlign: TextAlign.center,
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          counterName.toUpperCase(),
-                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54),
-                        ),
+                        if (counterName.isNotEmpty && !counterName.toLowerCase().contains("basement")) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            counterName.toUpperCase(),
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54),
+                          ),
+                        ],
                         const SizedBox(height: 10),
 
                         // Bill Number (Text Only - Barcode is for printed physical bills only)
@@ -6828,10 +6830,10 @@ void showReceiptPreviewDialog({
                           ],
                         ),
                         const SizedBox(height: 8),
-                        const Text("धन्यवाद! फिर पधारें! | Thank you for shopping!", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
-                        const SizedBox(height: 2),
-                        const Text("नियम: बिका हुआ माल वापस नहीं होगा | केवल 24 घंटे में एक्सचेंज", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87), textAlign: TextAlign.center),
-                        const Text("लिपस्टिक, नेलपॉलिश, क्रीम, कटा अस्तर, लेस व खुली बोतल बदली नहीं जाएगी", style: TextStyle(fontSize: 10, color: Colors.black54), textAlign: TextAlign.center),
+                        const Text("सधन्यवाद! पुनः पधारें! | Thank you for shopping!", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
+                        const SizedBox(height: 3),
+                        const Text("॥ न वापसी • न प्रतिदान • न विनिमय ॥", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87), textAlign: TextAlign.center),
+                        const Text("NO RETURN • NO REFUND • NO EXCHANGE", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black54), textAlign: TextAlign.center),
                         const SizedBox(height: 4),
                         const Text("*** DUPLICATE COPY ***", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.2, color: Colors.redAccent)),
                       ],

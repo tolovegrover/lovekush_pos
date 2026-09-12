@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle, Clipboard, ClipboardData;
@@ -102,18 +103,118 @@ class PdfReceiptService {
   /// before preceding consonant clusters so it displays in the visually correct order.
   static String _fixDevanagari(String text) {
     if (text.isEmpty) return text;
+    // Map standard Swastika / Satiya to Unicode U+0FD7 (Right-facing Svasti with 4 dots)
+    String result = text.replaceAll("卐", "\u0FD7");
+    // Pre-composed classical conjunct for Shri in Siddhanta Calcutta font (\uF37D = श्र)
+    result = result.replaceAll("श्री", "\uF37D\u0940");
     final exp = RegExp(r'((?:[\u0915-\u0939\u0958-\u095F][\u094D])*[\u0915-\u0939\u0958-\u095F])[\u093F]');
-    return text.replaceAllMapped(exp, (m) => '\u093F${m.group(1)}');
+    return result.replaceAllMapped(exp, (m) => '\u093F${m.group(1)}');
   }
 
-  /// Format payment method in Hindi
-  static String _paymentModeHindi(String method) {
+  /// Convert standard Arabic numerals into authentic Devanagari digits (e.g. 2083 -> २०८३)
+  static String toDevanagariDigits(int number) {
+    const digits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
+    return number.toString().split('').map((char) {
+      final d = int.tryParse(char);
+      return d != null ? digits[d] : char;
+    }).join('');
+  }
+
+  /// Calculate traditional Hindu Panchang Tithi for any given bill DateTime
+  static String _formatPanchangTithi(DateTime dt) {
+    const tithiNames = [
+      "प्रतिपदा", "द्वितीया", "तृतीया", "चतुर्थी", "पञ्चमी",
+      "षष्ठी", "सप्तमी", "अष्टमी", "नवमी", "दशमी",
+      "एकादशी", "द्वादशी", "त्रयोदशी", "चतुर्दशी", "पूर्णिमा",
+      "प्रतिपदा", "द्वितीया", "तृतीया", "चतुर्थी", "पञ्चमी",
+      "षष्ठी", "सप्तमी", "अष्टमी", "नवमी", "दशमी",
+      "एकादशी", "द्वादशी", "त्रयोदशी", "चतुर्दशी", "अमावस्या",
+    ];
+
+    const masaNames = [
+      "चैत्र", "वैशाख", "ज्येष्ठ", "आषाढ़",
+      "श्रावण", "भाद्रपद", "आश्विन", "कार्तिक",
+      "मार्गशीर्ष", "पौष", "माघ", "फाल्गुन"
+    ];
+
+    const vaarNames = [
+      "सोमवासर", "मङ्गलवासर", "बुधवासर", "गुरुवासर", "शुक्रवासर", "शनिवासर", "रविवासर"
+    ];
+
+    try {
+      final utc = dt.toUtc();
+      int y = utc.year;
+      int m = utc.month;
+      final double d = utc.day + (utc.hour + utc.minute / 60.0 + utc.second / 3600.0) / 24.0;
+      if (m <= 2) {
+        y -= 1;
+        m += 12;
+      }
+      final int a = (y / 100).floor();
+      final int b = 2 - a + (a / 4).floor();
+      final double jd = (365.25 * (y + 4716)).floor() + (30.6001 * (m + 1)).floor() + d + b - 1524.5;
+      final double t = (jd - 2451545.0) / 36525.0;
+
+      final double l0 = (280.46646 + 36000.76983 * t + 0.0003032 * t * t) % 360.0;
+      final double mSun = (357.52911 + 35999.05029 * t - 0.0001537 * t * t) % 360.0;
+      final double mSunRad = mSun * math.pi / 180.0;
+      final double cSun = (1.914602 - 0.004817 * t) * math.sin(mSunRad) + 0.019993 * math.sin(2 * mSunRad);
+      final double sunLong = (l0 + cSun + 360.0) % 360.0;
+
+      final double lPrime = (218.3164477 + 481267.88123421 * t) % 360.0;
+      final double dMoon = (297.8501921 + 445267.1114034 * t) % 360.0;
+      final double mPrime = (134.9633964 + 477198.8675055 * t) % 360.0;
+      final double fMoon = (93.2720950 + 483202.0175233 * t) % 360.0;
+
+      final double dRad = dMoon * math.pi / 180.0;
+      final double mpRad = mPrime * math.pi / 180.0;
+      final double fRad = fMoon * math.pi / 180.0;
+
+      final double moonLong = (lPrime +
+          6.288774 * math.sin(mpRad) +
+          1.274027 * math.sin(2 * dRad - mpRad) +
+          0.658314 * math.sin(2 * dRad) +
+          0.213618 * math.sin(2 * mpRad) -
+          0.185116 * math.sin(mSunRad) -
+          0.114332 * math.sin(2 * fRad) +
+          360.0) % 360.0;
+
+      final double diff = (moonLong - sunLong + 360.0) % 360.0;
+      final int tithiIndex = (diff / 12.0).floor() % 30;
+      final bool isShukla = tithiIndex < 15;
+      final String paksha = isShukla ? "शुक्ल" : "कृष्ण";
+      final String tithi = tithiNames[tithiIndex];
+
+      final double siderealSun = (sunLong - 24.2 + 360.0) % 360.0;
+      final int rashi = (siderealSun / 30.0).floor();
+      final int masaIndex = (rashi + 2) % 12;
+      final String masa = masaNames[masaIndex];
+
+      int samvat = dt.year + 57;
+      if (dt.month < 3 || (dt.month == 3 && dt.day < 20)) {
+        samvat -= 1;
+      }
+
+      final int weekdayIndex = dt.weekday - 1;
+      final String vaar = vaarNames[weekdayIndex % 7];
+
+      return "$masa $paksha $tithi, संवत् ${toDevanagariDigits(samvat)} ($vaar)";
+    } catch (_) {
+      return "तिथि पञ्चाङ्ग";
+    }
+  }
+
+  /// Format payment method in classical Sanskritized Hindi
+  static String _paymentModeSanskrit(String method) {
     final m = method.toLowerCase();
-    if (m.contains("cash")) return "नकद (CASH)";
+    if (m.contains("cash")) return "नकद (रोका)";
     if (m.contains("online") || m.contains("upi") || m.contains("gpay") || m.contains("paytm")) return "ऑनलाइन / UPI";
-    if (m.contains("card")) return "कार्ड (CARD)";
+    if (m.contains("card")) return "पत्रक (कार्ड)";
     return method;
   }
+
+  /// Format payment method in Hindi (alias)
+  static String _paymentModeHindi(String method) => _paymentModeSanskrit(method);
   /// Robust double parser for String, num, double, int, or null
   static double _toDouble(dynamic val, [double defaultVal = 0.0]) {
     if (val == null) return defaultVal;
@@ -163,7 +264,6 @@ class PdfReceiptService {
 
     // 1. Extract and sanitize bill metadata
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
-    final String counterName = (bill['counter_name'] ?? "Basement Counter").toString();
     final String staffName = (bill['staff_name'] ?? "Staff").toString();
     final double totalAmount = _toDouble(bill['total_amount']);
     final String paymentMethod = (bill['payment_method'] ?? "Cash").toString();
@@ -237,24 +337,36 @@ class PdfReceiptService {
         if (language == ReceiptLanguage.hindi) ...[
           pw.Center(
             child: pw.Text(
-              _fixDevanagari("लव कुश शॉपिङ्ग सेण्टर"),
+              _fixDevanagari("࿗ ॐ श्री महालक्ष्म्यै नमः ࿗"),
               style: pw.TextStyle(
-                fontSize: 13.5,
+                fontSize: 9.5,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.black,
+              ),
+            ),
+          ),
+          pw.SizedBox(height: 3),
+          pw.Center(
+            child: pw.Text(
+              _fixDevanagari("लव कुश"),
+              style: pw.TextStyle(
+                fontSize: 14,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.black,
+              ),
+            ),
+          ),
+          pw.Center(
+            child: pw.Text(
+              _fixDevanagari("शॉपिङ्ग सेण्टर"),
+              style: pw.TextStyle(
+                fontSize: 11,
                 fontWeight: pw.FontWeight.bold,
                 color: PdfColors.black,
               ),
             ),
           ),
           pw.SizedBox(height: 1),
-          pw.Center(
-            child: pw.Text(
-              _fixDevanagari(counterName.toLowerCase().contains("basement") ? "बेसमेंट काउंटर" : counterName),
-              style: const pw.TextStyle(
-                fontSize: 8,
-                color: PdfColors.grey800,
-              ),
-            ),
-          ),
           pw.Center(
             child: pw.Text(
               _fixDevanagari("*** खुदरा रोकड़ पर्ची ***"),
@@ -289,15 +401,6 @@ class PdfReceiptService {
           pw.SizedBox(height: 1),
           pw.Center(
             child: pw.Text(
-              counterName.toUpperCase(),
-              style: const pw.TextStyle(
-                fontSize: 8,
-                color: PdfColors.grey800,
-              ),
-            ),
-          ),
-          pw.Center(
-            child: pw.Text(
               "*** RETAIL CASH MEMO ***",
               style: pw.TextStyle(
                 fontSize: 7.5,
@@ -314,7 +417,7 @@ class PdfReceiptService {
           pw.Center(
             child: pw.Text(
               language == ReceiptLanguage.hindi
-                  ? _fixDevanagari("बिल सं. (BILL NO): $billNo")
+                  ? _fixDevanagari("बीजक सं. (BILL NO): $billNo")
                   : "BILL NO: $billNo",
               style: pw.TextStyle(
                 fontSize: 9,
@@ -335,49 +438,74 @@ class PdfReceiptService {
           ),
         ],
 
-        // Date, Cashier, Payment Mode
+        // Tithi (Panchang & English), Koshapala, Payment Mode
         pw.SizedBox(height: 4),
-        pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            pw.Text(
-              language == ReceiptLanguage.hindi
-                  ? _fixDevanagari("दिनांक: $formattedDate")
-                  : "Date: $formattedDate",
-              style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black),
-            ),
-            pw.Text(
-              language == ReceiptLanguage.hindi
-                  ? _fixDevanagari("कैशियर: $staffName")
-                  : "Cashier: $staffName",
-              style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black),
-            ),
-          ],
-        ),
-        pw.Row(
-          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-          children: [
-            pw.Text(
-              language == ReceiptLanguage.hindi
-                  ? _fixDevanagari("भुगतान: ${_paymentModeHindi(paymentMethod)}")
-                  : "Payment: ${paymentMethod.toUpperCase()}",
-              style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
-            ),
-          ],
-        ),
+        if (language == ReceiptLanguage.hindi) ...[
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Expanded(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      _fixDevanagari("पञ्चाङ्ग तिथि: ${_formatPanchangTithi(billDate)}"),
+                      style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
+                    ),
+                    pw.SizedBox(height: 1),
+                    pw.Text(
+                      _fixDevanagari("आङ्ग्ल तिथि: $formattedDate"),
+                      style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
+                    ),
+                  ],
+                ),
+              ),
+              pw.SizedBox(width: 6),
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text(
+                    _fixDevanagari("कोषपाल: $staffName"),
+                    style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
+                  ),
+                  pw.SizedBox(height: 1),
+                  pw.Text(
+                    _fixDevanagari("भुगतान: ${_paymentModeSanskrit(paymentMethod)}"),
+                    style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ] else ...[
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text("Date: $formattedDate", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black)),
+              pw.Text("Cashier: $staffName", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black)),
+            ],
+          ),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text("Payment: ${paymentMethod.toUpperCase()}", style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+            ],
+          ),
+        ],
 
         // Dashed Tear Line
         pw.SizedBox(height: 2),
         pw.Divider(thickness: 0.8, color: PdfColors.black, borderStyle: pw.BorderStyle.dashed),
 
-        // Column Headers
+        // Column Headers (Sanskritized terms for item & amount)
         pw.Row(
           children: [
             pw.Expanded(
               flex: 5,
               child: pw.Text(
                 language == ReceiptLanguage.hindi
-                    ? _fixDevanagari("सामान (ITEM)")
+                    ? _fixDevanagari("वस्तु (ITEM)")
                     : "ITEM",
                 style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
               ),
@@ -386,7 +514,7 @@ class PdfReceiptService {
               flex: 4,
               child: pw.Text(
                 language == ReceiptLanguage.hindi
-                    ? _fixDevanagari("मात्रा x दर")
+                    ? _fixDevanagari("मात्रा × दर")
                     : "QTY x RATE",
                 textAlign: pw.TextAlign.center,
                 style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
@@ -396,7 +524,7 @@ class PdfReceiptService {
               flex: 3,
               child: pw.Text(
                 language == ReceiptLanguage.hindi
-                    ? _fixDevanagari("रकम (AMOUNT)")
+                    ? _fixDevanagari("राशि (AMOUNT)")
                     : "AMOUNT",
                 textAlign: pw.TextAlign.right,
                 style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
@@ -423,16 +551,12 @@ class PdfReceiptService {
                     pw.SizedBox(width: 4),
                     pw.Expanded(
                       child: pw.Text(
-                        language == ReceiptLanguage.hindi
-                            ? "${item.qty} x Rs ${item.rate.toStringAsFixed(2)}"
-                            : "${item.qty} x Rs ${item.rate.toStringAsFixed(2)}",
+                        "${item.qty} x Rs ${item.rate.toStringAsFixed(2)}",
                         style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
                       ),
                     ),
                     pw.Text(
-                      language == ReceiptLanguage.hindi
-                          ? "Rs ${item.lineTotal.toStringAsFixed(2)}"
-                          : "Rs ${item.lineTotal.toStringAsFixed(2)}",
+                      "Rs ${item.lineTotal.toStringAsFixed(2)}",
                       style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
                     ),
                   ],
@@ -445,13 +569,13 @@ class PdfReceiptService {
         // Dashed Divider
         pw.Divider(thickness: 0.8, color: PdfColors.black, borderStyle: pw.BorderStyle.dashed),
 
-        // Totals & Paid Details
+        // Totals & Paid Details (Sanskritized labels)
         pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
             pw.Text(
               language == ReceiptLanguage.hindi
-                  ? _fixDevanagari("कुल सामान: ${receiptItems.length} (संख्या: $totalQty)")
+                  ? _fixDevanagari("कुल वस्तुएँ: ${receiptItems.length} (सकल परिमाण: $totalQty)")
                   : "Total Items: ${receiptItems.length} (Qty: $totalQty)",
               style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
             ),
@@ -463,7 +587,7 @@ class PdfReceiptService {
           children: [
             pw.Text(
               language == ReceiptLanguage.hindi
-                  ? _fixDevanagari("कुल योग (TOTAL):")
+                  ? _fixDevanagari("सकल देय राशि (TOTAL):")
                   : "TOTAL AMOUNT:",
               style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
             ),
@@ -496,7 +620,7 @@ class PdfReceiptService {
               children: [
                 pw.Text(
                   language == ReceiptLanguage.hindi
-                      ? _fixDevanagari("वापसी राशि:")
+                      ? _fixDevanagari("अवशिष्ट प्रतिदेय राशि:")
                       : "Change Return:",
                   style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
                 ),
@@ -512,141 +636,52 @@ class PdfReceiptService {
         // Dashed Divider
         pw.Divider(thickness: 0.8, color: PdfColors.black, borderStyle: pw.BorderStyle.dashed),
 
-        // Terms & Conditions (Strict shop return/exchange policy)
+        // Policy: Simple No Return, No Refund, No Exchange
         if (language == ReceiptLanguage.hindi) ...[
           pw.Container(
-            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            padding: const pw.EdgeInsets.symmetric(vertical: 2.5),
             child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Center(
                   child: pw.Text(
-                    _fixDevanagari("नियम एवं शर्तें (जरूरी सूचना)"),
-                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                    _fixDevanagari("॥ न वापसी • न प्रतिदान • न विनिमय ॥"),
+                    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
                   ),
                 ),
-                pw.SizedBox(height: 2.5),
-                pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Container(
-                      width: 2.5,
-                      height: 2.5,
-                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
-                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
-                    ),
-                    pw.Expanded(
-                      child: pw.Text(
-                        _fixDevanagari("बिका हुआ माल वापस या रिफंड नहीं होगा।"),
-                        style: pw.TextStyle(fontSize: 6.8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
-                      ),
-                    ),
-                  ],
-                ),
                 pw.SizedBox(height: 1.5),
-                pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Container(
-                      width: 2.5,
-                      height: 2.5,
-                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
-                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
-                    ),
-                    pw.Expanded(
-                      child: pw.Text(
-                        _fixDevanagari("केवल 24 घंटे के अंदर असली बिल के साथ सामान बदला (Exchange) जा सकता है।"),
-                        style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
-                      ),
-                    ),
-                  ],
+                pw.Center(
+                  child: pw.Text(
+                    _fixDevanagari("विक्रीत वस्तु की वापसी, धन-प्रतिदान अथवा विनिमय नहीं होगा।"),
+                    style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
+                  ),
                 ),
-                pw.SizedBox(height: 1.5),
-                pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Container(
-                      width: 2.5,
-                      height: 2.5,
-                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
-                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
-                    ),
-                    pw.Expanded(
-                      child: pw.Text(
-                        _fixDevanagari("लिपस्टिक, नेलपॉलिश, क्रीम, कटा अस्तर, लेस/गोटा (थान से कटा या प्रयोग होने वाला सामान) और खुली शीशी/बोतल बदली नहीं जाएगी।"),
-                        style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
-                      ),
-                    ),
-                  ],
+                pw.SizedBox(height: 1),
+                pw.Center(
+                  child: pw.Text(
+                    "(NO RETURN • NO REFUND • NO EXCHANGE)",
+                    style: const pw.TextStyle(fontSize: 6.5, color: PdfColors.grey800),
+                  ),
                 ),
               ],
             ),
           ),
         ] else ...[
           pw.Container(
-            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            padding: const pw.EdgeInsets.symmetric(vertical: 2.5),
             child: pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Center(
                   child: pw.Text(
-                    "TERMS & CONDITIONS (IMPORTANT)",
-                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                    "*** NO RETURN • NO REFUND • NO EXCHANGE ***",
+                    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
                   ),
                 ),
-                pw.SizedBox(height: 2.5),
-                pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Container(
-                      width: 2.5,
-                      height: 2.5,
-                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
-                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
-                    ),
-                    pw.Expanded(
-                      child: pw.Text(
-                        "Goods once sold will not be returned or refunded.",
-                        style: pw.TextStyle(fontSize: 6.8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
-                      ),
-                    ),
-                  ],
-                ),
                 pw.SizedBox(height: 1.5),
-                pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Container(
-                      width: 2.5,
-                      height: 2.5,
-                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
-                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
-                    ),
-                    pw.Expanded(
-                      child: pw.Text(
-                        "Exchange permitted within 24 hours only with original bill.",
-                        style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
-                      ),
-                    ),
-                  ],
-                ),
-                pw.SizedBox(height: 1.5),
-                pw.Row(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Container(
-                      width: 2.5,
-                      height: 2.5,
-                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
-                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
-                    ),
-                    pw.Expanded(
-                      child: pw.Text(
-                        "No exchange on cosmetics (lipstick, nail polish, cream), cut fabrics (cut astar, lace/gota), or opened bottles.",
-                        style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
-                      ),
-                    ),
-                  ],
+                pw.Center(
+                  child: pw.Text(
+                    "Goods once sold will not be returned, refunded, or exchanged.",
+                    style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
+                  ),
                 ),
               ],
             ),
@@ -660,7 +695,7 @@ class PdfReceiptService {
             children: [
               pw.Text(
                 language == ReceiptLanguage.hindi
-                    ? _fixDevanagari("*** धन्यवाद! फिर पधारें! ***")
+                    ? _fixDevanagari("*** सधन्यवाद! पुनः पधारें! ***")
                     : "*** THANK YOU FOR SHOPPING! VISIT AGAIN ***",
                 style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
               ),
@@ -730,9 +765,9 @@ class PdfReceiptService {
     ReceiptLanguage language = ReceiptLanguage.hindi,
   }) {
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
-    final String counterName = (bill['counter_name'] ?? "Basement Counter").toString();
     final double totalAmount = _toDouble(bill['total_amount']);
     final String paymentMethod = (bill['payment_method'] ?? "Cash").toString();
+    final String staffName = (bill['staff_name'] ?? "स्टाफ").toString();
     final rawItems = _extractItems(bill['items_json']);
 
     DateTime billDate = DateTime.now();
@@ -747,14 +782,16 @@ class PdfReceiptService {
     final StringBuffer buffer = StringBuffer();
 
     if (language == ReceiptLanguage.hindi) {
+      buffer.writeln("࿗ ॐ श्री महालक्ष्म्यै नमः ࿗");
       buffer.writeln("🧾 *लव कुश शॉपिङ्ग सेण्टर*");
       buffer.writeln("   *LOVE KUSH SHOPPING CENTER*");
-      buffer.writeln("📍 _${counterName.toLowerCase().contains("basement") ? "बेसमेंट काउंटर" : counterName}_");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("📋 *बिल सं. (Bill No):* $billNo");
-      buffer.writeln("📅 *दिनांक (Date):* $formattedDate");
+      buffer.writeln("📋 *बीजक सं. (Bill No):* $billNo");
+      buffer.writeln("🗓️ *पञ्चाङ्ग तिथि:* ${_formatPanchangTithi(billDate)}");
+      buffer.writeln("📅 *आङ्ग्ल तिथि:* $formattedDate");
+      buffer.writeln("👤 *कोषपाल:* $staffName");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("*खरीदा गया सामान (Items Purchased):*");
+      buffer.writeln("*वस्तु सूची (Items Purchased):*");
 
       for (int i = 0; i < rawItems.length; i++) {
         final item = rawItems[i] is Map ? rawItems[i] as Map : {};
@@ -768,23 +805,22 @@ class PdfReceiptService {
       }
 
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("💰 *कुल योग (GRAND TOTAL): ₹${totalAmount.toStringAsFixed(2)}*");
-      buffer.writeln("💳 *भुगतान माध्यम (Payment):* ${_paymentModeHindi(paymentMethod)}");
+      buffer.writeln("💰 *सकल देय राशि (GRAND TOTAL): ₹${totalAmount.toStringAsFixed(2)}*");
+      buffer.writeln("💳 *भुगतान विधि:* ${_paymentModeSanskrit(paymentMethod)}");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("📌 *नियम एवं शर्तें (जरूरी सूचना):*");
-      buffer.writeln("• बिका हुआ माल वापस या रिफंड नहीं होगा।");
-      buffer.writeln("• केवल 24 घंटे के अंदर असली बिल के साथ सामान बदला (Exchange) जा सकता है।");
-      buffer.writeln("• लिपस्टिक, नेलपॉलिश, क्रीम, कटा अस्तर, लेस/गोटा और खुली बोतल बदली नहीं जाएगी।");
-      buffer.writeln("  _(No Return / No Refund. Exchange within 24h with bill)_");
+      buffer.writeln("📌 *सूचना:*");
+      buffer.writeln("• न वापसी • न प्रतिदान • न विनिमय");
+      buffer.writeln("• विक्रीत वस्तु की वापसी, धन-प्रतिदान अथवा विनिमय नहीं होगा।");
+      buffer.writeln("  _(No Return • No Refund • No Exchange)_");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("🙏 *हमारे यहाँ खरीदारी के लिए धन्यवाद! फिर पधारें!*");
-      buffer.writeln("🌿 _डिजिटल पीडीएफ बिल संलग्न है (Digital PDF Bill attached)._");
+      buffer.writeln("🙏 *सधन्यवाद! पुनः पधारें!*");
+      buffer.writeln("🌿 _डिजिटल पीडीएफ बीजक संलग्न है (Digital PDF Bill attached)._");
     } else {
       buffer.writeln("🧾 *LOVE KUSH SHOPPING CENTER*");
-      buffer.writeln("📍 _${counterName.toUpperCase()}_");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("📋 *Bill No:* $billNo");
       buffer.writeln("📅 *Date:* $formattedDate");
+      buffer.writeln("👤 *Cashier:* $staffName");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("*Items Purchased:*");
 
@@ -803,10 +839,9 @@ class PdfReceiptService {
       buffer.writeln("💰 *GRAND TOTAL: ₹${totalAmount.toStringAsFixed(2)}*");
       buffer.writeln("💳 *Payment Method:* ${paymentMethod.toUpperCase()}");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("📌 *TERMS & CONDITIONS (IMPORTANT):*");
-      buffer.writeln("• Goods once sold will not be returned or refunded.");
-      buffer.writeln("• Exchange permitted within 24 hours only with original bill.");
-      buffer.writeln("• No exchange on cosmetics (lipstick, nail polish, cream), cut fabrics (cut astar, lace/gota), or opened bottles.");
+      buffer.writeln("📌 *POLICY:*");
+      buffer.writeln("• NO RETURN • NO REFUND • NO EXCHANGE");
+      buffer.writeln("• Goods once sold will not be returned, refunded, or exchanged.");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *THANK YOU FOR SHOPPING! VISIT AGAIN!*");
       buffer.writeln("🌿 _Digital PDF Bill attached._");
