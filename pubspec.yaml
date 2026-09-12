@@ -71,8 +71,8 @@ dependency_overrides:
 flutter:
   assets:
     - assets/logo_bw.jpg
-    - assets/fonts/NotoSansDevanagari-Regular.ttf
-    - assets/fonts/NotoSansDevanagari-Bold.ttf
+    - assets/fonts/NotoSerifDevanagari-Regular.ttf
+    - assets/fonts/NotoSerifDevanagari-Bold.ttf
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in

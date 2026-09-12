@@ -31,12 +31,12 @@ class PdfReceiptService {
 
     if (regular == null) {
       try {
-        final data = await rootBundle.load("assets/fonts/NotoSansDevanagari-Regular.ttf");
+        final data = await rootBundle.load("assets/fonts/NotoSerifDevanagari-Regular.ttf");
         regular = pw.Font.ttf(data);
         _cachedHindiRegular = regular;
       } catch (_) {
         try {
-          final file = File("assets/fonts/NotoSansDevanagari-Regular.ttf");
+          final file = File("assets/fonts/NotoSerifDevanagari-Regular.ttf");
           if (file.existsSync()) {
             final bytes = await file.readAsBytes();
             regular = pw.Font.ttf(bytes.buffer.asByteData());
@@ -48,12 +48,12 @@ class PdfReceiptService {
 
     if (bold == null) {
       try {
-        final data = await rootBundle.load("assets/fonts/NotoSansDevanagari-Bold.ttf");
+        final data = await rootBundle.load("assets/fonts/NotoSerifDevanagari-Bold.ttf");
         bold = pw.Font.ttf(data);
         _cachedHindiBold = bold;
       } catch (_) {
         try {
-          final file = File("assets/fonts/NotoSansDevanagari-Bold.ttf");
+          final file = File("assets/fonts/NotoSerifDevanagari-Bold.ttf");
           if (file.existsSync()) {
             final bytes = await file.readAsBytes();
             bold = pw.Font.ttf(bytes.buffer.asByteData());
