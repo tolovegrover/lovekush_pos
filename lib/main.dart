@@ -4100,6 +4100,26 @@ class _PosScreenState extends State<PosScreen> {
     try {
       List<BluetoothDevice> devices = await bluetooth.getBondedDevices();
       setState(() => _devices = devices);
+
+      final prefs = await SharedPreferences.getInstance();
+      final savedMac = prefs.getString('saved_printer_mac');
+      if (savedMac != null && savedMac.isNotEmpty) {
+        final matches = devices.where((d) => d.address == savedMac);
+        if (matches.isNotEmpty) {
+          final match = matches.first;
+          setState(() => _selectedDevice = match);
+          bool? isConn = await bluetooth.isConnected;
+          if (isConn == true) {
+            setState(() => _printerConnected = true);
+          } else {
+            try {
+              await bluetooth.connect(match);
+            } catch (_) {}
+          }
+        }
+      } else if (devices.isNotEmpty && _selectedDevice == null) {
+        setState(() => _selectedDevice = devices.first);
+      }
     } catch (e) {
       print("Bluetooth Error: $e");
     }
@@ -4130,7 +4150,13 @@ class _PosScreenState extends State<PosScreen> {
             title: const Text("Connect Receipt Printer"),
             content: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const Text(
+                  "Type: ESC/POS Thermal Printer (80mm / 58mm)",
+                  style: TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 10),
                 if (_devices.isEmpty) const Text("No paired Bluetooth devices found. Please pair your printer in Android Settings first."),
                 if (_devices.isNotEmpty) DropdownButton<BluetoothDevice>(
                   hint: const Text("Select Printer"),
@@ -4146,8 +4172,10 @@ class _PosScreenState extends State<PosScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-                if (_printerConnected) const Text("🟢 Connected", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                if (!_printerConnected && _selectedDevice != null) const Text("🔴 Disconnected", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                if (_printerConnected)
+                  Text("🟢 Connected: ${_selectedDevice?.name ?? 'Thermal Printer'}", style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                if (!_printerConnected && _selectedDevice != null)
+                  Text("🔴 Disconnected: ${_selectedDevice?.name}", style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
               ],
             ),
             actions: [
@@ -4156,6 +4184,11 @@ class _PosScreenState extends State<PosScreen> {
                 onPressed: _selectedDevice == null ? null : () async {
                   try {
                     await bluetooth.connect(_selectedDevice!);
+                    final prefs = await SharedPreferences.getInstance();
+                    if (_selectedDevice?.address != null) {
+                      await prefs.setString('saved_printer_mac', _selectedDevice!.address!);
+                      await prefs.setString('saved_printer_name', _selectedDevice!.name ?? "Thermal Printer");
+                    }
                     setDialogState(() {});
                   } catch (e) {
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to connect: $e")));
@@ -4167,6 +4200,9 @@ class _PosScreenState extends State<PosScreen> {
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                 onPressed: () async {
                   await bluetooth.disconnect();
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.remove('saved_printer_mac');
+                  await prefs.remove('saved_printer_name');
                   setDialogState(() {});
                 },
                 child: const Text("DISCONNECT", style: TextStyle(color: Colors.white)),
@@ -4943,7 +4979,16 @@ class _PosScreenState extends State<PosScreen> {
                       label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
                       onPressed: () {
                         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                        PdfReceiptService.openPdfPreviewDialog(context: context, bill: savedBillRecord);
+                        PdfReceiptService.openPdfPreviewDialog(
+                          context: context,
+                          bill: savedBillRecord,
+                          onThermalPrint: (lang) => executeReprintThermalBill(
+                            context: context,
+                            bluetooth: bluetooth,
+                            bill: savedBillRecord,
+                            language: lang,
+                          ),
+                        );
                       },
                     ),
                     const SizedBox(width: 4),
@@ -4989,7 +5034,16 @@ class _PosScreenState extends State<PosScreen> {
                   label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
                   onPressed: () {
                     ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                    PdfReceiptService.openPdfPreviewDialog(context: context, bill: savedBillRecord);
+                    PdfReceiptService.openPdfPreviewDialog(
+                      context: context,
+                      bill: savedBillRecord,
+                      onThermalPrint: (lang) => executeReprintThermalBill(
+                        context: context,
+                        bluetooth: bluetooth,
+                        bill: savedBillRecord,
+                        language: lang,
+                      ),
+                    );
                   },
                 ),
                 const SizedBox(width: 4),
@@ -5185,7 +5239,16 @@ class _PosScreenState extends State<PosScreen> {
             ),
             ListTile(
               leading: Icon(Icons.print, color: _printerConnected ? Colors.green : Colors.black87),
-              title: Text(_printerConnected ? 'Printer Connected' : 'Connect Printer', style: TextStyle(fontWeight: FontWeight.bold, color: _printerConnected ? Colors.green : Colors.black87)),
+              title: Text(
+                _printerConnected
+                    ? 'Printer: ${_selectedDevice?.name ?? "Connected"}'
+                    : (_selectedDevice != null ? 'Connect ${_selectedDevice!.name}' : 'Connect Receipt Printer'),
+                style: TextStyle(fontWeight: FontWeight.bold, color: _printerConnected ? Colors.green : Colors.black87),
+              ),
+              subtitle: Text(
+                _printerConnected ? "🟢 ESC/POS Thermal Printer (Connected)" : "🔴 Bluetooth 80mm/58mm Thermal",
+                style: TextStyle(fontSize: 11, color: _printerConnected ? const Color(0xFF047857) : Colors.black54),
+              ),
               onTap: () {
                 Navigator.pop(context);
                 _showPrinterDialog();
@@ -7231,7 +7294,16 @@ void showReceiptPreviewDialog({
                         ),
                         onPressed: () {
                           Navigator.pop(dialogContext);
-                          PdfReceiptService.openPdfPreviewDialog(context: context, bill: bill);
+                          PdfReceiptService.openPdfPreviewDialog(
+                            context: context,
+                            bill: bill,
+                            onThermalPrint: (lang) => executeReprintThermalBill(
+                              context: context,
+                              bluetooth: BlueThermalPrinter.instance,
+                              bill: bill,
+                              language: lang,
+                            ),
+                          );
                         },
                       ),
                     ),
@@ -7740,7 +7812,16 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                                   tooltip: "Preview PDF",
                                   padding: EdgeInsets.zero,
                                   constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                                  onPressed: () => PdfReceiptService.openPdfPreviewDialog(context: context, bill: bill),
+                                  onPressed: () => PdfReceiptService.openPdfPreviewDialog(
+                                    context: context,
+                                    bill: bill,
+                                    onThermalPrint: (lang) => executeReprintThermalBill(
+                                      context: context,
+                                      bluetooth: BlueThermalPrinter.instance,
+                                      bill: bill,
+                                      language: lang,
+                                    ),
+                                  ),
                                 ),
                                 const SizedBox(width: 2),
                                 IconButton(

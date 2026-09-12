@@ -2308,6 +2308,7 @@ class PdfReceiptService {
     required BuildContext context,
     required Map<String, dynamic> bill,
     ReceiptLanguage initialLanguage = ReceiptLanguage.hindi,
+    Future<void> Function(ReceiptLanguage language)? onThermalPrint,
   }) {
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
     final String safeBillNo = billNo.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
@@ -2400,6 +2401,12 @@ class PdfReceiptService {
                         ),
                       ),
                       const SizedBox(width: 6),
+                      if (onThermalPrint != null)
+                        IconButton(
+                          icon: const Icon(Icons.print, color: Color(0xFF10B981)),
+                          tooltip: "Print to Bluetooth Thermal Printer",
+                          onPressed: () => onThermalPrint(selectedLanguage),
+                        ),
                       IconButton(
                         icon: const Icon(Icons.share, color: Color(0xFF25D366)),
                         tooltip: "Send on WhatsApp",
@@ -2428,8 +2435,20 @@ class PdfReceiptService {
                     ),
                     allowPrinting: true,
                     allowSharing: true,
-                    canChangePageFormat: false,
+                    canChangePageFormat: true,
                     canChangeOrientation: false,
+                    pageFormats: const <String, PdfPageFormat>{
+                      '80mm Thermal (3-inch)': PdfPageFormat(
+                        80 * PdfPageFormat.mm,
+                        double.infinity,
+                        marginAll: 4 * PdfPageFormat.mm,
+                      ),
+                      '58mm Thermal (2-inch)': PdfPageFormat(
+                        58 * PdfPageFormat.mm,
+                        double.infinity,
+                        marginAll: 2 * PdfPageFormat.mm,
+                      ),
+                    },
                     initialPageFormat: const PdfPageFormat(
                       80 * PdfPageFormat.mm,
                       double.infinity,
