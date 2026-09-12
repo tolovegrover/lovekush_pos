@@ -662,6 +662,50 @@ class ShelfCodeInputFormatter extends TextInputFormatter {
 }
 
 // ==========================================
+// UNIVERSAL SCANNER CODE CLASSIFIER
+// Distinguishes product box barcodes (EAN-13, EAN-8, UPC) from shelf stickers
+// ==========================================
+enum ScannedCodeType {
+  productBarcode,
+  shelfCode,
+}
+
+ScannedCodeType classifyScannedCode(String rawCode) {
+  final clean = rawCode.trim().toUpperCase();
+  final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
+
+  // 1. Explicit shelf format (e.g. "01-03-C", "01-03-A-1", "01-03-C-134", "PENDING-1")
+  if (clean.contains('-')) {
+    final parts = clean.split('-');
+    if (parts.length >= 2) {
+      return ScannedCodeType.shelfCode;
+    }
+  }
+
+  // 2. Commercial product barcodes: 8+ digits, purely numeric (EAN-13, EAN-8, UPC, GTIN)
+  if (digitsOnly.length >= 8 && digitsOnly.length == clean.length) {
+    return ScannedCodeType.productBarcode;
+  }
+
+  // 3. Indian FMCG / Cosmetics barcode starting with 890 (length >= 7)
+  if (clean.startsWith('890') && digitsOnly.length >= 7) {
+    return ScannedCodeType.productBarcode;
+  }
+
+  // 4. Alpha codes like 'PENDING', 'SHELF', letters
+  if (RegExp(r'[A-Za-z]').hasMatch(clean)) {
+    return ScannedCodeType.shelfCode;
+  }
+
+  // 5. Short numeric (1-6 digits): shelf item number (e.g. 134)
+  if (clean.length <= 6 && digitsOnly.length == clean.length) {
+    return ScannedCodeType.shelfCode;
+  }
+
+  return ScannedCodeType.productBarcode;
+}
+
+// ==========================================
 // MULTI-API ONLINE BARCODE RESOLVER
 // (Queries Open Beauty Facts, Open Food Facts, UPCitemdb, and Indian Retail registries)
 // ==========================================
@@ -977,7 +1021,24 @@ String normalizeCosmeticCategory(String? cat) {
   if (lower.contains("bangle")) return "Bangles";
   if (lower.contains("jewel")) return "Jewelry";
   if (lower.contains("access")) return "Accessories";
-  if (lower.contains("general")) return "General";
+  if (lower.contains("general") ||
+      lower.contains("grocery") ||
+      lower.contains("food") ||
+      lower.contains("biscuit") ||
+      lower.contains("tea") ||
+      lower.contains("coffee") ||
+      lower.contains("noodle") ||
+      lower.contains("snack") ||
+      lower.contains("detergent") ||
+      lower.contains("dishwash") ||
+      lower.contains("oral") ||
+      lower.contains("toothpaste") ||
+      lower.contains("clean") ||
+      lower.contains("household") ||
+      lower.contains("shav") ||
+      lower.contains("baby") ||
+      lower.contains("sanitary") ||
+      lower.contains("mosquito")) return "General";
   return "Cosmetics";
 }
 
@@ -993,13 +1054,15 @@ Future<Map<String, dynamic>?> fetchProductDetailsByBarcode(String barcode) async
   final localMatch = findCosmeticByBarcode(clean);
   if (localMatch != null) {
     final double p = (localMatch['price'] as num?)?.toDouble() ?? 0.0;
+    final cat = (localMatch['category'] ?? '').toString();
+    final isGen = cat.toLowerCase() == 'general' || cat.toLowerCase() == 'grocery' || cat.toLowerCase() == 'oral' || cat.toLowerCase() == 'detergents';
     return {
       'name': (localMatch['name'] ?? '').toString(),
       'brand': (localMatch['brand'] ?? '').toString(),
       'price': p,
       'mrp': p,
-      'category': normalizeCosmeticCategory((localMatch['category'] ?? '').toString()),
-      'source': 'Cosmetics Catalog',
+      'category': normalizeCosmeticCategory(cat),
+      'source': isGen ? 'General Store Catalog' : 'Cosmetics Catalog',
     };
   }
 
@@ -1708,14 +1771,116 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     );
   }
 
-  // Fast Barcode Scanning with Master Catalog Recognition
+  // Fast Barcode Scanning with Master Catalog Recognition & Dual Scan Support
   void _scanBarcodeToEditOrAdd() async {
-    final scannedCode = await Navigator.push(
+    final scannedResult = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => const QRScannerScreen()),
+      MaterialPageRoute(
+        builder: (_) => const QRScannerScreen(
+          title: "Scan to Find / Add Item",
+          isDualScanMode: true,
+        ),
+      ),
     );
-    if (scannedCode != null && scannedCode is String && scannedCode.isNotEmpty) {
-      final clean = scannedCode.trim();
+    if (scannedResult == null) return;
+
+    String? pBar;
+    String? sCode;
+    if (scannedResult is Map) {
+      final p = (scannedResult['product_barcode'] ?? '').toString().trim();
+      final s = (scannedResult['shelf_code'] ?? '').toString().trim();
+      if (p.isNotEmpty) pBar = p;
+      if (s.isNotEmpty) sCode = s;
+    } else if (scannedResult is String && scannedResult.isNotEmpty) {
+      final clean = scannedResult.trim();
+      if (classifyScannedCode(clean) == ScannedCodeType.productBarcode) {
+        pBar = clean;
+      } else {
+        sCode = clean;
+      }
+    }
+
+    if (pBar == null && sCode == null) return;
+
+    // Both codes scanned in 1 camera session!
+    if (pBar != null && sCode != null) {
+      final pUp = pBar.toUpperCase();
+      final sUp = sCode.toUpperCase();
+      final sNoDash = sUp.replaceAll('-', '').replaceAll(' ', '');
+
+      Map<String, dynamic>? shopMatch;
+      for (var it in items) {
+        final itCode = (it['item_code'] ?? '').toString().toUpperCase();
+        final itBar = (it['company_barcode'] ?? '').toString().toUpperCase();
+        final itShelf = (it['shelf_location'] ?? '').toString().toUpperCase();
+        final itItemNum = (it['item_number'] ?? '').toString().toUpperCase();
+        final itFullShelf = itItemNum.isNotEmpty ? '$itShelf-$itItemNum' : itShelf;
+
+        if (itBar == pUp ||
+            itCode == pUp ||
+            itCode == sUp ||
+            itShelf == sUp ||
+            itFullShelf == sUp ||
+            itFullShelf.replaceAll('-', '') == sNoDash) {
+          shopMatch = it;
+          break;
+        }
+      }
+
+      if (shopMatch != null) {
+        _showAddEditDialog(shopMatch);
+        return;
+      }
+
+      Map<String, dynamic>? masterMatch;
+      final c = findCosmeticByBarcode(pBar);
+      if (c != null) {
+        masterMatch = {
+          'name': c['name'],
+          'price': c['price'],
+          'category': c['category'],
+          'brand': c['brand'] ?? '',
+        };
+      }
+
+      if (masterMatch == null) {
+        try {
+          final res = await Supabase.instance.client
+              .from('master_catalog')
+              .select()
+              .eq('barcode', pBar)
+              .maybeSingle();
+          if (res != null) {
+            masterMatch = {
+              'name': res['product_name'],
+              'price': (res['mrp'] as num?)?.toDouble() ?? 0.0,
+              'category': res['category'] ?? 'Cosmetics',
+              'brand': res['brand'] ?? '',
+            };
+          }
+        } catch (_) {}
+      }
+
+      if (masterMatch == null && pBar.length >= 8) {
+        final onlineResults = await resolveBarcodeOnlineMulti(pBar);
+        if (onlineResults.isNotEmpty) {
+          masterMatch = onlineResults.first;
+        }
+      }
+
+      if (mounted) {
+        _showAddEditDialog(
+          null,
+          sCode,
+          masterMatch?['name'],
+          (masterMatch?['price'] as num?)?.toDouble(),
+          pBar,
+        );
+      }
+      return;
+    }
+
+    final clean = (pBar ?? sCode)!;
 
       // 1. First check active shop inventory for matches
       final List<Map<String, dynamic>> shopMatches = [];
@@ -1837,7 +2002,6 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         }
       }
     }
-  }
 
   void _showOnlineConflictDialogInCatalog(String barcode, List<Map<String, dynamic>> results) {
     showModalBottomSheet(
@@ -2159,10 +2323,10 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) {
-          final cats = ["All", "Eyes", "Lips", "Face", "Nails", "Skincare", "Hair", "Bangles", "Jewelry", "Accessories"];
+          final cats = ["All", "General", "Oral", "Hair", "Skincare", "Deodorants", "Personal Care", "Face", "Eyes", "Lips", "Nails", "Accessories", "Jewelry"];
           final filteredCosmetics = cosmeticDatabase.where((c) {
             final matchCat = filterCategory == "All" || c["category"] == filterCategory;
-            final matchSearch = search.isEmpty || c["name"].toString().toLowerCase().contains(search.toLowerCase());
+            final matchSearch = search.isEmpty || c["name"].toString().toLowerCase().contains(search.toLowerCase()) || (c["brand"] ?? "").toString().toLowerCase().contains(search.toLowerCase());
             return matchCat && matchSearch;
           }).toList();
 
@@ -2172,7 +2336,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                 const Icon(Icons.auto_awesome, color: Colors.pinkAccent),
                 const SizedBox(width: 8),
                 const Expanded(
-                  child: Text("Master Reference Database", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  child: Text("Master Reference Catalog", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                 ),
               ],
             ),
@@ -2183,7 +2347,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                 children: [
                   TextField(
                     decoration: InputDecoration(
-                      hintText: "Search cosmetics, kajal, bangles...",
+                      hintText: "Search Colgate, Dettol, Lakme, soaps, groceries...",
                       prefixIcon: const Icon(Icons.search),
                       isDense: true,
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -2492,6 +2656,43 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
             });
           }
 
+          Future<void> openUnifiedScanner() async {
+            final result = await Navigator.push(
+              ctx,
+              MaterialPageRoute(
+                builder: (_) => QRScannerScreen(
+                  title: "Unique Scanner (Box & Shelf)",
+                  isDualScanMode: true,
+                  initialProductBarcode: companyBarcodeCtrl.text.isNotEmpty ? companyBarcodeCtrl.text : null,
+                  initialShelfCode: shelfCodeCtrl.text.isNotEmpty ? shelfCodeCtrl.text : null,
+                ),
+              ),
+            );
+            if (result == null) return;
+            if (result is Map) {
+              final pBar = (result['product_barcode'] ?? '').toString().trim();
+              final sCode = (result['shelf_code'] ?? '').toString().trim();
+              setDialogState(() {
+                if (sCode.isNotEmpty) shelfCodeCtrl.text = sCode;
+                if (pBar.isNotEmpty) companyBarcodeCtrl.text = pBar;
+              });
+              if (pBar.isNotEmpty) {
+                await autoFetchBarcodeDetails(pBar, userTriggered: true);
+              }
+            } else if (result is String && result.isNotEmpty) {
+              final clean = result.trim();
+              if (classifyScannedCode(clean) == ScannedCodeType.productBarcode) {
+                setDialogState(() => companyBarcodeCtrl.text = clean);
+                await autoFetchBarcodeDetails(clean, userTriggered: true);
+              } else {
+                final parsed = ShelfCodeBreakdown.parse(clean);
+                setDialogState(() {
+                  shelfCodeCtrl.text = parsed.fullCode.isNotEmpty ? parsed.fullCode : clean.toUpperCase();
+                });
+              }
+            }
+          }
+
           return AlertDialog(
             title: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2516,6 +2717,37 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // 0. UNIQUE SCANNER (BOX & SHELF IN 1 GO)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.qr_code_scanner, size: 22, color: Colors.white),
+                      label: const Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            "⚡ UNIQUE SCANNER (BOX & SHELF IN 1 GO)",
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 0.3),
+                          ),
+                          Text(
+                            "Scan box barcode & shelf sticker in 1 camera session",
+                            style: TextStyle(fontSize: 10, color: Colors.white70),
+                          ),
+                        ],
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF4F46E5), // Indigo 600
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        elevation: 3,
+                      ),
+                      onPressed: openUnifiedScanner,
+                    ),
+                  ),
+
                   // 1. COMPANY BARCODE (Optional / Commercial EAN-13)
                   TextField(
                     controller: companyBarcodeCtrl,
@@ -2556,31 +2788,29 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                             ),
                           IconButton(
                             icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent, size: 20),
-                            tooltip: "Scan Box Barcode",
-                            onPressed: () async {
-                              final scanned = await Navigator.push(
-                                ctx,
-                                MaterialPageRoute(
-                                  builder: (_) => const QRScannerScreen(title: "Scan Product Barcode"),
-                                ),
-                              );
-                              if (scanned != null && scanned is String && scanned.isNotEmpty) {
-                                final clean = scanned.trim();
-                                setDialogState(() => companyBarcodeCtrl.text = clean);
-                                await autoFetchBarcodeDetails(clean, userTriggered: true);
-                              }
-                            },
+                            tooltip: "Unique Scanner (Box & Shelf)",
+                            onPressed: openUnifiedScanner,
                           ),
                         ],
                       ),
                     ),
                     onChanged: (val) {
                       barcodeDebounce?.cancel();
-                      final clean = val.trim().replaceAll(' ', '');
-                      if (clean.length >= 8 && RegExp(r'^[0-9]+$').hasMatch(clean)) {
+                      final clean = val.trim();
+                      if (classifyScannedCode(clean) == ScannedCodeType.shelfCode && clean.contains('-')) {
+                        // Routed: shelf sticker entered in company barcode field!
+                        final parsed = ShelfCodeBreakdown.parse(clean);
+                        setDialogState(() {
+                          shelfCodeCtrl.text = parsed.fullCode.isNotEmpty ? parsed.fullCode : clean.toUpperCase();
+                          companyBarcodeCtrl.text = '';
+                        });
+                        return;
+                      }
+                      final cleanDigits = clean.replaceAll(' ', '');
+                      if (cleanDigits.length >= 8 && RegExp(r'^[0-9]+$').hasMatch(cleanDigits)) {
                         barcodeDebounce = Timer(const Duration(milliseconds: 300), () {
                           if (ctx.mounted) {
-                            autoFetchBarcodeDetails(clean, userTriggered: false);
+                            autoFetchBarcodeDetails(cleanDigits, userTriggered: false);
                           }
                         });
                       }
@@ -2599,8 +2829,8 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                     onChanged: (val) {
                       setDialogState(() {});
                       final rawDigits = val.replaceAll('-', '').replaceAll(' ', '').trim();
-                      if (rawDigits.length >= 8 && RegExp(r'^[0-9]+$').hasMatch(rawDigits) && rawDigits.startsWith('890')) {
-                        // User accidentally scanned/typed product box barcode into shelf code field!
+                      if (classifyScannedCode(rawDigits) == ScannedCodeType.productBarcode && rawDigits.length >= 8) {
+                        // Routed: product box barcode entered into shelf code field!
                         if (companyBarcodeCtrl.text.isEmpty || companyBarcodeCtrl.text != rawDigits) {
                           setDialogState(() {
                             companyBarcodeCtrl.text = rawDigits;
@@ -2617,31 +2847,9 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                       isDense: true,
                       border: const OutlineInputBorder(),
                       suffixIcon: IconButton(
-                        icon: const Icon(Icons.qr_code, color: Colors.indigo),
-                        tooltip: "Scan Shelf Sticker (Barcode or QR)",
-                        onPressed: () async {
-                          final scanned = await Navigator.push(
-                            ctx,
-                            MaterialPageRoute(
-                              builder: (_) => const QRScannerScreen(title: "Scan Shelf Barcode or QR"),
-                            ),
-                          );
-                          if (scanned != null && scanned is String && scanned.isNotEmpty) {
-                            final clean = scanned.trim();
-                            final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
-                            if (clean.length >= 8 && digitsOnly.length == clean.length) {
-                              setDialogState(() => companyBarcodeCtrl.text = clean);
-                              await autoFetchBarcodeDetails(clean, userTriggered: true);
-                            } else {
-                              final parsed = ShelfCodeBreakdown.parse(clean);
-                              setDialogState(() {
-                                shelfCodeCtrl.text = parsed.fullCode.isNotEmpty
-                                    ? parsed.fullCode
-                                    : clean.toUpperCase();
-                              });
-                            }
-                          }
-                        },
+                        icon: const Icon(Icons.qr_code_scanner, color: Colors.indigo),
+                        tooltip: "Unique Scanner (Box & Shelf)",
+                        onPressed: openUnifiedScanner,
                       ),
                     ),
                   ),
@@ -3520,6 +3728,84 @@ class PosScreen extends StatefulWidget {
 
 class _PosScreenState extends State<PosScreen> {
   Map<String, Map<String, dynamic>> cloudInventory = {};
+
+  // Top Notification System (Replaces bottom SnackBars that obscure keypad/checkout in POS)
+  String? posTopNotification;
+  Color posTopNotificationColor = const Color(0xFF10B981);
+  IconData posTopNotificationIcon = Icons.check_circle;
+  Widget? posTopNotificationAction;
+  Timer? posTopNotificationTimer;
+
+  void _showPosNotification(
+    String message, {
+    Color color = const Color(0xFF10B981),
+    IconData icon = Icons.check_circle,
+    Widget? action,
+    Duration duration = const Duration(seconds: 4),
+  }) {
+    if (!mounted) return;
+    posTopNotificationTimer?.cancel();
+    setState(() {
+      posTopNotification = message;
+      posTopNotificationColor = color;
+      posTopNotificationIcon = icon;
+      posTopNotificationAction = action;
+    });
+    posTopNotificationTimer = Timer(duration, () {
+      if (mounted) {
+        setState(() => posTopNotification = null);
+      }
+    });
+  }
+
+  Widget? _buildTopNotificationBanner() {
+    if (posTopNotification == null) return null;
+    return Material(
+      color: Colors.transparent,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: posTopNotificationColor,
+          boxShadow: const [
+            BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+          ],
+        ),
+        child: Row(
+          children: [
+            Icon(posTopNotificationIcon, color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                posTopNotification!,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ),
+            if (posTopNotificationAction != null) ...[
+              posTopNotificationAction!,
+              const SizedBox(width: 6),
+            ],
+            GestureDetector(
+              onTap: () {
+                posTopNotificationTimer?.cancel();
+                setState(() => posTopNotification = null);
+              },
+              child: const Padding(
+                padding: EdgeInsets.all(4.0),
+                child: Icon(Icons.close, color: Colors.white70, size: 18),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
   
   void _syncInventoryFromCloud() async {
     try {
@@ -3763,10 +4049,12 @@ class _PosScreenState extends State<PosScreen> {
     if (c != null) {
       final cName = (c['name'] ?? '').toString();
       double p = (c['price'] as num?)?.toDouble() ?? 0.0;
+      final cat = (c['category'] ?? 'General').toString();
+      final isGen = cat.toLowerCase() == 'general' || cat.toLowerCase() == 'grocery' || cat.toLowerCase() == 'oral' || cat.toLowerCase() == 'detergents';
       setState(() {
         rawItemCode = clean;
         activeItemName = cName;
-        activeItemSub = "💄 Cosmetics Catalog (${c['category'] ?? 'Beauty'})";
+        activeItemSub = isGen ? "🛒 General Store Catalog ($cat)" : "💄 Cosmetics Catalog ($cat)";
         activeConflicts = [];
         activeOnlineSuggestions = [];
         if (p > 0) {
@@ -4321,6 +4609,7 @@ class _PosScreenState extends State<PosScreen> {
 
   @override
   void dispose() {
+    posTopNotificationTimer?.cancel();
     _cashTenderedController.dispose();
     _hybridCashController.dispose();
     _hybridOnlineController.dispose();
@@ -4422,7 +4711,7 @@ class _PosScreenState extends State<PosScreen> {
                     }
                     setDialogState(() {});
                   } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to connect: $e")));
+                    _showPosNotification("Failed to connect: $e", color: Colors.red.shade800, icon: Icons.bluetooth_disabled);
                   }
                 },
                 child: const Text("CONNECT"),
@@ -4846,7 +5135,7 @@ class _PosScreenState extends State<PosScreen> {
   void _deleteTab(int index) {
     if (activeBills.length <= 1) {
       setState(() => activeBills[0].clear());
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cleared the active bill.")));
+      _showPosNotification("Cleared active bill", color: Colors.grey.shade800, icon: Icons.delete_sweep_outlined);
       return;
     }
     showDialog(
@@ -5005,7 +5294,7 @@ class _PosScreenState extends State<PosScreen> {
     } catch (dbError) {
       print("Supabase Error: $dbError");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Cloud Sync Failed: $dbError")));
+        _showPosNotification("Cloud Sync Failed: $dbError", color: Colors.red.shade800, icon: Icons.cloud_off);
       }
       return null; 
     }
@@ -5021,25 +5310,12 @@ class _PosScreenState extends State<PosScreen> {
 
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                initialLanguage == ReceiptLanguage.hindi 
-                    ? "Bill saved! Sending Hindi bill on WhatsApp..." 
-                    : "Bill saved! Opening WhatsApp for English bill...",
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-        duration: const Duration(seconds: 4),
-        backgroundColor: const Color(0xFF166534),
-      ),
+    _showPosNotification(
+      initialLanguage == ReceiptLanguage.hindi 
+          ? "Bill saved! Opening WhatsApp for Hindi bill..." 
+          : "Bill saved! Opening WhatsApp for English bill...",
+      color: const Color(0xFF166534),
+      icon: Icons.check_circle,
     );
 
     // Open WhatsApp dialog with the chosen language preselected
@@ -5061,46 +5337,65 @@ class _PosScreenState extends State<PosScreen> {
         if (isConnected == true) {
           await printHindiThermalBill(bluetooth: bluetooth, bill: savedBillRecord);
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text("Hindi Thermal Bill Printed!"),
-                duration: const Duration(seconds: 6),
-                action: SnackBarAction(
-                  label: "WHATSAPP",
-                  textColor: const Color(0xFF25D366),
-                  onPressed: () => PdfReceiptService.showWhatsAppPdfDialog(
+            _showPosNotification(
+              "Hindi Thermal Bill Printed!",
+              color: const Color(0xFF166534),
+              icon: Icons.print,
+              action: TextButton.icon(
+                icon: const Icon(Icons.share, color: Colors.white, size: 14),
+                label: const Text("WHATSAPP", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                style: TextButton.styleFrom(
+                  backgroundColor: const Color(0xFF25D366),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: () {
+                  posTopNotificationTimer?.cancel();
+                  setState(() => posTopNotification = null);
+                  PdfReceiptService.showWhatsAppPdfDialog(
                     context: context,
                     bill: savedBillRecord,
                     initialLanguage: ReceiptLanguage.hindi,
-                  ),
-                ),
+                  );
+                },
               ),
             );
           }
         } else {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Printer lost connection. Bill Saved to Cloud Only.")));
+            _showPosNotification("Printer lost connection. Bill Saved to Cloud Only.", color: Colors.amber.shade900, icon: Icons.print_disabled);
           }
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Printer Error: $e. Bill Saved to Cloud Only.")));
+          _showPosNotification("Printer Error: $e. Bill Saved to Cloud Only.", color: Colors.red.shade800, icon: Icons.error_outline);
         }
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text("Bill Saved! (Printer not connected)"),
-            action: SnackBarAction(
-              label: "WHATSAPP",
-              textColor: const Color(0xFF25D366),
-              onPressed: () => PdfReceiptService.showWhatsAppPdfDialog(
+        _showPosNotification(
+          "Bill Saved! (Printer not connected)",
+          color: const Color(0xFF1E3A8A),
+          icon: Icons.cloud_done,
+          action: TextButton.icon(
+            icon: const Icon(Icons.share, color: Colors.white, size: 14),
+            label: const Text("WHATSAPP", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+            style: TextButton.styleFrom(
+              backgroundColor: const Color(0xFF25D366),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            onPressed: () {
+              posTopNotificationTimer?.cancel();
+              setState(() => posTopNotification = null);
+              PdfReceiptService.showWhatsAppPdfDialog(
                 context: context,
                 bill: savedBillRecord,
                 initialLanguage: ReceiptLanguage.hindi,
-              ),
-            ),
+              );
+            },
           ),
         );
       }
@@ -5199,101 +5494,117 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printNewLine();
           await bluetooth.paperCut();
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Row(
-                  children: [
-                    const Text("Bill Saved & Printed!"),
-                    const Spacer(),
-                    TextButton.icon(
-                      icon: const Icon(Icons.picture_as_pdf, color: Colors.amberAccent, size: 16),
-                      label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                        PdfReceiptService.openPdfPreviewDialog(
+            _showPosNotification(
+              "Bill Saved & Printed!",
+              color: const Color(0xFF166534),
+              icon: Icons.check_circle,
+              duration: const Duration(seconds: 5),
+              action: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.picture_as_pdf, color: Colors.amberAccent, size: 14),
+                    label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 11)),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: () {
+                      posTopNotificationTimer?.cancel();
+                      setState(() => posTopNotification = null);
+                      PdfReceiptService.openPdfPreviewDialog(
+                        context: context,
+                        bill: savedBillRecord,
+                        onThermalPrint: (lang) => executeReprintThermalBill(
                           context: context,
+                          bluetooth: bluetooth,
                           bill: savedBillRecord,
-                          onThermalPrint: (lang) => executeReprintThermalBill(
-                            context: context,
-                            bluetooth: bluetooth,
-                            bill: savedBillRecord,
-                            language: lang,
-                          ),
-                        );
-                      },
+                          language: lang,
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    icon: const Icon(Icons.share, color: Colors.white, size: 14),
+                    label: const Text("WHATSAPP", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                    style: TextButton.styleFrom(
+                      backgroundColor: const Color(0xFF25D366),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
-                    const SizedBox(width: 4),
-                    TextButton.icon(
-                      icon: const Icon(Icons.share, color: Color(0xFF25D366), size: 16),
-                      label: const Text("WHATSAPP", style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                        PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: savedBillRecord);
-                      },
-                    ),
-                  ],
-                ),
-                duration: const Duration(seconds: 8),
-                action: SnackBarAction(
-                  label: "THERMAL",
-                  textColor: Colors.white,
-                  onPressed: () => _openReprintPreview(savedBillRecord),
-                ),
+                    onPressed: () {
+                      posTopNotificationTimer?.cancel();
+                      setState(() => posTopNotification = null);
+                      PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: savedBillRecord);
+                    },
+                  ),
+                ],
               ),
             );
           }
         } else {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Printer lost connection. Bill Saved to Cloud Only.")));
+            _showPosNotification("Printer lost connection. Bill Saved to Cloud Only.", color: Colors.amber.shade900, icon: Icons.print_disabled);
           }
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Printer Error: $e. Bill Saved to Cloud Only.")));
+          _showPosNotification("Printer Error: $e. Bill Saved to Cloud Only.", color: Colors.red.shade800, icon: Icons.error_outline);
         }
       }
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Text("Bill Saved!"),
-                const Spacer(),
-                TextButton.icon(
-                  icon: const Icon(Icons.picture_as_pdf, color: Colors.amberAccent, size: 16),
-                  label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                    PdfReceiptService.openPdfPreviewDialog(
+        _showPosNotification(
+          "Bill Saved! (Printer not connected)",
+          color: const Color(0xFF1E3A8A),
+          icon: Icons.cloud_done,
+          duration: const Duration(seconds: 5),
+          action: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextButton.icon(
+                icon: const Icon(Icons.picture_as_pdf, color: Colors.amberAccent, size: 14),
+                label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 11)),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                onPressed: () {
+                  posTopNotificationTimer?.cancel();
+                  setState(() => posTopNotification = null);
+                  PdfReceiptService.openPdfPreviewDialog(
+                    context: context,
+                    bill: savedBillRecord,
+                    onThermalPrint: (lang) => executeReprintThermalBill(
                       context: context,
+                      bluetooth: bluetooth,
                       bill: savedBillRecord,
-                      onThermalPrint: (lang) => executeReprintThermalBill(
-                        context: context,
-                        bluetooth: bluetooth,
-                        bill: savedBillRecord,
-                        language: lang,
-                      ),
-                    );
-                  },
+                      language: lang,
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(width: 4),
+              TextButton.icon(
+                icon: const Icon(Icons.share, color: Colors.white, size: 14),
+                label: const Text("WHATSAPP", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                style: TextButton.styleFrom(
+                  backgroundColor: const Color(0xFF25D366),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                const SizedBox(width: 4),
-                TextButton.icon(
-                  icon: const Icon(Icons.share, color: Color(0xFF25D366), size: 16),
-                  label: const Text("WHATSAPP", style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                    PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: savedBillRecord);
-                  },
-                ),
-              ],
-            ),
-            duration: const Duration(seconds: 8),
-            action: SnackBarAction(
-              label: "THERMAL",
-              textColor: Colors.white,
-              onPressed: () => _openReprintPreview(savedBillRecord),
-            ),
+                onPressed: () {
+                  posTopNotificationTimer?.cancel();
+                  setState(() => posTopNotification = null);
+                  PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: savedBillRecord);
+                },
+              ),
+            ],
           ),
         );
       }
@@ -5334,16 +5645,12 @@ class _PosScreenState extends State<PosScreen> {
         }
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("No previous bills found to reprint.")),
-          );
+          _showPosNotification("No previous bills found to reprint.", color: Colors.grey.shade800, icon: Icons.info_outline);
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error fetching last bill: $e")),
-        );
+        _showPosNotification("Error fetching last bill: $e", color: Colors.red.shade800, icon: Icons.error_outline);
       }
     }
   }
@@ -5524,6 +5831,8 @@ class _PosScreenState extends State<PosScreen> {
       ),
       body: Column(
         children: [
+          if (_buildTopNotificationBanner() != null)
+            _buildTopNotificationBanner()!,
           Expanded(
             flex: 4,
             child: Material(
@@ -5859,6 +6168,8 @@ class _PosScreenState extends State<PosScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            if (_buildTopNotificationBanner() != null)
+              _buildTopNotificationBanner()!,
             const Padding(padding: EdgeInsets.all(16.0), child: Text("CHECKOUT", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2))),
             Expanded(
               child: Container(
@@ -6818,23 +7129,50 @@ typedef InventoryQrScreen = BarcodeLabelPrinterScreen;
 // ==========================================
 // QR CAMERA SCANNER SCREEN
 // ==========================================
+// ==========================================
+// UNIVERSAL QR & BARCODE CAMERA SCANNER SCREEN
+// Supports both Single Scan (POS/Search) and Dual Scan (Box Barcode + Shelf Sticker)
+// ==========================================
 class QRScannerScreen extends StatefulWidget {
   final String title;
-  const QRScannerScreen({Key? key, this.title = "Scan Barcode / QR Label"}) : super(key: key);
+  final bool isDualScanMode;
+  final String? initialProductBarcode;
+  final String? initialShelfCode;
+
+  const QRScannerScreen({
+    Key? key,
+    this.title = "Universal Barcode Scanner",
+    this.isDualScanMode = false,
+    this.initialProductBarcode,
+    this.initialShelfCode,
+  }) : super(key: key);
+
   @override
   State<QRScannerScreen> createState() => _QRScannerScreenState();
 }
 
 class _QRScannerScreenState extends State<QRScannerScreen> {
   late final MobileScannerController controller;
-  bool isDetected = false;
+  bool isCompleted = false;
+  String? registeredProductBarcode;
+  String? registeredShelfCode;
+  String lastScannedCode = "";
+  DateTime lastScanTime = DateTime.fromMillisecondsSinceEpoch(0);
+  String statusFeedback = "Align Box Barcode or Shelf QR in camera viewfinder";
 
   @override
   void initState() {
     super.initState();
+    registeredProductBarcode = (widget.initialProductBarcode ?? '').trim().isNotEmpty
+        ? widget.initialProductBarcode!.trim()
+        : null;
+    registeredShelfCode = (widget.initialShelfCode ?? '').trim().isNotEmpty
+        ? widget.initialShelfCode!.trim()
+        : null;
+
     controller = MobileScannerController(
       formats: const [BarcodeFormat.all],
-      detectionSpeed: DetectionSpeed.noDuplicates,
+      detectionSpeed: DetectionSpeed.normal,
     );
   }
 
@@ -6844,12 +7182,78 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
     super.dispose();
   }
 
+  void _finishAndPop() {
+    if (isCompleted) return;
+    isCompleted = true;
+    HapticFeedback.mediumImpact();
+    controller.stop();
+    if (widget.isDualScanMode) {
+      Navigator.pop(context, {
+        'product_barcode': registeredProductBarcode,
+        'shelf_code': registeredShelfCode,
+      });
+    } else {
+      Navigator.pop(context, registeredProductBarcode ?? registeredShelfCode ?? lastScannedCode);
+    }
+  }
+
+  void _handleDetectedBarcode(String rawCode) {
+    if (isCompleted) return;
+    final clean = rawCode.trim();
+    if (clean.isEmpty) return;
+
+    final now = DateTime.now();
+    if (clean == lastScannedCode && now.difference(lastScanTime).inMilliseconds < 1000) {
+      return;
+    }
+    lastScannedCode = clean;
+    lastScanTime = now;
+
+    final type = classifyScannedCode(clean);
+
+    if (!widget.isDualScanMode) {
+      isCompleted = true;
+      HapticFeedback.mediumImpact();
+      controller.stop();
+      Navigator.pop(context, clean);
+      return;
+    }
+
+    // Dual-scan mode:
+    HapticFeedback.heavyImpact();
+    setState(() {
+      if (type == ScannedCodeType.productBarcode) {
+        registeredProductBarcode = clean;
+        statusFeedback = "✅ Product Barcode: $clean registered!";
+      } else {
+        final parsed = ShelfCodeBreakdown.parse(clean);
+        registeredShelfCode = parsed.fullCode.isNotEmpty ? parsed.fullCode : clean.toUpperCase();
+        statusFeedback = "✅ Shelf Sticker: $registeredShelfCode registered!";
+      }
+    });
+
+    // Check if both are now registered:
+    final hasProduct = (registeredProductBarcode ?? '').isNotEmpty;
+    final hasShelf = (registeredShelfCode ?? '').isNotEmpty;
+
+    if (hasProduct && hasShelf) {
+      setState(() {
+        statusFeedback = "🎉 Both Scans Registered! Returning to form...";
+      });
+      Future.delayed(const Duration(milliseconds: 650), () {
+        if (mounted) _finishAndPop();
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final int scannedCount = (registeredProductBarcode != null ? 1 : 0) + (registeredShelfCode != null ? 1 : 0);
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text(widget.title),
+        title: Text(widget.title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         actions: [
@@ -6867,28 +7271,24 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
       ),
       body: Stack(
         children: [
+          // Camera feed
           MobileScanner(
             controller: controller,
             onDetect: (BarcodeCapture capture) {
-              if (isDetected) return;
               final List<Barcode> barcodes = capture.barcodes;
               if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
-                final String code = barcodes.first.rawValue!.trim();
-                if (code.isNotEmpty) {
-                  isDetected = true;
-                  HapticFeedback.mediumImpact();
-                  controller.stop();
-                  Navigator.pop(context, code);
-                }
+                _handleDetectedBarcode(barcodes.first.rawValue!);
               }
             },
           ),
+
+          // Center Viewfinder
           Center(
             child: Container(
               width: 280,
               height: 200,
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.greenAccent, width: 2.5),
+                border: Border.all(color: scannedCount >= 1 ? Colors.greenAccent : Colors.cyanAccent, width: 2.5),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Column(
@@ -6898,16 +7298,170 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
                     margin: const EdgeInsets.only(top: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
-                    child: const Text("Align Barcode or QR Sticker", style: TextStyle(color: Colors.white, fontSize: 12)),
+                    child: Text(
+                      widget.isDualScanMode
+                          ? "Point at Product Box or Shelf Sticker"
+                          : "Align Barcode or QR Sticker",
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
                   ),
                   Container(
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(6)),
-                    child: const Text("Supports Shelf Stickers & Product Barcodes", style: TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                    child: Text(
+                      widget.isDualScanMode
+                          ? "Scans Both: Box Barcode & Shelf Sticker"
+                          : "Supports Shelf Stickers & Product Barcodes",
+                      style: TextStyle(
+                        color: scannedCount >= 1 ? Colors.greenAccent : Colors.cyanAccent,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ],
               ),
+            ),
+          ),
+
+          // Top Live Dual-Scan HUD (shows registration status of both scans)
+          if (widget.isDualScanMode)
+            Positioned(
+              top: 10,
+              left: 14,
+              right: 14,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.85),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Product Barcode Status
+                    Row(
+                      children: [
+                        Icon(
+                          registeredProductBarcode != null ? Icons.check_circle : Icons.inventory_2_outlined,
+                          color: registeredProductBarcode != null ? Colors.greenAccent : Colors.white60,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            registeredProductBarcode != null
+                                ? "📦 Box Barcode: $registeredProductBarcode"
+                                : "📦 Product Box Barcode: Waiting for scan...",
+                            style: TextStyle(
+                              color: registeredProductBarcode != null ? Colors.greenAccent : Colors.white70,
+                              fontSize: 12,
+                              fontWeight: registeredProductBarcode != null ? FontWeight.bold : FontWeight.normal,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (registeredProductBarcode != null)
+                          GestureDetector(
+                            onTap: () => setState(() => registeredProductBarcode = null),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 4),
+                              child: Icon(Icons.close, color: Colors.white54, size: 16),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const Divider(color: Colors.white24, height: 10),
+                    // Shelf Location Status
+                    Row(
+                      children: [
+                        Icon(
+                          registeredShelfCode != null ? Icons.check_circle : Icons.shelves,
+                          color: registeredShelfCode != null ? Colors.greenAccent : Colors.white60,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            registeredShelfCode != null
+                                ? "📍 Shelf Sticker: $registeredShelfCode"
+                                : "📍 Shelf Sticker / QR: Waiting for scan...",
+                            style: TextStyle(
+                              color: registeredShelfCode != null ? Colors.greenAccent : Colors.white70,
+                              fontSize: 12,
+                              fontWeight: registeredShelfCode != null ? FontWeight.bold : FontWeight.normal,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (registeredShelfCode != null)
+                          GestureDetector(
+                            onTap: () => setState(() => registeredShelfCode = null),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 4),
+                              child: Icon(Icons.close, color: Colors.white54, size: 16),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // Bottom Feedback & Action Button
+          Positioned(
+            bottom: 24,
+            left: 16,
+            right: 16,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: scannedCount >= 1 ? Colors.greenAccent : Colors.white24),
+                  ),
+                  child: Text(
+                    statusFeedback,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: scannedCount >= 1 ? Colors.greenAccent : Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                if (widget.isDualScanMode && scannedCount > 0) ...[
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.check_circle, size: 20),
+                      label: Text(
+                        scannedCount == 2
+                            ? "APPLY BOTH SCANS"
+                            : "APPLY SCANNED ($scannedCount/2)",
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        elevation: 4,
+                      ),
+                      onPressed: _finishAndPop,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
         ],

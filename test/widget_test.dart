@@ -560,6 +560,146 @@ void main() {
       // Verify item name and MRP are auto-populated!
       expect(find.text("Lakme Eyeconic Kajal Deep Black"), findsOneWidget);
       expect(find.text("190"), findsWidgets);
+
+      // Verify the Unique Scanner top button is rendered
+      expect(find.text("⚡ UNIQUE SCANNER (BOX & SHELF IN 1 GO)"), findsOneWidget);
+      expect(find.text("Scan box barcode & shelf sticker in 1 camera session"), findsOneWidget);
+    });
+
+    test('classifyScannedCode correctly classifies product box barcodes and shelf stickers', () {
+      // Commercial product barcodes (EAN-13, EAN-8, UPC, Indian 890...)
+      expect(classifyScannedCode("8901030732585"), ScannedCodeType.productBarcode);
+      expect(classifyScannedCode("8901030839122"), ScannedCodeType.productBarcode);
+      expect(classifyScannedCode("012345678905"), ScannedCodeType.productBarcode);
+      expect(classifyScannedCode("4006381333931"), ScannedCodeType.productBarcode);
+
+      // Shelf sticker codes and QR codes (hyphenated, rack-col-row-item, alphanumeric, short numeric)
+      expect(classifyScannedCode("01-03-C-134"), ScannedCodeType.shelfCode);
+      expect(classifyScannedCode("01-03-C"), ScannedCodeType.shelfCode);
+      expect(classifyScannedCode("02-05-A-12"), ScannedCodeType.shelfCode);
+      expect(classifyScannedCode("PENDING-1"), ScannedCodeType.shelfCode);
+      expect(classifyScannedCode("134"), ScannedCodeType.shelfCode);
+      expect(classifyScannedCode("SHELF-01"), ScannedCodeType.shelfCode);
+    });
+
+    testWidgets('QRScannerScreen renders dual scan mode HUD and viewfinder', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: QRScannerScreen(
+            title: "Unique Scanner (Box & Shelf)",
+            isDualScanMode: true,
+            initialProductBarcode: "8901030732585",
+            initialShelfCode: null,
+          ),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Title & dual mode viewfinder
+      expect(find.text("Unique Scanner (Box & Shelf)"), findsOneWidget);
+      expect(find.text("Point at Product Box or Shelf Sticker"), findsOneWidget);
+      expect(find.text("Scans Both: Box Barcode & Shelf Sticker"), findsOneWidget);
+
+      // Live Dual Scan HUD
+      expect(find.text("📦 Box Barcode: 8901030732585"), findsOneWidget);
+      expect(find.text("📍 Shelf Sticker / QR: Waiting for scan..."), findsOneWidget);
+
+      // Partial apply button
+      expect(find.text("APPLY SCANNED (1/2)"), findsOneWidget);
+    });
+
+    testWidgets('Add Item dialog smart cross-routes barcodes typed into wrong fields', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: ItemCatalogScreen(),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // Tap "+ Add Item" FAB
+      await tester.tap(find.widgetWithText(FloatingActionButton, "Add Item"));
+      await tester.pump(const Duration(milliseconds: 400));
+
+      final companyBarcodeField = find.widgetWithText(TextField, "Company Barcode (Optional)");
+      final shelfCodeField = find.widgetWithText(TextField, "Shelf Location & Item Code");
+
+      // Enter shelf code "01-03-C-134" into companyBarcodeField
+      await tester.enterText(companyBarcodeField, "01-03-C-134");
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Should automatically cross-route to shelfCodeField!
+      final shelfFieldWidget = tester.widget<TextField>(shelfCodeField);
+      expect(shelfFieldWidget.controller?.text, "01-03-C-134");
+
+      final companyFieldWidget = tester.widget<TextField>(companyBarcodeField);
+      expect(companyFieldWidget.controller?.text, "");
+    });
+
+    test('General Store FMCG Catalog resolves authentic FMCG products offline in 0ms', () {
+      // 1. Colgate Strong Teeth
+      final colgate = findCosmeticByBarcode("8901314051025");
+      expect(colgate, isNotNull);
+      expect(colgate!['brand'], "Colgate");
+      expect(colgate['name'], contains("Strong Teeth"));
+
+      // 2. Maggi 2-Minute Noodles
+      final maggi = findCosmeticByBarcode("8901058852396");
+      expect(maggi, isNotNull);
+      expect(maggi!['brand'], "Maggi");
+      expect(maggi['price'], 14.0);
+
+      // 3. Surf Excel Quick Wash Detergent
+      final surfExcel = findCosmeticByBarcode("8901030001117");
+      expect(surfExcel, isNotNull);
+      expect(surfExcel!['brand'], "Surf Excel");
+
+      // 4. Dettol Antiseptic Liquid
+      final dettol = findCosmeticByBarcode("8901199000100");
+      expect(dettol, isNotNull);
+      expect(dettol!['brand'], "Dettol");
+
+      // 5. Parle-G Biscuits
+      final parleG = findCosmeticByBarcode("8901719101017");
+      expect(parleG, isNotNull);
+      expect(parleG!['brand'], "Parle");
+      expect(parleG['price'], 5.0);
+
+      // 6. Tata Salt
+      final tataSalt = findCosmeticByBarcode("8901052000106");
+      expect(tataSalt, isNotNull);
+      expect(tataSalt!['brand'], "Tata");
+
+      // 7. Harpic Toilet Cleaner
+      final harpic = findCosmeticByBarcode("8901396000108");
+      expect(harpic, isNotNull);
+      expect(harpic!['brand'], "Harpic");
+    });
+
+    testWidgets('PosScreen renders top notification banner and keeps keypad area free of bottom snackbars', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: PosScreen(userName: "Cashier", userEmail: "cashier@lovekush.com", isAdmin: true),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text("LOVE KUSH SHOPPING CENTER"), findsOneWidget);
+
+      final state = tester.state(find.byType(PosScreen)) as dynamic;
+      state.setState(() {
+        state.posTopNotification = "Bill Saved & Printed!";
+        state.posTopNotificationColor = const Color(0xFF166534);
+      });
+      await tester.pump();
+
+      expect(find.text("Bill Saved & Printed!"), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
+
+      // Tap close icon to dismiss
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pump();
+
+      expect(find.text("Bill Saved & Printed!"), findsNothing);
     });
   });
 }
