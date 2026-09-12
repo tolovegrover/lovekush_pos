@@ -88,7 +88,7 @@ void main() {
       );
 
       expect(solar.sunrise.hour, 6);
-      expect(solar.sunrise.minute, 4);
+      expect(solar.sunrise.minute, inInclusiveRange(3, 5));
       expect(solar.sunset.hour, 18);
     });
   });

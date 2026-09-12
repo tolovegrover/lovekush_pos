@@ -28,10 +28,17 @@ void main() {
       expect(find.textContaining("श्री गणेशाय नमः"), findsOneWidget);
       expect(find.textContaining("वैदिक समय (घटी : पल : विपल)"), findsOneWidget);
       expect(find.textContaining("60 घटी मान"), findsOneWidget);
+      expect(find.textContaining("2.5x"), findsWidgets);
+      expect(find.textContaining("वैदिक समय की गति तेज क्यों होती है?"), findsOneWidget);
       expect(find.textContaining("सूर्योदय (Sunrise)"), findsOneWidget);
       expect(find.textContaining("सूर्यास्त (Sunset)"), findsOneWidget);
       expect(find.textContaining("दैनिक शुद्ध पञ्चाङ्ग"), findsOneWidget);
       expect(find.textContaining("विक्रम संवत्"), findsWidgets);
+
+      // Tap 30-Ghati toggle
+      await tester.tap(find.text("30 घटी समय (12h चक्र)"));
+      await tester.pump();
+      expect(find.textContaining("30 घटी मान"), findsOneWidget);
     });
 
     testWidgets('VedicClockScreen Converter tab converts clock time to vedic and vice-versa', (tester) async {

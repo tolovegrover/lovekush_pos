@@ -31,6 +31,9 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
   DateTime? _convertedClockTime;
   String _converter2Breakdown = "";
 
+  // Mode: 60 Ghati (24h Ahoratra) vs 30 Ghati (12h cycle)
+  bool _is30GhatiMode = false;
+
   @override
   void initState() {
     super.initState();
@@ -41,7 +44,9 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
   }
 
   void _startClock() {
-    _ticker = Timer.periodic(const Duration(seconds: 1), (timer) {
+    // 1 Vipal = 0.4 seconds = 400 milliseconds.
+    // Ticking every 400ms allows the Vedic Vipal counter to increment smoothly 1-by-1
+    _ticker = Timer.periodic(const Duration(milliseconds: 400), (timer) {
       if (mounted) {
         setState(() {
           _now = DateTime.now();
@@ -113,6 +118,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
     breakdown.writeln("7. शेष सेकण्ड: $remAfterGhati - $palSec = $remAfterPal सेकण्ड");
     breakdown.writeln("8. विपल गणना: $remAfterPal ÷ 0.4 = ${vt.vipal.toStringAsFixed(1)} विपल (1 विपल = 0.4 सेकण्ड)");
     breakdown.writeln("👉 परिणाम (Result): ${vt.toNumericString()} घटी:पल:विपल");
+    breakdown.writeln("⚡ गति नियम (2.5x Speed Rule): 1 सामान्य घंटा = 2.5 घटी (2 घटी 30 पल)। 60 घटी ÷ 24 घंटे = 2.5 गुना गति।");
 
     setState(() {
       _convertedVedicTime = vt;
@@ -326,41 +332,103 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                   ],
                 ),
                 const SizedBox(height: 12),
-                const Text("वैदिक समय (घटी : पल : विपल)", style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 1)),
-                const SizedBox(height: 6),
 
-                // Devanagari Digits
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    VedicTime.toDevanagariDigits(liveVedic.toNumericString()),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 54,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 2,
-                      fontFamily: 'serif',
-                    ),
-                  ),
-                ),
-
-                // English Digits
+                // 30 Ghati vs 60 Ghati Mode Toggle
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  padding: const EdgeInsets.all(3),
                   decoration: BoxDecoration(
                     color: Colors.black26,
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Text(
-                    "${liveVedic.toNumericString()} (60 घटी मान)",
-                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GestureDetector(
+                        onTap: () => setState(() => _is30GhatiMode = false),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: !_is30GhatiMode ? Colors.white : Colors.transparent,
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Text(
+                            "60 घटी समय (24h चक्र)",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: !_is30GhatiMode ? const Color(0xFFB45309) : Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => setState(() => _is30GhatiMode = true),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: _is30GhatiMode ? Colors.white : Colors.transparent,
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                          child: Text(
+                            "30 घटी समय (12h चक्र)",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: _is30GhatiMode ? const Color(0xFFB45309) : Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 10),
 
+                const Text("वैदिक समय (घटी : पल : विपल)", style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 1)),
+                const SizedBox(height: 6),
+
+                // Devanagari Digits
+                Builder(builder: (context) {
+                  final displayGhati = _is30GhatiMode ? (liveVedic.ghati % 30) : liveVedic.ghati;
+                  final timeStr = "${displayGhati.toString().padLeft(2, '0')}:${liveVedic.pal.toString().padLeft(2, '0')}:${liveVedic.vipal.round().toString().padLeft(2, '0')}";
+                  return FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      VedicTime.toDevanagariDigits(timeStr),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 54,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2,
+                        fontFamily: 'serif',
+                      ),
+                    ),
+                  );
+                }),
+
+                // English Digits
+                Builder(builder: (context) {
+                  final displayGhati = _is30GhatiMode ? (liveVedic.ghati % 30) : liveVedic.ghati;
+                  final timeStr = "${displayGhati.toString().padLeft(2, '0')}:${liveVedic.pal.toString().padLeft(2, '0')}:${liveVedic.vipal.round().toString().padLeft(2, '0')}";
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black26,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      "$timeStr (${_is30GhatiMode ? '30 घटी मान' : '60 घटी मान'})",
+                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 10),
+
                 // Verbal Hindi
                 Text(
-                  liveVedic.toVerboseHindi(),
+                  _is30GhatiMode
+                      ? "${VedicTime.toDevanagariDigits(liveVedic.ghati % 30)} घटी, ${VedicTime.toDevanagariDigits(liveVedic.pal)} पल, ${VedicTime.toDevanagariDigits(liveVedic.vipal.round())} विपल"
+                      : liveVedic.toVerboseHindi(),
                   style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
                 ),
                 const Divider(color: Colors.white24, height: 24),
@@ -393,6 +461,113 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                       ],
                     ),
                   ],
+                ),
+
+                // Speed Ratio Banner
+                Container(
+                  margin: const EdgeInsets.only(top: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.35),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.bolt, color: Colors.amberAccent, size: 16),
+                      SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          "चक्र गति: 2.5x तेज — 1 सेकण्ड = 2.5 विपल | 24 मिनट = 1 घटी",
+                          style: TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // 2. SPEED RATIO EXPLANATION CARD (WHY VEDIC TIME RUNS 2.5X FASTER)
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.amber.shade300),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6, offset: const Offset(0, 2)),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.speed, color: Color(0xFFD97706), size: 20),
+                    SizedBox(width: 8),
+                    Text("वैदिक समय की गति तेज क्यों होती है? (2.5x Speed)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF92400E))),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  "वैदिक प्रणाली में 24 घण्टे के अहोरात्र को 60 घटियों में बाँटा गया है (24 के स्थान पर 60)।\n"
+                  "अतः वैदिक समय सामान्य घड़ी से ठीक २.५ गुना तेज (60 ÷ 24 = 2.5x) चलता है:",
+                  style: TextStyle(fontSize: 12, height: 1.4, color: Colors.black87),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade300)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text("आधुनिक घड़ी (24h)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Colors.blueGrey)),
+                            SizedBox(height: 4),
+                            Text("• 1 सेकण्ड = 1 सेकण्ड\n• 1 मिनट = 60 सेकण्ड\n• 1 घण्टा = 60 मिनट\n• 24 घण्टे = 1 दिन", style: TextStyle(fontSize: 11, height: 1.4)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(color: const Color(0xFFFFFBEB), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.amber.shade300)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text("वैदिक घड़ी (60 घटी)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF92400E))),
+                            SizedBox(height: 4),
+                            Text("• 1 सेकण्ड = 2.5 विपल (तेज)\n• 24 सेकण्ड = 1 पल (तेज)\n• 24 मिनट = 1 घटी (तेज)\n• 60 घटी = 1 दिन (2.5x)", style: TextStyle(fontSize: 11, height: 1.4, color: Color(0xFF92400E))),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(6)),
+                  child: Row(
+                    children: const [
+                      Icon(Icons.info_outline, size: 16, color: Color(0xFFD97706)),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          "प्रत्येक 1 घण्टे में वैदिक समय ठीक +2 घटी 30 पल (+2.5 घटी) आगे बढ़ता है।",
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -698,6 +873,18 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                       _secCtrl.text = "06";
                       _performClockToVedicConversion();
                     }),
+                    _buildPresetChip("14:27:06 (+1h -> +2.5 घटी)", () {
+                      _hourCtrl.text = "14";
+                      _minCtrl.text = "27";
+                      _secCtrl.text = "06";
+                      _performClockToVedicConversion();
+                    }),
+                    _buildPresetChip("15:27:06 (+2h -> +5.0 घटी)", () {
+                      _hourCtrl.text = "15";
+                      _minCtrl.text = "27";
+                      _secCtrl.text = "06";
+                      _performClockToVedicConversion();
+                    }),
                     _buildPresetChip("18:30:28 (सूर्यास्त)", () {
                       _hourCtrl.text = "18";
                       _minCtrl.text = "30";
@@ -935,6 +1122,35 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                     _buildTableRow("१ पल / विघटी (Pal)", "२४ सेकण्ड (24 Secs)", "पल × २४ = सेकण्ड (१ घटी = ६० पल)"),
                     _buildTableRow("१ विपल (Vipal)", "०.४ सेकण्ड (0.4 Sec)", "विपल × ०.४ = सेकण्ड (१ पल = ६० विपल)"),
                   ],
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFFBEB),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.amber.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text("वैदिक समय की गति २.५ गुना तेज क्यों होती है? (Mathematical Proof of 2.5x Speed)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF92400E))),
+                SizedBox(height: 10),
+                Text(
+                  "अक्सर लोग यह देखकर आश्चर्यचकित होते हैं कि वैदिक समय की घटी और पल सामान्य घड़ी से तेज चल रहे हैं। यह कोई त्रुटि नहीं है, अपितु प्रामाणिक खगोलीय गणित का नियम है:\n\n"
+                  "१. एक पूर्ण अहोरात्र (पृथ्वी का एक घूर्णन) = २४ आधुनिक घण्टे = ६० वैदिक घटी।\n"
+                  "२. गति अनुपात: ६० घटी ÷ २४ घण्टे = २.५ गुना (2.5x)।\n"
+                  "३. १ आधुनिक घण्टा = ठीक २.५ घटी (२ घटी ३० पल)।\n"
+                  "४. १ आधुनिक मिनट = ठीक २.५ पल (२ पल ३० विपल)।\n"
+                  "५. १ आधुनिक सेकण्ड = ठीक २.५ विपल (क्योंकि १ विपल = ०.४ सेकण्ड)।\n\n"
+                  "६. कुल दिन का चक्र:\n"
+                  "   • आधुनिक दिन = २४ × ६० × ६० = ८६,४०० सेकण्ड\n"
+                  "   • वैदिक दिन = ६० × ६० × ६० = २,१६,००० विपल\n"
+                  "   • २,१६,००० ÷ ८६,४०० = ठीक २.५ (२.५ गुना विपल प्रति सेकण्ड)\n\n"
+                  "अतः यदि आपकी कलाई घड़ी पर १ घण्टा व्यतीत होता है, तो वैदिक घड़ी पर २ घटी ३० पल आगे बढ़ेगा।",
+                  style: TextStyle(fontSize: 12, height: 1.5, color: Colors.black87),
                 ),
               ],
             ),
