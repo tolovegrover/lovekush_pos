@@ -12,6 +12,12 @@ import 'package:url_launcher/url_launcher.dart';
 // LOVE KUSH POS - PDF RECEIPT & WHATSAPP SERVICE
 // ==========================================
 
+/// Language options for receipts and invoices
+enum ReceiptLanguage {
+  hindi,
+  english,
+}
+
 class PdfReceiptService {
   static pw.Font? _cachedSiddhantaCalcutta;
   static pw.Font? _cachedHindiRegular;
@@ -99,6 +105,15 @@ class PdfReceiptService {
     final exp = RegExp(r'((?:[\u0915-\u0939\u0958-\u095F][\u094D])*[\u0915-\u0939\u0958-\u095F])[\u093F]');
     return text.replaceAllMapped(exp, (m) => '\u093F${m.group(1)}');
   }
+
+  /// Format payment method in Hindi
+  static String _paymentModeHindi(String method) {
+    final m = method.toLowerCase();
+    if (m.contains("cash")) return "नकद (CASH)";
+    if (m.contains("online") || m.contains("upi") || m.contains("gpay") || m.contains("paytm")) return "ऑनलाइन / UPI";
+    if (m.contains("card")) return "कार्ड (CARD)";
+    return method;
+  }
   /// Robust double parser for String, num, double, int, or null
   static double _toDouble(dynamic val, [double defaultVal = 0.0]) {
     if (val == null) return defaultVal;
@@ -141,6 +156,7 @@ class PdfReceiptService {
     Map<String, dynamic> bill, {
     Uint8List? logoBytes,
     PdfPageFormat? pageFormat,
+    ReceiptLanguage language = ReceiptLanguage.hindi,
   }) async {
     final theme = await _loadTheme();
     final doc = pw.Document(theme: theme);
@@ -217,64 +233,89 @@ class PdfReceiptService {
           ),
         ],
 
-        // Store Titles (Hindi & English)
-        pw.Center(
-          child: pw.Text(
-            _fixDevanagari("लव कुश शॉपिङ्ग सेण्टर"),
-            style: pw.TextStyle(
-              fontSize: 13,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.black,
+        // Store Titles & Header
+        if (language == ReceiptLanguage.hindi) ...[
+          pw.Center(
+            child: pw.Text(
+              _fixDevanagari("लव कुश शॉपिङ्ग सेण्टर"),
+              style: pw.TextStyle(
+                fontSize: 13.5,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.black,
+              ),
             ),
           ),
-        ),
-        pw.Center(
-          child: pw.Text(
-            "LOVE KUSH",
-            style: pw.TextStyle(
-              fontSize: 13,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.black,
+          pw.SizedBox(height: 1),
+          pw.Center(
+            child: pw.Text(
+              _fixDevanagari(counterName.toLowerCase().contains("basement") ? "बेसमेंट काउंटर" : counterName),
+              style: const pw.TextStyle(
+                fontSize: 8,
+                color: PdfColors.grey800,
+              ),
             ),
           ),
-        ),
-        pw.Center(
-          child: pw.Text(
-            "SHOPPING CENTER",
-            style: pw.TextStyle(
-              fontSize: 10.5,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.black,
+          pw.Center(
+            child: pw.Text(
+              _fixDevanagari("*** खुदरा रोकड़ पर्ची ***"),
+              style: pw.TextStyle(
+                fontSize: 7.5,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.grey700,
+              ),
             ),
           ),
-        ),
-        pw.SizedBox(height: 1),
-        pw.Center(
-          child: pw.Text(
-            counterName.toUpperCase(),
-            style: const pw.TextStyle(
-              fontSize: 8,
-              color: PdfColors.grey800,
+        ] else ...[
+          pw.Center(
+            child: pw.Text(
+              "LOVE KUSH",
+              style: pw.TextStyle(
+                fontSize: 13,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.black,
+              ),
             ),
           ),
-        ),
-        pw.Center(
-          child: pw.Text(
-            "*** RETAIL CASH MEMO ***",
-            style: pw.TextStyle(
-              fontSize: 7.5,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.grey700,
+          pw.Center(
+            child: pw.Text(
+              "SHOPPING CENTER",
+              style: pw.TextStyle(
+                fontSize: 10.5,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.black,
+              ),
             ),
           ),
-        ),
+          pw.SizedBox(height: 1),
+          pw.Center(
+            child: pw.Text(
+              counterName.toUpperCase(),
+              style: const pw.TextStyle(
+                fontSize: 8,
+                color: PdfColors.grey800,
+              ),
+            ),
+          ),
+          pw.Center(
+            child: pw.Text(
+              "*** RETAIL CASH MEMO ***",
+              style: pw.TextStyle(
+                fontSize: 7.5,
+                fontWeight: pw.FontWeight.bold,
+                color: PdfColors.grey700,
+              ),
+            ),
+          ),
+        ],
 
         // Bill No & Code 128 Barcode
         if (billNo != "N/A" && billNo.isNotEmpty) ...[
           pw.SizedBox(height: 3),
           pw.Center(
             child: pw.Text(
-              "BILL NO: $billNo",
+              language == ReceiptLanguage.hindi
+                  ? _fixDevanagari("बिल सं. (BILL NO): $billNo")
+                  : "BILL NO: $billNo",
               style: pw.TextStyle(
                 fontSize: 9,
                 fontWeight: pw.FontWeight.bold,
@@ -299,15 +340,27 @@ class PdfReceiptService {
         pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
-            pw.Text("Date: $formattedDate", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black)),
-            pw.Text("Cashier: $staffName", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black)),
+            pw.Text(
+              language == ReceiptLanguage.hindi
+                  ? _fixDevanagari("दिनांक: $formattedDate")
+                  : "Date: $formattedDate",
+              style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black),
+            ),
+            pw.Text(
+              language == ReceiptLanguage.hindi
+                  ? _fixDevanagari("कैशियर: $staffName")
+                  : "Cashier: $staffName",
+              style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black),
+            ),
           ],
         ),
         pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
             pw.Text(
-              "Payment: ${paymentMethod.toUpperCase()}",
+              language == ReceiptLanguage.hindi
+                  ? _fixDevanagari("भुगतान: ${_paymentModeHindi(paymentMethod)}")
+                  : "Payment: ${paymentMethod.toUpperCase()}",
               style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
             ),
           ],
@@ -322,21 +375,38 @@ class PdfReceiptService {
           children: [
             pw.Expanded(
               flex: 5,
-              child: pw.Text("ITEM", style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+              child: pw.Text(
+                language == ReceiptLanguage.hindi
+                    ? _fixDevanagari("सामान (ITEM)")
+                    : "ITEM",
+                style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+              ),
             ),
             pw.Expanded(
               flex: 4,
-              child: pw.Text("QTY x RATE", textAlign: pw.TextAlign.center, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+              child: pw.Text(
+                language == ReceiptLanguage.hindi
+                    ? _fixDevanagari("मात्रा x दर")
+                    : "QTY x RATE",
+                textAlign: pw.TextAlign.center,
+                style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+              ),
             ),
             pw.Expanded(
               flex: 3,
-              child: pw.Text("AMOUNT", textAlign: pw.TextAlign.right, style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+              child: pw.Text(
+                language == ReceiptLanguage.hindi
+                    ? _fixDevanagari("रकम (AMOUNT)")
+                    : "AMOUNT",
+                textAlign: pw.TextAlign.right,
+                style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+              ),
             ),
           ],
         ),
         pw.Divider(thickness: 0.5, color: PdfColors.grey600, borderStyle: pw.BorderStyle.dashed),
 
-        // Minimal Item Rows (Thermal printer style)
+        // Minimal Item Rows (Item names in English as requested)
         for (final item in receiptItems) ...[
           pw.Padding(
             padding: const pw.EdgeInsets.symmetric(vertical: 2),
@@ -353,12 +423,16 @@ class PdfReceiptService {
                     pw.SizedBox(width: 4),
                     pw.Expanded(
                       child: pw.Text(
-                        "${item.qty} x Rs ${item.rate.toStringAsFixed(2)}",
+                        language == ReceiptLanguage.hindi
+                            ? "${item.qty} x Rs ${item.rate.toStringAsFixed(2)}"
+                            : "${item.qty} x Rs ${item.rate.toStringAsFixed(2)}",
                         style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
                       ),
                     ),
                     pw.Text(
-                      "Rs ${item.lineTotal.toStringAsFixed(2)}",
+                      language == ReceiptLanguage.hindi
+                          ? "Rs ${item.lineTotal.toStringAsFixed(2)}"
+                          : "Rs ${item.lineTotal.toStringAsFixed(2)}",
                       style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
                     ),
                   ],
@@ -375,7 +449,12 @@ class PdfReceiptService {
         pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
-            pw.Text("Total Items: ${receiptItems.length} (Qty: $totalQty)", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
+            pw.Text(
+              language == ReceiptLanguage.hindi
+                  ? _fixDevanagari("कुल सामान: ${receiptItems.length} (संख्या: $totalQty)")
+                  : "Total Items: ${receiptItems.length} (Qty: $totalQty)",
+              style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
+            ),
           ],
         ),
         pw.SizedBox(height: 2),
@@ -383,7 +462,9 @@ class PdfReceiptService {
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
             pw.Text(
-              "TOTAL AMOUNT:",
+              language == ReceiptLanguage.hindi
+                  ? _fixDevanagari("कुल योग (TOTAL):")
+                  : "TOTAL AMOUNT:",
               style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
             ),
             pw.Text(
@@ -397,16 +478,32 @@ class PdfReceiptService {
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              pw.Text("Paid Money:", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
-              pw.Text("Rs ${amountTendered.toStringAsFixed(2)}", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black)),
+              pw.Text(
+                language == ReceiptLanguage.hindi
+                    ? _fixDevanagari("प्राप्त राशि:")
+                    : "Paid Money:",
+                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
+              ),
+              pw.Text(
+                "Rs ${amountTendered.toStringAsFixed(2)}",
+                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black),
+              ),
             ],
           ),
           if (changeDue > 0) ...[
             pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
               children: [
-                pw.Text("Change Return:", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800)),
-                pw.Text("Rs ${changeDue.toStringAsFixed(2)}", style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+                pw.Text(
+                  language == ReceiptLanguage.hindi
+                      ? _fixDevanagari("वापसी राशि:")
+                      : "Change Return:",
+                  style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
+                ),
+                pw.Text(
+                  "Rs ${changeDue.toStringAsFixed(2)}",
+                  style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                ),
               ],
             ),
           ],
@@ -415,82 +512,146 @@ class PdfReceiptService {
         // Dashed Divider
         pw.Divider(thickness: 0.8, color: PdfColors.black, borderStyle: pw.BorderStyle.dashed),
 
-        // Terms & Conditions (Strict Hindi policy for shop audience)
-        pw.Container(
-          padding: const pw.EdgeInsets.symmetric(vertical: 2),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Center(
-                child: pw.Text(
-                  _fixDevanagari("नियम एवं शर्तें (जरूरी सूचना)"),
-                  style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+        // Terms & Conditions (Strict shop return/exchange policy)
+        if (language == ReceiptLanguage.hindi) ...[
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Center(
+                  child: pw.Text(
+                    _fixDevanagari("नियम एवं शर्तें (जरूरी सूचना)"),
+                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                  ),
                 ),
-              ),
-              pw.SizedBox(height: 2.5),
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Container(
-                    width: 2.5,
-                    height: 2.5,
-                    margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
-                    decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
-                  ),
-                  pw.Expanded(
-                    child: pw.Text(
-                      _fixDevanagari("बिका हुआ माल वापस या रिफंड नहीं होगा।"),
-                      style: pw.TextStyle(fontSize: 6.8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                pw.SizedBox(height: 2.5),
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Container(
+                      width: 2.5,
+                      height: 2.5,
+                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
+                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
                     ),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 1.5),
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Container(
-                    width: 2.5,
-                    height: 2.5,
-                    margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
-                    decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
-                  ),
-                  pw.Expanded(
-                    child: pw.Text(
-                      _fixDevanagari("केवल 24 घंटे के अंदर असली बिल के साथ सामान बदला (Exchange) जा सकता है।"),
-                      style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
+                    pw.Expanded(
+                      child: pw.Text(
+                        _fixDevanagari("बिका हुआ माल वापस या रिफंड नहीं होगा।"),
+                        style: pw.TextStyle(fontSize: 6.8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 1.5),
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Container(
-                    width: 2.5,
-                    height: 2.5,
-                    margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
-                    decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
-                  ),
-                  pw.Expanded(
-                    child: pw.Text(
-                      _fixDevanagari("लिपस्टिक, नेलपॉलिश, क्रीम, कटा अस्तर, लेस/गोटा (थान से कटा या प्रयोग होने वाला सामान) और खुली शीशी/बोतल बदली नहीं जाएगी।"),
-                      style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
-                    ),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 2),
-              pw.Center(
-                child: pw.Text(
-                  "(No Return/Refund. Exchange within 24h with bill)",
-                  style: const pw.TextStyle(fontSize: 6.0, color: PdfColors.grey700),
+                  ],
                 ),
-              ),
-            ],
+                pw.SizedBox(height: 1.5),
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Container(
+                      width: 2.5,
+                      height: 2.5,
+                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
+                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
+                    ),
+                    pw.Expanded(
+                      child: pw.Text(
+                        _fixDevanagari("केवल 24 घंटे के अंदर असली बिल के साथ सामान बदला (Exchange) जा सकता है।"),
+                        style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
+                      ),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 1.5),
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Container(
+                      width: 2.5,
+                      height: 2.5,
+                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
+                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
+                    ),
+                    pw.Expanded(
+                      child: pw.Text(
+                        _fixDevanagari("लिपस्टिक, नेलपॉलिश, क्रीम, कटा अस्तर, लेस/गोटा (थान से कटा या प्रयोग होने वाला सामान) और खुली शीशी/बोतल बदली नहीं जाएगी।"),
+                        style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
+        ] else ...[
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Center(
+                  child: pw.Text(
+                    "TERMS & CONDITIONS (IMPORTANT)",
+                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                  ),
+                ),
+                pw.SizedBox(height: 2.5),
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Container(
+                      width: 2.5,
+                      height: 2.5,
+                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
+                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
+                    ),
+                    pw.Expanded(
+                      child: pw.Text(
+                        "Goods once sold will not be returned or refunded.",
+                        style: pw.TextStyle(fontSize: 6.8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                      ),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 1.5),
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Container(
+                      width: 2.5,
+                      height: 2.5,
+                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
+                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
+                    ),
+                    pw.Expanded(
+                      child: pw.Text(
+                        "Exchange permitted within 24 hours only with original bill.",
+                        style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
+                      ),
+                    ),
+                  ],
+                ),
+                pw.SizedBox(height: 1.5),
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Container(
+                      width: 2.5,
+                      height: 2.5,
+                      margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
+                      decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
+                    ),
+                    pw.Expanded(
+                      child: pw.Text(
+                        "No exchange on cosmetics (lipstick, nail polish, cream), cut fabrics (cut astar, lace/gota), or opened bottles.",
+                        style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
 
         // Footer Thank You
         pw.Divider(thickness: 0.5, color: PdfColors.grey600, borderStyle: pw.BorderStyle.dashed),
@@ -498,13 +659,10 @@ class PdfReceiptService {
           child: pw.Column(
             children: [
               pw.Text(
-                _fixDevanagari("*** धन्यवाद! फिर पधारें! ***"),
+                language == ReceiptLanguage.hindi
+                    ? _fixDevanagari("*** धन्यवाद! फिर पधारें! ***")
+                    : "*** THANK YOU FOR SHOPPING! VISIT AGAIN ***",
                 style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
-              ),
-              pw.SizedBox(height: 1),
-              pw.Text(
-                "*** THANK YOU FOR SHOPPING! VISIT AGAIN ***",
-                style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.grey700),
               ),
             ],
           ),
@@ -566,8 +724,11 @@ class PdfReceiptService {
     return doc.save();
   }
 
-  /// Format a clean, human-readable WhatsApp text receipt message
-  static String formatWhatsAppBillMessage(Map<String, dynamic> bill) {
+  /// Format a clean, human-readable WhatsApp text receipt message (Hindi or English)
+  static String formatWhatsAppBillMessage(
+    Map<String, dynamic> bill, {
+    ReceiptLanguage language = ReceiptLanguage.hindi,
+  }) {
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
     final String counterName = (bill['counter_name'] ?? "Basement Counter").toString();
     final double totalAmount = _toDouble(bill['total_amount']);
@@ -584,37 +745,72 @@ class PdfReceiptService {
         "${billDate.day.toString().padLeft(2, '0')}-${billDate.month.toString().padLeft(2, '0')}-${billDate.year} ${billDate.hour.toString().padLeft(2, '0')}:${billDate.minute.toString().padLeft(2, '0')}";
 
     final StringBuffer buffer = StringBuffer();
-    buffer.writeln("🧾 *लव कुश शॉपिङ्ग सेण्टर*");
-    buffer.writeln("   *LOVE KUSH SHOPPING CENTER*");
-    buffer.writeln("📍 _${counterName}_");
-    buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-    buffer.writeln("📋 *Bill No:* $billNo");
-    buffer.writeln("📅 *Date:* $formattedDate");
-    buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-    buffer.writeln("*खरीदा गया सामान (Items Purchased):*");
 
-    for (int i = 0; i < rawItems.length; i++) {
-      final item = rawItems[i] is Map ? rawItems[i] as Map : {};
-      String itemName = (item['itemName'] ?? item['item'] ?? 'Item').toString().split('\n').first.trim();
-      final qty = _toInt(item['qty'], 1);
-      final rate = _toDouble(item['rate'], 0.0);
-      final lineTotal = _toDouble(item['total'] ?? item['price'], qty * rate);
-      buffer.writeln("${i + 1}. $itemName");
-      buffer.writeln("    └ ${qty}x @ ₹${rate.toStringAsFixed(2)} = ₹${lineTotal.toStringAsFixed(2)}");
+    if (language == ReceiptLanguage.hindi) {
+      buffer.writeln("🧾 *लव कुश शॉपिङ्ग सेण्टर*");
+      buffer.writeln("   *LOVE KUSH SHOPPING CENTER*");
+      buffer.writeln("📍 _${counterName.toLowerCase().contains("basement") ? "बेसमेंट काउंटर" : counterName}_");
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("📋 *बिल सं. (Bill No):* $billNo");
+      buffer.writeln("📅 *दिनांक (Date):* $formattedDate");
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("*खरीदा गया सामान (Items Purchased):*");
+
+      for (int i = 0; i < rawItems.length; i++) {
+        final item = rawItems[i] is Map ? rawItems[i] as Map : {};
+        // Item names always preserved in English as requested
+        String itemName = (item['itemName'] ?? item['item'] ?? 'Item').toString().split('\n').first.trim();
+        final qty = _toInt(item['qty'], 1);
+        final rate = _toDouble(item['rate'], 0.0);
+        final lineTotal = _toDouble(item['total'] ?? item['price'], qty * rate);
+        buffer.writeln("${i + 1}. $itemName");
+        buffer.writeln("    └ ${qty}x @ ₹${rate.toStringAsFixed(2)} = ₹${lineTotal.toStringAsFixed(2)}");
+      }
+
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("💰 *कुल योग (GRAND TOTAL): ₹${totalAmount.toStringAsFixed(2)}*");
+      buffer.writeln("💳 *भुगतान माध्यम (Payment):* ${_paymentModeHindi(paymentMethod)}");
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("📌 *नियम एवं शर्तें (जरूरी सूचना):*");
+      buffer.writeln("• बिका हुआ माल वापस या रिफंड नहीं होगा।");
+      buffer.writeln("• केवल 24 घंटे के अंदर असली बिल के साथ सामान बदला (Exchange) जा सकता है।");
+      buffer.writeln("• लिपस्टिक, नेलपॉलिश, क्रीम, कटा अस्तर, लेस/गोटा और खुली बोतल बदली नहीं जाएगी।");
+      buffer.writeln("  _(No Return / No Refund. Exchange within 24h with bill)_");
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("🙏 *हमारे यहाँ खरीदारी के लिए धन्यवाद! फिर पधारें!*");
+      buffer.writeln("🌿 _डिजिटल पीडीएफ बिल संलग्न है (Digital PDF Bill attached)._");
+    } else {
+      buffer.writeln("🧾 *LOVE KUSH SHOPPING CENTER*");
+      buffer.writeln("📍 _${counterName.toUpperCase()}_");
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("📋 *Bill No:* $billNo");
+      buffer.writeln("📅 *Date:* $formattedDate");
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("*Items Purchased:*");
+
+      for (int i = 0; i < rawItems.length; i++) {
+        final item = rawItems[i] is Map ? rawItems[i] as Map : {};
+        // Item names preserved in English
+        String itemName = (item['itemName'] ?? item['item'] ?? 'Item').toString().split('\n').first.trim();
+        final qty = _toInt(item['qty'], 1);
+        final rate = _toDouble(item['rate'], 0.0);
+        final lineTotal = _toDouble(item['total'] ?? item['price'], qty * rate);
+        buffer.writeln("${i + 1}. $itemName");
+        buffer.writeln("    └ ${qty}x @ ₹${rate.toStringAsFixed(2)} = ₹${lineTotal.toStringAsFixed(2)}");
+      }
+
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("💰 *GRAND TOTAL: ₹${totalAmount.toStringAsFixed(2)}*");
+      buffer.writeln("💳 *Payment Method:* ${paymentMethod.toUpperCase()}");
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("📌 *TERMS & CONDITIONS (IMPORTANT):*");
+      buffer.writeln("• Goods once sold will not be returned or refunded.");
+      buffer.writeln("• Exchange permitted within 24 hours only with original bill.");
+      buffer.writeln("• No exchange on cosmetics (lipstick, nail polish, cream), cut fabrics (cut astar, lace/gota), or opened bottles.");
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("🙏 *THANK YOU FOR SHOPPING! VISIT AGAIN!*");
+      buffer.writeln("🌿 _Digital PDF Bill attached._");
     }
-
-    buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-    buffer.writeln("💰 *कुल योग (GRAND TOTAL): ₹${totalAmount.toStringAsFixed(2)}*");
-    buffer.writeln("💳 *भुगतान (Payment):* ${paymentMethod.toUpperCase()}");
-    buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-    buffer.writeln("📌 *नियम एवं शर्तें (जरूरी सूचना):*");
-    buffer.writeln("• बिका हुआ माल वापस या रिफंड नहीं होगा।");
-    buffer.writeln("• केवल 24 घंटे के अंदर असली बिल के साथ सामान बदला (Exchange) जा सकता है।");
-    buffer.writeln("• लिपस्टिक, नेलपॉलिश, क्रीम, कटा अस्तर, लेस/गोटा और खुली बोतल बदली नहीं जाएगी।");
-    buffer.writeln("  _(No Return / No Refund. Exchange within 24h with bill)_");
-    buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-    buffer.writeln("🙏 *हमारे यहाँ खरीदारी के लिए धन्यवाद! फिर पधारें!*");
-    buffer.writeln("🌿 _डिजिटल पीडीएफ बिल संलग्न है (Digital PDF Bill attached)._");
 
     return buffer.toString();
   }
@@ -637,12 +833,14 @@ class PdfReceiptService {
     required BuildContext context,
     required Map<String, dynamic> bill,
     String? phone,
+    ReceiptLanguage language = ReceiptLanguage.hindi,
   }) async {
     try {
       final String billNo = (bill['bill_number'] ?? "N/A").toString();
       final String safeBillNo = billNo.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-      final pdfBytes = await generateReceiptPdf(bill);
+      final pdfBytes = await generateReceiptPdf(bill, language: language);
       final double totalAmount = _toDouble(bill['total_amount']);
+      final langTag = language == ReceiptLanguage.hindi ? "Hindi" : "English";
 
       final cleanPhone = phone != null ? sanitizeIndianPhoneNumber(phone) : null;
       if (cleanPhone != null) {
@@ -660,8 +858,8 @@ class PdfReceiptService {
 
       await Printing.sharePdf(
         bytes: pdfBytes,
-        filename: "LoveKush_Bill_$safeBillNo.pdf",
-        subject: "Love Kush Shopping Center - Bill #$billNo (₹${totalAmount.toStringAsFixed(2)})",
+        filename: "LoveKush_${langTag}_Bill_$safeBillNo.pdf",
+        subject: "Love Kush Shopping Center ($langTag) - Bill #$billNo (₹${totalAmount.toStringAsFixed(2)})",
       );
     } catch (e) {
       if (context.mounted) {
@@ -677,19 +875,20 @@ class PdfReceiptService {
     required BuildContext context,
     required Map<String, dynamic> bill,
     String? phone,
+    ReceiptLanguage language = ReceiptLanguage.hindi,
   }) async {
     try {
-      final String messageText = formatWhatsAppBillMessage(bill);
+      final String messageText = formatWhatsAppBillMessage(bill, language: language);
       final cleanPhone = phone != null ? sanitizeIndianPhoneNumber(phone) : null;
 
       if (cleanPhone != null) {
         final waUri = Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encodeComponent(messageText)}");
         final launched = await launchUrl(waUri, mode: LaunchMode.externalApplication);
         if (!launched) {
-          await sharePdfBill(context: context, bill: bill, phone: phone);
+          await sharePdfBill(context: context, bill: bill, phone: phone, language: language);
         }
       } else {
-        await sharePdfBill(context: context, bill: bill);
+        await sharePdfBill(context: context, bill: bill, language: language);
       }
     } catch (e) {
       if (context.mounted) {
@@ -705,245 +904,429 @@ class PdfReceiptService {
     required BuildContext context,
     required Map<String, dynamic> bill,
     String? phone,
-  }) => sharePdfBill(context: context, bill: bill, phone: phone);
+    ReceiptLanguage language = ReceiptLanguage.hindi,
+  }) => sharePdfBill(context: context, bill: bill, phone: phone, language: language);
 
-  /// Show interactive WhatsApp & PDF options dialog
+  /// Show interactive WhatsApp & PDF options dialog with bilingual switcher
   static void showWhatsAppPdfDialog({
     required BuildContext context,
     required Map<String, dynamic> bill,
+    ReceiptLanguage initialLanguage = ReceiptLanguage.hindi,
   }) {
     final phoneController = TextEditingController();
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
     final double totalAmount = _toDouble(bill['total_amount']);
     final rawItems = _extractItems(bill['items_json']);
+    ReceiptLanguage selectedLanguage = initialLanguage;
 
     showDialog(
       context: context,
       builder: (ctx) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // Title Row
-                  Row(
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final isHindi = selectedLanguage == ReceiptLanguage.hindi;
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // Title Row
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF25D366).withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.share, color: Color(0xFF25D366), size: 24),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              "Send Bill on WhatsApp / PDF",
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Bilingual Switcher Segmented Control
                       Container(
-                        padding: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(3),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF25D366).withOpacity(0.15),
+                          color: Colors.grey.shade200,
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(Icons.share, color: Color(0xFF25D366), size: 24),
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Text(
-                          "Send Bill on WhatsApp / PDF",
-                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                onTap: () {
+                                  setDialogState(() {
+                                    selectedLanguage = ReceiptLanguage.hindi;
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isHindi ? const Color(0xFF111827) : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                    boxShadow: isHindi ? [const BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))] : null,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Text("🇮🇳 ", style: TextStyle(fontSize: 14)),
+                                      Text(
+                                        "हिन्दी बिल",
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: isHindi ? Colors.white : Colors.grey.shade700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: InkWell(
+                                onTap: () {
+                                  setDialogState(() {
+                                    selectedLanguage = ReceiptLanguage.english;
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(8),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: !isHindi ? const Color(0xFF111827) : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(8),
+                                    boxShadow: !isHindi ? [const BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))] : null,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Text("🇬🇧 ", style: TextStyle(fontSize: 14)),
+                                      Text(
+                                        "English Bill",
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: !isHindi ? Colors.white : Colors.grey.shade700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Bill Info Chip
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text("Bill: #$billNo", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                            Text("${rawItems.length} items", style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                            Text(
+                              "₹${totalAmount.toStringAsFixed(2)}",
+                              style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Customer Phone Number Input
+                      const Text(
+                        "Customer Mobile (Optional):",
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: phoneController,
+                        keyboardType: TextInputType.phone,
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: "Enter 10-digit number (e.g. 9812345678)",
+                          prefixIcon: const Icon(Icons.phone_android, color: Colors.teal),
+                          prefixText: "+91 ",
+                          filled: true,
+                          fillColor: Colors.grey.shade50,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Action Button 1: Send PDF Bill on WhatsApp (Primary)
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.picture_as_pdf, color: Colors.white, size: 20),
+                        label: Text(
+                          isHindi ? "SEND HINDI PDF BILL" : "SEND ENGLISH PDF BILL",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Colors.white),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF25D366),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        onPressed: () {
+                          final phone = phoneController.text.trim();
+                          Navigator.pop(ctx);
+                          sharePdfBill(
+                            context: context,
+                            bill: bill,
+                            phone: phone.isNotEmpty ? phone : null,
+                            language: selectedLanguage,
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Action Button 2: Send Text Summary (Optional alternative)
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.chat_bubble_outline, color: Color(0xFF047857), size: 17),
+                        label: Text(
+                          isHindi ? "Send Hindi Text Summary Instead" : "Send English Text Summary Instead",
+                          style: const TextStyle(color: Color(0xFF047857), fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          side: const BorderSide(color: Color(0xFF10B981)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () {
+                          final phone = phoneController.text.trim();
+                          Navigator.pop(ctx);
+                          sendWhatsAppTextMessage(
+                            context: context,
+                            bill: bill,
+                            phone: phone.isNotEmpty ? phone : null,
+                            language: selectedLanguage,
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Action Button 3: Print or View PDF Directly
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.visibility, color: Color(0xFF2563EB), size: 18),
+                              label: Text(
+                                isHindi ? "PREVIEW HINDI" : "PREVIEW ENGLISH",
+                                style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 12),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 11),
+                                side: const BorderSide(color: Color(0xFF2563EB)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                openPdfPreviewDialog(
+                                  context: context,
+                                  bill: bill,
+                                  initialLanguage: selectedLanguage,
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 11),
+                                side: const BorderSide(color: Colors.grey),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text("CANCEL", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
-
-                  // Bill Info Chip
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text("Bill: #$billNo", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        Text("${rawItems.length} items", style: const TextStyle(color: Colors.black54, fontSize: 12)),
-                        Text(
-                          "₹${totalAmount.toStringAsFixed(2)}",
-                          style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 14),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Customer Phone Number Input
-                  const Text(
-                    "Customer Mobile (Optional):",
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: phoneController,
-                    keyboardType: TextInputType.phone,
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      hintText: "Enter 10-digit number (e.g. 9812345678)",
-                      prefixIcon: const Icon(Icons.phone_android, color: Colors.teal),
-                      prefixText: "+91 ",
-                      filled: true,
-                      fillColor: Colors.grey.shade50,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-
-                  // Action Button 1: Send PDF Bill on WhatsApp (Primary)
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.picture_as_pdf, color: Colors.white, size: 20),
-                    label: const Text(
-                      "SEND PDF BILL ON WHATSAPP",
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF25D366),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    onPressed: () {
-                      final phone = phoneController.text.trim();
-                      Navigator.pop(ctx);
-                      sharePdfBill(context: context, bill: bill, phone: phone.isNotEmpty ? phone : null);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Action Button 2: Send Text Summary (Optional alternative)
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.chat_bubble_outline, color: Color(0xFF047857), size: 17),
-                    label: const Text(
-                      "Send Text Summary Instead",
-                      style: TextStyle(color: Color(0xFF047857), fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      side: const BorderSide(color: Color(0xFF10B981)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    onPressed: () {
-                      final phone = phoneController.text.trim();
-                      Navigator.pop(ctx);
-                      sendWhatsAppTextMessage(context: context, bill: bill, phone: phone.isNotEmpty ? phone : null);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Action Button 3: Print or View PDF Directly
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          icon: const Icon(Icons.visibility, color: Color(0xFF2563EB), size: 18),
-                          label: const Text(
-                            "PREVIEW PDF",
-                            style: TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 13),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 11),
-                            side: const BorderSide(color: Color(0xFF2563EB)),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            openPdfPreviewDialog(context: context, bill: bill);
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 11),
-                            side: const BorderSide(color: Colors.grey),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          ),
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text("CANCEL", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
   }
 
-  /// Open local interactive vector PDF preview screen inside the app
+  /// Open local interactive vector PDF preview screen inside the app with bilingual toggle
   static void openPdfPreviewDialog({
     required BuildContext context,
     required Map<String, dynamic> bill,
+    ReceiptLanguage initialLanguage = ReceiptLanguage.hindi,
   }) {
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
     final String safeBillNo = billNo.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    ReceiptLanguage selectedLanguage = initialLanguage;
 
     showDialog(
       context: context,
       builder: (ctx) {
-        return Dialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          clipBehavior: Clip.antiAlias,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 680, maxHeight: 820),
-            child: Scaffold(
-              backgroundColor: Colors.white,
-              appBar: AppBar(
-                title: Text("PDF Invoice - Bill #$billNo", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
-                backgroundColor: const Color(0xFF111827),
-                iconTheme: const IconThemeData(color: Colors.white),
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.share, color: Color(0xFF25D366)),
-                    tooltip: "Send on WhatsApp",
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      showWhatsAppPdfDialog(context: context, bill: bill);
-                    },
+        return StatefulBuilder(
+          builder: (context, setPreviewState) {
+            final isHindi = selectedLanguage == ReceiptLanguage.hindi;
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              clipBehavior: Clip.antiAlias,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 680, maxHeight: 820),
+                child: Scaffold(
+                  backgroundColor: Colors.white,
+                  appBar: AppBar(
+                    title: Text(
+                      "PDF Invoice - Bill #$billNo",
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    backgroundColor: const Color(0xFF111827),
+                    iconTheme: const IconThemeData(color: Colors.white),
+                    actions: [
+                      // Language Toggle Buttons in AppBar
+                      Container(
+                        margin: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            InkWell(
+                              onTap: () {
+                                if (selectedLanguage != ReceiptLanguage.hindi) {
+                                  setPreviewState(() {
+                                    selectedLanguage = ReceiptLanguage.hindi;
+                                  });
+                                }
+                              },
+                              borderRadius: const BorderRadius.horizontal(left: Radius.circular(7)),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: isHindi ? const Color(0xFF2563EB) : Colors.transparent,
+                                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(7)),
+                                ),
+                                child: Text(
+                                  "🇮🇳 हिन्दी",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: isHindi ? FontWeight.bold : FontWeight.normal,
+                                    color: isHindi ? Colors.white : Colors.white70,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            InkWell(
+                              onTap: () {
+                                if (selectedLanguage != ReceiptLanguage.english) {
+                                  setPreviewState(() {
+                                    selectedLanguage = ReceiptLanguage.english;
+                                  });
+                                }
+                              },
+                              borderRadius: const BorderRadius.horizontal(right: Radius.circular(7)),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: !isHindi ? const Color(0xFF2563EB) : Colors.transparent,
+                                  borderRadius: const BorderRadius.horizontal(right: Radius.circular(7)),
+                                ),
+                                child: Text(
+                                  "🇬🇧 English",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: !isHindi ? FontWeight.bold : FontWeight.normal,
+                                    color: !isHindi ? Colors.white : Colors.white70,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      IconButton(
+                        icon: const Icon(Icons.share, color: Color(0xFF25D366)),
+                        tooltip: "Send on WhatsApp",
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          showWhatsAppPdfDialog(
+                            context: context,
+                            bill: bill,
+                            initialLanguage: selectedLanguage,
+                          );
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        tooltip: "Close",
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    tooltip: "Close",
-                    onPressed: () => Navigator.pop(ctx),
+                  body: PdfPreview(
+                    key: ValueKey(selectedLanguage),
+                    build: (format) => generateReceiptPdf(
+                      bill,
+                      pageFormat: format,
+                      language: selectedLanguage,
+                    ),
+                    allowPrinting: true,
+                    allowSharing: true,
+                    canChangePageFormat: false,
+                    canChangeOrientation: false,
+                    initialPageFormat: const PdfPageFormat(
+                      80 * PdfPageFormat.mm,
+                      double.infinity,
+                      marginAll: 4 * PdfPageFormat.mm,
+                    ),
+                    pdfFileName: "LoveKush_${selectedLanguage == ReceiptLanguage.hindi ? 'Hindi' : 'English'}_Bill_$safeBillNo.pdf",
+                    maxPageWidth: 420,
+                    loadingWidget: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                    onError: (context, error) => Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Text("Error previewing PDF: $error", style: const TextStyle(color: Colors.red)),
+                      ),
+                    ),
                   ),
-                ],
+                ),
               ),
-              body: PdfPreview(
-                build: (format) => generateReceiptPdf(bill, pageFormat: format),
-                allowPrinting: true,
-                allowSharing: true,
-                canChangePageFormat: false,
-                canChangeOrientation: false,
-                initialPageFormat: const PdfPageFormat(
-                  80 * PdfPageFormat.mm,
-                  double.infinity,
-                  marginAll: 4 * PdfPageFormat.mm,
-                ),
-                pdfFileName: "LoveKush_Bill_$safeBillNo.pdf",
-                maxPageWidth: 420,
-                loadingWidget: const Center(
-                  child: CircularProgressIndicator(),
-                ),
-                onError: (context, error) => Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text("Error previewing PDF: $error", style: const TextStyle(color: Colors.red)),
-                  ),
-                ),
-              ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
