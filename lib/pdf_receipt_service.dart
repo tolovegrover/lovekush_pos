@@ -13,59 +13,74 @@ import 'package:url_launcher/url_launcher.dart';
 // ==========================================
 
 class PdfReceiptService {
+  static pw.Font? _cachedSiddhantaCalcutta;
   static pw.Font? _cachedHindiRegular;
   static pw.Font? _cachedHindiBold;
 
-  /// Load and cache Hindi TrueType fonts offline from bundled assets (with local File fallback for tests)
+  /// Load and cache Siddhanta Calcutta (and Noto Serif fallback) TrueType fonts offline from bundled assets
   static Future<pw.ThemeData> _loadTheme() async {
-    if (_cachedHindiRegular != null && _cachedHindiBold != null) {
+    if (_cachedSiddhantaCalcutta != null) {
+      final fallbacks = <pw.Font>[_cachedSiddhantaCalcutta!];
+      if (_cachedHindiRegular != null) fallbacks.add(_cachedHindiRegular!);
+      if (_cachedHindiBold != null) fallbacks.add(_cachedHindiBold!);
       return pw.ThemeData.withFont(
         base: pw.Font.helvetica(),
         bold: pw.Font.helveticaBold(),
-        fontFallback: [_cachedHindiRegular!, _cachedHindiBold!],
+        fontFallback: fallbacks,
       );
     }
 
-    pw.Font? regular = _cachedHindiRegular;
-    pw.Font? bold = _cachedHindiBold;
-
-    if (regular == null) {
+    // 1. Primary authentic Calcutta style font: Siddhanta Calcutta
+    if (_cachedSiddhantaCalcutta == null) {
       try {
-        final data = await rootBundle.load("assets/fonts/NotoSerifDevanagari-Regular.ttf");
-        regular = pw.Font.ttf(data);
-        _cachedHindiRegular = regular;
+        final data = await rootBundle.load("assets/fonts/siddhanta-calcutta.ttf");
+        _cachedSiddhantaCalcutta = pw.Font.ttf(data);
       } catch (_) {
         try {
-          final file = File("assets/fonts/NotoSerifDevanagari-Regular.ttf");
+          final file = File("assets/fonts/siddhanta-calcutta.ttf");
           if (file.existsSync()) {
             final bytes = await file.readAsBytes();
-            regular = pw.Font.ttf(bytes.buffer.asByteData());
-            _cachedHindiRegular = regular;
+            _cachedSiddhantaCalcutta = pw.Font.ttf(bytes.buffer.asByteData());
           }
         } catch (_) {}
       }
     }
 
-    if (bold == null) {
+    // 2. Secondary Book Serif fallbacks: Noto Serif Devanagari
+    if (_cachedHindiRegular == null) {
+      try {
+        final data = await rootBundle.load("assets/fonts/NotoSerifDevanagari-Regular.ttf");
+        _cachedHindiRegular = pw.Font.ttf(data);
+      } catch (_) {
+        try {
+          final file = File("assets/fonts/NotoSerifDevanagari-Regular.ttf");
+          if (file.existsSync()) {
+            final bytes = await file.readAsBytes();
+            _cachedHindiRegular = pw.Font.ttf(bytes.buffer.asByteData());
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (_cachedHindiBold == null) {
       try {
         final data = await rootBundle.load("assets/fonts/NotoSerifDevanagari-Bold.ttf");
-        bold = pw.Font.ttf(data);
-        _cachedHindiBold = bold;
+        _cachedHindiBold = pw.Font.ttf(data);
       } catch (_) {
         try {
           final file = File("assets/fonts/NotoSerifDevanagari-Bold.ttf");
           if (file.existsSync()) {
             final bytes = await file.readAsBytes();
-            bold = pw.Font.ttf(bytes.buffer.asByteData());
-            _cachedHindiBold = bold;
+            _cachedHindiBold = pw.Font.ttf(bytes.buffer.asByteData());
           }
         } catch (_) {}
       }
     }
 
     final fallbacks = <pw.Font>[];
-    if (regular != null) fallbacks.add(regular);
-    if (bold != null) fallbacks.add(bold);
+    if (_cachedSiddhantaCalcutta != null) fallbacks.add(_cachedSiddhantaCalcutta!);
+    if (_cachedHindiRegular != null) fallbacks.add(_cachedHindiRegular!);
+    if (_cachedHindiBold != null) fallbacks.add(_cachedHindiBold!);
 
     if (fallbacks.isNotEmpty) {
       return pw.ThemeData.withFont(
