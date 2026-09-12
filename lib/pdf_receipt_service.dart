@@ -10,6 +10,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'vedic_time_service.dart';
 
 // ==========================================
 // LOVE KUSH POS - PDF RECEIPT & WHATSAPP SERVICE
@@ -565,6 +566,34 @@ class PdfReceiptService {
     }
   }
 
+  /// Calculate traditional Hindu Panchang in English for bill receipts
+  static String _formatPanchangEnglish(DateTime dt) {
+    const tithiEnglish = [
+      "Pratipada", "Dwitiya", "Tritiya", "Chaturthi", "Panchami",
+      "Shashthi", "Saptami", "Ashtami", "Navami", "Dashami",
+      "Ekadashi", "Dwadashi", "Trayodashi", "Chaturdashi", "Purnima",
+      "Pratipada", "Dwitiya", "Tritiya", "Chaturthi", "Panchami",
+      "Shashthi", "Saptami", "Ashtami", "Navami", "Dashami",
+      "Ekadashi", "Dwadashi", "Trayodashi", "Chaturdashi", "Amavasya",
+    ];
+    const masaEnglish = [
+      "Chaitra", "Vaishakha", "Jyeshtha", "Ashadha",
+      "Shravana", "Bhadrapada", "Ashwin", "Kartika",
+      "Margashirsha", "Pausha", "Magha", "Phalguna"
+    ];
+    try {
+      final panchang = VedicTimeService.calculatePanchang(dt);
+      final int masaIdx = VedicTimeService.masaNames.indexOf(panchang.masa);
+      final String masaName = (masaIdx >= 0 && masaIdx < masaEnglish.length) ? masaEnglish[masaIdx] : panchang.masa;
+      final int tithiIdx = VedicTimeService.tithiNames.indexOf(panchang.udayaTithi);
+      final String tithiName = (tithiIdx >= 0 && tithiIdx < tithiEnglish.length) ? tithiEnglish[tithiIdx] : panchang.udayaTithi;
+      final String pakshaName = panchang.paksha == "शुक्ल" ? "Shukla" : "Krishna";
+      return "$masaName, $pakshaName $tithiName, Samvat ${panchang.samvat}";
+    } catch (_) {
+      return "Vedic Panchang";
+    }
+  }
+
   /// Traditional Indian Pahar (प्रहर) of the day based on 8 prahars of day/night (in IST)
   static String getPaharName(DateTime dt, {bool verbose = false}) {
     final hour = dt.hour;
@@ -673,25 +702,31 @@ class PdfReceiptService {
     return val % 1 == 0 ? val.toInt().toString() : val.toStringAsFixed(2);
   }
 
-  /// Render currency and price text with a proportionally scaled and bold Rupee symbol (₹)
-  /// so it matches the optical weight and height of Arabic numerals in both Hindi & English receipts
+  /// Render currency and price text with a natural, harmonious currency indicator:
+  /// - For English receipts: uses 'Rs.' so font, baseline, and stroke weight match Arabic numerals 100% seamlessly
+  /// - For Hindi receipts: uses '₹' at natural 1:1 scale matching the numeric font weight (no distortion)
   static pw.Widget priceRichText(
     String text, {
     required double fontSize,
     pw.FontWeight fontWeight = pw.FontWeight.normal,
     PdfColor color = PdfColors.black,
     pw.TextAlign textAlign = pw.TextAlign.left,
+    ReceiptLanguage language = ReceiptLanguage.english,
   }) {
-    if (!text.contains('₹')) {
+    final String processedText = language == ReceiptLanguage.english
+        ? text.replaceAll('₹', 'Rs.')
+        : text;
+
+    if (!processedText.contains('₹')) {
       return pw.Text(
-        text,
+        processedText,
         textAlign: textAlign,
         style: pw.TextStyle(fontSize: fontSize, fontWeight: fontWeight, color: color),
       );
     }
 
     final spans = <pw.InlineSpan>[];
-    final parts = text.split('₹');
+    final parts = processedText.split('₹');
     for (int i = 0; i < parts.length; i++) {
       if (parts[i].isNotEmpty) {
         spans.add(
@@ -702,13 +737,13 @@ class PdfReceiptService {
         );
       }
       if (i < parts.length - 1) {
-        // Boost Rupee symbol size by ~28% and set bold weight so it visually balances with Arabic numerals
+        // Natural 1:1 scale and weight matching the numbers seamlessly
         spans.add(
           pw.TextSpan(
             text: '₹',
             style: pw.TextStyle(
-              fontSize: fontSize * 1.28,
-              fontWeight: pw.FontWeight.bold,
+              fontSize: fontSize,
+              fontWeight: fontWeight,
               color: color,
             ),
           ),
@@ -823,7 +858,22 @@ class PdfReceiptService {
       }
     }
 
+    // Load crisp black & white peacock feather for top right
+    Uint8List? effectiveFeather;
+    try {
+      final byteData = await rootBundle.load("assets/peacock_feather_bw.jpg");
+      effectiveFeather = byteData.buffer.asUint8List();
+    } catch (_) {
+      try {
+        final file = File("assets/peacock_feather_bw.jpg");
+        if (file.existsSync()) {
+          effectiveFeather = await file.readAsBytes();
+        }
+      } catch (_) {}
+    }
+
     final pw.ImageProvider? logoImage = effectiveLogo != null ? pw.MemoryImage(effectiveLogo) : null;
+    final pw.ImageProvider? featherImage = effectiveFeather != null ? pw.MemoryImage(effectiveFeather) : null;
 
     // 3. Extract items safely
     final rawItems = _extractItems(bill['items_json']);
@@ -849,29 +899,46 @@ class PdfReceiptService {
     // 4. Build Minimal Thermal-Style Receipt Content
     List<pw.Widget> buildReceiptWidgets(pw.Context context) {
       return [
-        // Store Logo (Centered & Crisp)
-        if (logoImage != null) ...[
-          pw.Center(
-            child: pw.Container(
-              width: 48,
-              height: 48,
-              margin: const pw.EdgeInsets.only(bottom: 4),
-              child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+        // Top Header: Fixed Centered Logo & Sacred Invocation with Black & White Peacock Feather on Top Right
+        pw.Stack(
+          children: [
+            pw.Align(
+              alignment: pw.Alignment.topCenter,
+              child: pw.Column(
+                mainAxisSize: pw.MainAxisSize.min,
+                children: [
+                  if (logoImage != null) ...[
+                    pw.Container(
+                      width: 48,
+                      height: 48,
+                      margin: const pw.EdgeInsets.only(bottom: 4),
+                      child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                    ),
+                  ],
+                  // Sanskrit Bhagwan Namaste Invocation with Satiya (Always on top for both Hindi & English)
+                  pw.Text(
+                    _fixDevanagari(effectiveInvocation),
+                    style: pw.TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.black,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
-
-        // Store Titles & Header
-        // Sanskrit Bhagwan Namaste Invocation with Satiya (Always on top for both Hindi & English)
-        pw.Center(
-          child: pw.Text(
-            _fixDevanagari(effectiveInvocation),
-            style: pw.TextStyle(
-              fontSize: 9.5,
-              fontWeight: pw.FontWeight.bold,
-              color: PdfColors.black,
-            ),
-          ),
+            if (featherImage != null) ...[
+              pw.Positioned(
+                top: 0,
+                right: 0,
+                child: pw.Container(
+                  width: 36,
+                  height: 48,
+                  child: pw.Image(featherImage, fit: pw.BoxFit.contain),
+                ),
+              ),
+            ],
+          ],
         ),
         pw.SizedBox(height: 3),
 
@@ -994,7 +1061,7 @@ class PdfReceiptService {
         pw.SizedBox(height: 4),
         if (language == ReceiptLanguage.hindi) ...[
           pw.Text(
-            _fixDevanagari("पञ्चाङ्ग: ${_formatPanchangTithi(billDate)}"),
+            _fixDevanagari("पञ्चाङ्ग: ${_formatPanchangTithi(billDate)} | वैदिक समय: ${toDevanagariDigits(VedicTimeService.normalToVedic(billDate).toNumericString())}"),
             style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
           ),
           pw.SizedBox(height: 1.5),
@@ -1036,11 +1103,17 @@ class PdfReceiptService {
                   fontWeight: pw.FontWeight.bold,
                   color: PdfColors.black,
                   textAlign: pw.TextAlign.right,
+                  language: language,
                 ),
               ],
             ),
           ],
         ] else ...[
+          pw.Text(
+            "Panchang: ${_formatPanchangEnglish(billDate)} | Vedic Time: ${VedicTimeService.normalToVedic(billDate).toNumericString()} (Ghati:Pal)",
+            style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
+          ),
+          pw.SizedBox(height: 1.5),
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
@@ -1073,6 +1146,7 @@ class PdfReceiptService {
                   fontWeight: pw.FontWeight.bold,
                   color: PdfColors.black,
                   textAlign: pw.TextAlign.right,
+                  language: language,
                 ),
               ],
             ),
@@ -1141,6 +1215,7 @@ class PdfReceiptService {
                       fontSize: 7.5,
                       color: PdfColors.grey900,
                       textAlign: pw.TextAlign.center,
+                      language: language,
                     ),
                   ),
                 ),
@@ -1154,6 +1229,7 @@ class PdfReceiptService {
                       fontWeight: pw.FontWeight.bold,
                       color: PdfColors.black,
                       textAlign: pw.TextAlign.right,
+                      language: language,
                     ),
                   ),
                 ),
@@ -1193,6 +1269,7 @@ class PdfReceiptService {
               fontWeight: pw.FontWeight.bold,
               color: PdfColors.black,
               textAlign: pw.TextAlign.right,
+              language: language,
             ),
           ],
         ),
@@ -1212,6 +1289,7 @@ class PdfReceiptService {
                 fontSize: 7.5,
                 color: PdfColors.black,
                 textAlign: pw.TextAlign.right,
+                language: language,
               ),
             ],
           ),
@@ -1229,6 +1307,7 @@ class PdfReceiptService {
                 fontSize: 7.5,
                 color: PdfColors.black,
                 textAlign: pw.TextAlign.right,
+                language: language,
               ),
             ],
           ),
@@ -1248,6 +1327,7 @@ class PdfReceiptService {
                   fontWeight: pw.FontWeight.bold,
                   color: PdfColors.black,
                   textAlign: pw.TextAlign.right,
+                  language: language,
                 ),
               ],
             ),
@@ -1268,6 +1348,7 @@ class PdfReceiptService {
                 fontSize: 7.5,
                 color: PdfColors.black,
                 textAlign: pw.TextAlign.right,
+                language: language,
               ),
             ],
           ),
@@ -1287,6 +1368,7 @@ class PdfReceiptService {
                   fontWeight: pw.FontWeight.bold,
                   color: PdfColors.black,
                   textAlign: pw.TextAlign.right,
+                  language: language,
                 ),
               ],
             ),
@@ -1295,6 +1377,23 @@ class PdfReceiptService {
 
         // Dashed Divider
         pw.Divider(thickness: 0.8, color: PdfColors.black, borderStyle: pw.BorderStyle.dashed),
+
+        // Footer Disclaimer: No return, no exchange
+        pw.SizedBox(height: 2),
+        pw.Center(
+          child: pw.Text(
+            language == ReceiptLanguage.hindi
+                ? _fixDevanagari("बिका हुआ माल वापस या बदला नहीं जाएगा\n(NO RETURN, NO EXCHANGE)")
+                : "NO RETURN, NO EXCHANGE",
+            textAlign: pw.TextAlign.center,
+            style: pw.TextStyle(
+              fontSize: language == ReceiptLanguage.hindi ? 7.0 : 7.5,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.black,
+            ),
+          ),
+        ),
+        pw.SizedBox(height: 3),
 
         // Footer Thank You
         pw.Center(
@@ -1397,6 +1496,7 @@ class PdfReceiptService {
     final StringBuffer buffer = StringBuffer();
 
     if (language == ReceiptLanguage.hindi) {
+      final vedicTime = VedicTimeService.normalToVedic(billDate);
       buffer.writeln(effectiveInvocation);
       buffer.writeln("🧾 *लव कुश शॉपिङ्ग सेण्टर*");
       buffer.writeln("   *LOVE KUSH SHOPPING CENTER*");
@@ -1404,6 +1504,7 @@ class PdfReceiptService {
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("📋 *बीजक सङ्ख्या:* ${formatBillNumberHindi(billNo)}");
       buffer.writeln("🗓️ *पञ्चाङ्ग:* ${_formatPanchangTithi(billDate)}");
+      buffer.writeln("⏰ *वैदिक समय:* ${toDevanagariDigits(vedicTime.toNumericString())} (घटी:पल:विपल)");
       buffer.writeln("📅 *दिनाङ्क व समय:* ${formatVedicDateAndTimeString(billDate)}");
       buffer.writeln("👤 *कोषपाल:* $staffName");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
@@ -1429,14 +1530,20 @@ class PdfReceiptService {
         buffer.writeln("💳 *भुगतान विधि:* ${_paymentModeSanskrit(paymentMethod)}");
       }
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("⚠️ *बिका हुआ माल वापस या बदला नहीं जाएगा*");
+      buffer.writeln("   *(NO RETURN, NO EXCHANGE)*");
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *सधन्यवाद! पुनः पधारें!*");
       buffer.writeln("🌿 _डिजिटल पीडीएफ बीजक संलग्न है।_");
     } else {
+      final vedicTime = VedicTimeService.normalToVedic(billDate);
       buffer.writeln(effectiveInvocation);
       buffer.writeln("🧾 *LOVE KUSH SHOPPING CENTER*");
       buffer.writeln("📍 *Address:* A-2/392, Subhash Kansal Marg, Harsh Vihar, Delhi - 110093");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("📋 *Bill No:* $billNo");
+      buffer.writeln("🗓️ *Panchang:* ${_formatPanchangEnglish(billDate)}");
+      buffer.writeln("⏰ *Vedic Time:* ${vedicTime.toNumericString()} (Ghati:Pal)");
       buffer.writeln("📅 *Date & Time:* ${formatEnglishDateAndTimeString(billDate)}");
       buffer.writeln("👤 *Cashier:* $staffName");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
@@ -1450,17 +1557,19 @@ class PdfReceiptService {
         final rate = _toDouble(item['rate'], 0.0);
         final lineTotal = _toDouble(item['total'] ?? item['price'], qty * rate);
         buffer.writeln("${i + 1}. $itemName");
-        buffer.writeln("    └ ${qty}x @ ₹${rate.toStringAsFixed(2)} = ₹${lineTotal.toStringAsFixed(2)}");
+        buffer.writeln("    └ ${qty}x @ Rs. ${rate.toStringAsFixed(2)} = Rs. ${lineTotal.toStringAsFixed(2)}");
       }
 
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("💰 *GRAND TOTAL: ₹${totalAmount.toStringAsFixed(2)}*");
+      buffer.writeln("💰 *GRAND TOTAL: Rs. ${totalAmount.toStringAsFixed(2)}*");
       if (isHybrid) {
         buffer.writeln("💳 *Payment Method:* HYBRID");
-        buffer.writeln("    └ *Cash:* ₹${_formatAmount(hybridParts['cash']!)}  •  *Online:* ₹${_formatAmount(hybridParts['online']!)}");
+        buffer.writeln("    └ *Cash:* Rs. ${_formatAmount(hybridParts['cash']!)}  •  *Online:* Rs. ${_formatAmount(hybridParts['online']!)}");
       } else {
         buffer.writeln("💳 *Payment Method:* ${paymentMethod.toUpperCase()}");
       }
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+      buffer.writeln("⚠️ *NO RETURN, NO EXCHANGE*");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *THANK YOU FOR SHOPPING! VISIT AGAIN!*");
       buffer.writeln("🌿 _Digital PDF Bill attached._");
@@ -2101,14 +2210,14 @@ class PdfReceiptService {
                         Wrap(
                           alignment: WrapAlignment.spaceBetween,
                           crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
+                          children: const [
                             Text(
-                              isHindi ? "ग्राहक का मोबाइल (WhatsApp):" : "Customer Mobile (WhatsApp):",
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black87),
+                              "Customer Mobile (WhatsApp):",
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black87),
                             ),
                             Text(
-                              isHindi ? "बिना नम्बर सेव किये" : "No contact save needed",
-                              style: const TextStyle(fontSize: 11, color: Color(0xFF047857), fontWeight: FontWeight.w600),
+                              "No contact save needed",
+                              style: TextStyle(fontSize: 11, color: Color(0xFF047857), fontWeight: FontWeight.w600),
                             ),
                           ],
                         ),
@@ -2118,7 +2227,7 @@ class PdfReceiptService {
                           keyboardType: TextInputType.phone,
                           autofocus: true,
                           decoration: InputDecoration(
-                            hintText: isHindi ? "१० अंकों का मोबाइल (उदा. 9812345678)" : "10-digit mobile (e.g. 9812345678)",
+                            hintText: "10-digit mobile (e.g. 9812345678)",
                             prefixIcon: const Icon(Icons.phone_android, color: Color(0xFF0D9488)),
                             prefixText: "+91 ",
                             filled: true,
@@ -2156,7 +2265,7 @@ class PdfReceiptService {
                                   Expanded(
                                     child: Text(
                                       currentInvocation == randomMantraKey
-                                          ? "🎲 यादृच्छिक मन्त्र (Random Mantra on Every Bill)"
+                                          ? "🎲 Random Mantra on Every Bill"
                                           : currentInvocation,
                                       style: const TextStyle(
                                         fontSize: 12,
@@ -2169,7 +2278,7 @@ class PdfReceiptService {
                                   ),
                                   const SizedBox(width: 4),
                                   const Text(
-                                    "बदलें",
+                                    "Change",
                                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFEA580C)),
                                   ),
                                   const Icon(Icons.chevron_right, size: 16, color: Color(0xFFEA580C)),
@@ -2183,9 +2292,9 @@ class PdfReceiptService {
                         // Action Button 1: Send Direct WhatsApp Chat Message (Instant, no saving number required)
                         ElevatedButton.icon(
                           icon: const Icon(Icons.chat, color: Colors.white, size: 20),
-                          label: Text(
-                            isHindi ? "सीधे WHATSAPP चैट खोलें (Direct Chat)" : "OPEN DIRECT WHATSAPP CHAT",
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Colors.white),
+                          label: const Text(
+                            "OPEN DIRECT WHATSAPP CHAT",
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Colors.white),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF25D366),
@@ -2208,9 +2317,9 @@ class PdfReceiptService {
                         // Action Button 2: Direct WhatsApp PDF file (Opens WhatsApp directly, no system chooser)
                         ElevatedButton.icon(
                           icon: const Icon(Icons.picture_as_pdf, color: Colors.white, size: 20),
-                          label: Text(
-                            isHindi ? "WHATSAPP पर PDF बीजक भेजें" : "SEND PDF BILL ON WHATSAPP",
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Colors.white),
+                          label: const Text(
+                            "SEND PDF BILL ON WHATSAPP",
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Colors.white),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF0F766E), // Deep Teal
@@ -2236,9 +2345,9 @@ class PdfReceiptService {
                             Expanded(
                               child: OutlinedButton.icon(
                                 icon: const Icon(Icons.visibility, color: Color(0xFF2563EB), size: 16),
-                                label: Text(
-                                  isHindi ? "बिल देखें" : "PREVIEW",
-                                  style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 12),
+                                label: const Text(
+                                  "PREVIEW",
+                                  style: TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 12),
                                 ),
                                 style: OutlinedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(vertical: 11),
@@ -2259,9 +2368,9 @@ class PdfReceiptService {
                             Expanded(
                               child: OutlinedButton.icon(
                                 icon: const Icon(Icons.share, color: Colors.black87, size: 16),
-                                label: Text(
-                                  isHindi ? "अन्य ऐप्स" : "OTHER APPS",
-                                  style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 12),
+                                label: const Text(
+                                  "OTHER APPS",
+                                  style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 12),
                                 ),
                                 style: OutlinedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(vertical: 11),
@@ -2284,9 +2393,9 @@ class PdfReceiptService {
                             const SizedBox(width: 8),
                             TextButton(
                               onPressed: () => Navigator.pop(ctx),
-                              child: Text(
-                                isHindi ? "रद्द" : "CANCEL",
-                                style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w600, fontSize: 12),
+                              child: const Text(
+                                "CANCEL",
+                                style: TextStyle(color: Colors.black54, fontWeight: FontWeight.w600, fontSize: 12),
                               ),
                             ),
                           ],

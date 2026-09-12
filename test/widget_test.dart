@@ -292,7 +292,7 @@ void main() {
       expect(engMsg, contains("*Bill No:* LK-BI-2026"));
       expect(engMsg, contains("Lakme Absolute Kajal")); // Item name in English
       expect(engMsg, contains("Pond's White Beauty Cream")); // Item name in English
-      expect(engMsg, contains("GRAND TOTAL: ₹550.00"));
+      expect(engMsg, contains("GRAND TOTAL: Rs. 550.00"));
       expect(engMsg, contains("*Payment Method:* CASH"));
       expect(engMsg, contains("THANK YOU FOR SHOPPING! VISIT AGAIN!"));
 
@@ -377,17 +377,16 @@ void main() {
       expect(hindiWa, contains("ल.कु.-०९१२-००८८"));
       expect(hindiWa, contains("₹550.00"));
       expect(hindiWa, contains("रोकड़ा")); // 'रोकड़ा' used instead of 'रोकड़'
-      expect(hindiWa, isNot(contains("न वापसी")));
-      expect(hindiWa, isNot(contains("NO RETURN")));
+      expect(hindiWa, contains("बिका हुआ माल वापस या बदला नहीं जाएगा"));
+      expect(hindiWa, contains("NO RETURN, NO EXCHANGE"));
 
       // 2. English WhatsApp bill format
       final engWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.english);
       expect(engWa, contains("\u0FD7"));
       expect(engWa, contains("ॐ श्री महालक्ष्म्यै नमः"));
       expect(engWa, contains("Bill No:* LK-0912-0088"));
-      expect(engWa, contains("₹550.00"));
-      expect(engWa, isNot(contains("NO RETURN")));
-      expect(engWa, isNot(contains("NO REFUND")));
+      expect(engWa, contains("Rs. 550.00"));
+      expect(engWa, contains("NO RETURN, NO EXCHANGE"));
     });
 
     test('Authentic Panchang, Prahar, Rokada, and Mishrit Bhugtan translation validation', () async {
@@ -418,8 +417,8 @@ void main() {
       // English WhatsApp hybrid split
       final engWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.english);
       expect(engWa, contains("Payment Method:* HYBRID"));
-      expect(engWa, contains("Cash:* ₹500"));
-      expect(engWa, contains("Online:* ₹200"));
+      expect(engWa, contains("Cash:* Rs. 500"));
+      expect(engWa, contains("Online:* Rs. 200"));
 
       // Check IST timestamp normalization
       final dt = PdfReceiptService.parseIndianStandardTime('2026-09-12T07:43:00Z'); // 07:43 UTC = 13:13 IST
@@ -469,12 +468,12 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify direct WhatsApp options and buttons are rendered
-      expect(find.text("सीधे WHATSAPP चैट खोलें (Direct Chat)"), findsOneWidget);
-      expect(find.text("WHATSAPP पर PDF बीजक भेजें"), findsOneWidget);
-      expect(find.text("अन्य ऐप्स"), findsOneWidget);
-      expect(find.text("बिल देखें"), findsOneWidget);
-      expect(find.text("ग्राहक का मोबाइल (WhatsApp):"), findsOneWidget);
-      expect(find.text("बिना नम्बर सेव किये"), findsOneWidget);
+      expect(find.text("OPEN DIRECT WHATSAPP CHAT"), findsOneWidget);
+      expect(find.text("SEND PDF BILL ON WHATSAPP"), findsOneWidget);
+      expect(find.text("OTHER APPS"), findsOneWidget);
+      expect(find.text("PREVIEW"), findsOneWidget);
+      expect(find.text("Customer Mobile (WhatsApp):"), findsOneWidget);
+      expect(find.text("No contact save needed"), findsOneWidget);
 
       // Verify phone sanitization
       expect(PdfReceiptService.sanitizeIndianPhoneNumber("9812345678"), "919812345678");

@@ -88,7 +88,7 @@ void main() {
       expect(find.textContaining("hinducalendar.app"), findsOneWidget);
     });
 
-    testWidgets('SettingsScreen renders Vedic Time options and receipt preferences', (tester) async {
+    testWidgets('SettingsScreen renders receipt preferences and store profile in English', (tester) async {
       SharedPreferences.setMockInitialValues({});
       await tester.pumpWidget(
         const MaterialApp(
@@ -98,15 +98,15 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 200));
 
-      expect(find.textContaining("सेटिंग्स एवं प्राथमिकताएं"), findsOneWidget);
-      expect(find.textContaining("वैदिक घड़ी एवं काल परिवर्तक"), findsOneWidget);
-      expect(find.textContaining("रसीद पर वैदिक पञ्चाङ्ग दिखाएं"), findsOneWidget);
-      expect(find.textContaining("डिफ़ॉल्ट रसीद भाषा"), findsOneWidget);
-      expect(find.textContaining("भगवान वंदना शीर्ष पंक्ति"), findsOneWidget);
+      expect(find.text("Settings"), findsOneWidget);
+      expect(find.text("RECEIPT & BILLING PREFERENCES"), findsOneWidget);
+      expect(find.text("Default Receipt Language"), findsOneWidget);
+      expect(find.text("Auspicious Sanskrit Mantra on Bills"), findsOneWidget);
+      expect(find.text("Include Vedic Date & Panchang on Bills"), findsOneWidget);
 
       await tester.drag(find.byType(ListView), const Offset(0, -400));
       await tester.pump();
-      expect(find.textContaining("लव कुश शॉपिङ्ग सेण्टर"), findsOneWidget);
+      expect(find.textContaining("Love Kush Shopping Center"), findsOneWidget);
     });
   });
 }

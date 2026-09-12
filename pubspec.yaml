@@ -71,6 +71,7 @@ dependency_overrides:
 flutter:
   assets:
     - assets/logo_bw.jpg
+    - assets/peacock_feather_bw.jpg
     - assets/fonts/siddhanta-calcutta.ttf
     - assets/fonts/NotoSerifDevanagari-Regular.ttf
     - assets/fonts/NotoSerifDevanagari-Bold.ttf

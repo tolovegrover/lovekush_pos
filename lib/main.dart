@@ -243,7 +243,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: ClipOval(child: Image.asset('assets/logo_bw.jpg', width: 100, height: 100, fit: BoxFit.cover)),
                   ),
                   const SizedBox(height: 24),
-                  const Text("लव कुश शॉपिङ्ग सेण्टर", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1.2)),
+                  const Text("LOVE KUSH SHOPPING CENTER", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1.2)),
                   const SizedBox(height: 8),
                   const Text("STAFF LOGIN", style: TextStyle(color: Colors.blueAccent, letterSpacing: 2, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 40),
@@ -4799,8 +4799,8 @@ class _PosScreenState extends State<PosScreen> {
             Expanded(
               child: Text(
                 initialLanguage == ReceiptLanguage.hindi 
-                    ? "बिल सुरक्षित हुआ! WhatsApp पर हिन्दी बिल भेजा जा रहा है..." 
-                    : "Bill Saved! Opening WhatsApp for English bill...",
+                    ? "Bill saved! Sending Hindi bill on WhatsApp..." 
+                    : "Bill saved! Opening WhatsApp for English bill...",
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
@@ -4832,7 +4832,7 @@ class _PosScreenState extends State<PosScreen> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: const Text("हिन्दी थर्मल बिल प्रिंट हुआ! (Hindi Thermal Bill Printed)"),
+                content: const Text("Hindi Thermal Bill Printed!"),
                 duration: const Duration(seconds: 6),
                 action: SnackBarAction(
                   label: "WHATSAPP",
@@ -5177,7 +5177,7 @@ class _PosScreenState extends State<PosScreen> {
                         ),
                       ),
                       const SizedBox(width: 16),
-                      const Expanded(child: Text('लव कुश शॉपिङ्ग सेण्टर', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5))),
+                      const Expanded(child: Text('LOVE KUSH SHOPPING CENTER', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5))),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -5229,15 +5229,6 @@ class _PosScreenState extends State<PosScreen> {
                 },
               ),
             ListTile(
-              leading: const Icon(Icons.price_change_outlined, color: Colors.blueAccent),
-              title: const Text('Item Codes & Rates', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-              subtitle: const Text('Lookup, edit rates & print barcode labels'),
-              onTap: () {
-                Navigator.pop(context);
-                _openItemCatalog();
-              },
-            ),
-            ListTile(
               leading: Icon(Icons.print, color: _printerConnected ? Colors.green : Colors.black87),
               title: Text(
                 _printerConnected
@@ -5257,18 +5248,9 @@ class _PosScreenState extends State<PosScreen> {
 
             const Divider(),
             ListTile(
-              leading: const Icon(Icons.wb_sunny_rounded, color: Color(0xFFD97706)),
-              title: const Text('वैदिक समय (Vedic Clock)', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFB45309))),
-              subtitle: const Text('वैदिक वार • घटी-पल-विपल एवं पञ्चाङ्ग (Live)'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const VedicClockScreen()));
-              },
-            ),
-            ListTile(
               leading: const Icon(Icons.settings_outlined, color: Colors.black87),
-              title: const Text('सेटिंग्स (Settings)', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text('Store, receipt language & Vedic preferences'),
+              title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Store profile, printer & receipt preferences'),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
@@ -5296,106 +5278,21 @@ class _PosScreenState extends State<PosScreen> {
         ),
       ),
       appBar: AppBar(
-        title: const Text('लव कुश शॉपिङ्ग सेण्टर', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
+        title: const Text('LOVE KUSH SHOPPING CENTER', style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.black)),
         backgroundColor: Colors.white,
         elevation: 1,
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.black), 
         actions: [
           IconButton(
-            tooltip: "वैदिक समय एवं पञ्चाङ्ग (Vedic Clock)",
-            icon: const Icon(Icons.wb_sunny_outlined, color: Color(0xFFD97706)),
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VedicClockScreen())),
-          ),
-          if (PendingItemsManager.items.isNotEmpty || PendingRateChangesManager.items.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(right: 6.0),
-              child: ActionChip(
-                avatar: const Icon(Icons.pending_actions, size: 16, color: Color(0xFFD97706)),
-                backgroundColor: const Color(0xFFFFFBEB),
-                side: const BorderSide(color: Color(0xFFF59E0B)),
-                label: Text(
-                  "${PendingItemsManager.items.length + PendingRateChangesManager.items.length} Pending",
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
-                ),
-                tooltip: "Pending Items & Rate Approvals",
-                onPressed: _openItemCatalog,
-              ),
-            ),
-          IconButton(
             tooltip: "Reprint Last Bill (Preview First)",
             icon: const Icon(Icons.print_outlined, color: Colors.black87),
             onPressed: _openReprintLastBillPreview,
-          ),
-          IconButton(
-            tooltip: "Item Codes & Rates",
-            icon: const Icon(Icons.menu_book, color: Colors.blueAccent),
-            onPressed: _openItemCatalog,
           ),
         ],
       ),
       body: Column(
         children: [
-          Container(
-            height: 55,
-            color: Colors.white,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              itemCount: activeBills.length + 1,
-              itemBuilder: (context, index) {
-                if (index == activeBills.length) {
-                  return Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8.0),
-                        child: ActionChip(
-                          backgroundColor: Colors.green.shade50,
-                          side: const BorderSide(color: Colors.green),
-                          label: const Text("+ New Customer", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
-                          onPressed: () {
-                            setState(() {
-                              activeBills.add([]);
-                              currentBillIndex = activeBills.length - 1;
-                            });
-                          }
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8.0),
-                        child: ActionChip(
-                          avatar: const Icon(Icons.menu_book, size: 16, color: Colors.blueAccent),
-                          backgroundColor: Colors.blue.shade50,
-                          side: const BorderSide(color: Colors.blueAccent),
-                          label: const Text("Codes & Rates", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-                          onPressed: _openItemCatalog,
-                        ),
-                      ),
-                    ],
-                  );
-                }
-                bool isSelected = index == currentBillIndex;
-                int itemCount = activeBills[index].length;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: GestureDetector(
-                    onLongPress: () => _deleteTab(index),
-                    child: ChoiceChip(
-                    label: Text("Bill ${index + 1} ($itemCount items)", style: TextStyle(fontWeight: FontWeight.bold)),
-                    selected: isSelected,
-                    showCheckmark: false,
-                    onSelected: (bool selected) {
-                      if (selected) setState(() => currentBillIndex = index);
-                    },
-                    selectedColor: Colors.black,
-                    labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black87),
-                  ),
-                  ),
-                );
-              },
-            ),
-          ),
           Expanded(
             flex: 4,
             child: Material(
@@ -5931,7 +5828,7 @@ class _PosScreenState extends State<PosScreen> {
                       
                       // 2. RECEIPT PREVIEW
                       const SizedBox(height: 16),
-                      const Text("लव कुश शॉपिङ्ग सेण्टर", style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+                      const Text("LOVE KUSH SHOPPING CENTER", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
                       const SizedBox(height: 4),
                       Text("Served by: ${widget.userName}", style: const TextStyle(fontSize: 14, color: Colors.black45, fontStyle: FontStyle.italic)),
                       const SizedBox(height: 16),
@@ -6046,7 +5943,7 @@ class _PosScreenState extends State<PosScreen> {
                               child: ElevatedButton.icon(
                                 icon: const Text("🇮🇳", style: TextStyle(fontSize: 16)),
                                 label: const Text(
-                                  "हिन्दी बिल",
+                                  "Hindi Bill",
                                   style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: Colors.white),
                                 ),
                                 style: ElevatedButton.styleFrom(
@@ -6883,7 +6780,7 @@ Future<void> executeReprintThermalBill({
     if (language == ReceiptLanguage.hindi) {
       await printHindiThermalBill(bluetooth: bluetooth, bill: bill);
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("हिन्दी रसीद प्रिंट की गई! (Hindi Bill Printed)")));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Hindi Bill Printed!")));
       }
       return;
     }
@@ -6952,22 +6849,23 @@ Future<void> executeReprintThermalBill({
         barcode: item['rawItemCode']?.toString(),
       );
       if (name.length > 20) name = name.substring(0, 20);
-      String details = "${item['qty'] ?? 1} x ₹${item['rate'] ?? 0}";
+      String details = "${item['qty'] ?? 1} x Rs. ${item['rate'] ?? 0}";
       await bluetooth.printLeftRight(name, details, 1);
     }
 
     await bluetooth.printCustom("--------------------------------", 1, 1);
-    await bluetooth.printLeftRight("TOTAL", "₹${total.toStringAsFixed(2)}", 2);
+    await bluetooth.printLeftRight("TOTAL", "Rs. ${total.toStringAsFixed(2)}", 2);
     await bluetooth.printNewLine();
 
     String pMethod = (bill['payment_method'] ?? "Cash").toString();
     double pTendered = double.tryParse(bill['amount_tendered']?.toString() ?? "0") ?? total;
     double pChange = double.tryParse(bill['change_due']?.toString() ?? "0") ?? (pTendered > total ? (pTendered - total) : 0.0);
     await bluetooth.printLeftRight("PAYMENT", pMethod.toUpperCase(), 1);
-    await bluetooth.printLeftRight("Paid Money:", "Rs${pTendered.toStringAsFixed(2)}", 1);
+    await bluetooth.printLeftRight("Paid Money:", "Rs. ${pTendered.toStringAsFixed(2)}", 1);
     if (pChange > 0) {
-      await bluetooth.printLeftRight("Change Given:", "Rs${pChange.toStringAsFixed(2)}", 1);
+      await bluetooth.printLeftRight("Change Given:", "Rs. ${pChange.toStringAsFixed(2)}", 1);
     }
+    await bluetooth.printCustom("NO RETURN, NO EXCHANGE", 1, 1);
     await bluetooth.printCustom("Thank you for shopping! Visit again!", 0, 1);
     await bluetooth.printCustom("*** DUPLICATE COPY ***", 1, 1);
     await bluetooth.printNewLine();
