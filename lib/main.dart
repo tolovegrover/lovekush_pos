@@ -4637,7 +4637,7 @@ class _PosScreenState extends State<PosScreen> {
     return id.toString().padLeft(2, '0');
   }
 
-  void _saveAndPrintBill() async {
+  Future<Map<String, dynamic>?> _saveBillRecord() async {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day).toUtc().toIso8601String();
     final endOfDay = DateTime(now.year, now.month, now.day, 23, 59, 59, 999).toUtc().toIso8601String();
@@ -4725,17 +4725,128 @@ class _PosScreenState extends State<PosScreen> {
       'payment_method': dbPaymentMethod,
       'amount_tendered': paidMoney,
       'change_due': finalChangeDue,
-      'created_at': DateTime.now().toIso8601String(),
+      'created_at': DateTime.now().toUtc().toIso8601String(),
     };
 
     try {
       await Supabase.instance.client.from('bills').insert(savedBillRecord);
       _lastCompletedBill = savedBillRecord;
+      return savedBillRecord;
     } catch (dbError) {
       print("Supabase Error: $dbError");
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Cloud Sync Failed: $dbError")));
-      return; 
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Cloud Sync Failed: $dbError")));
+      }
+      return null; 
     }
+  }
+
+  /// Save bill and directly share via WhatsApp (Bypass thermal paper print)
+  void _saveAndShareWhatsApp({ReceiptLanguage initialLanguage = ReceiptLanguage.hindi}) async {
+    final savedBillRecord = await _saveBillRecord();
+    if (savedBillRecord == null) return;
+
+    // Reset checkout / cart state so next customer can be billed immediately
+    confirmPrint();
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                initialLanguage == ReceiptLanguage.hindi 
+                    ? "बिल सुरक्षित हुआ! WhatsApp पर हिन्दी बिल भेजा जा रहा है..." 
+                    : "Bill Saved! Opening WhatsApp for English bill...",
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 4),
+        backgroundColor: const Color(0xFF166534),
+      ),
+    );
+
+    // Open WhatsApp dialog with the chosen language preselected
+    PdfReceiptService.showWhatsAppPdfDialog(
+      context: context,
+      bill: savedBillRecord,
+      initialLanguage: initialLanguage,
+    );
+  }
+
+  /// Save bill and print Hindi thermal receipt
+  void _saveAndPrintBillHindi() async {
+    final savedBillRecord = await _saveBillRecord();
+    if (savedBillRecord == null) return;
+
+    if (_printerConnected) {
+      try {
+        bool? isConnected = await bluetooth.isConnected;
+        if (isConnected == true) {
+          await printHindiThermalBill(bluetooth: bluetooth, bill: savedBillRecord);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text("हिन्दी थर्मल बिल प्रिंट हुआ! (Hindi Thermal Bill Printed)"),
+                duration: const Duration(seconds: 6),
+                action: SnackBarAction(
+                  label: "WHATSAPP",
+                  textColor: const Color(0xFF25D366),
+                  onPressed: () => PdfReceiptService.showWhatsAppPdfDialog(
+                    context: context,
+                    bill: savedBillRecord,
+                    initialLanguage: ReceiptLanguage.hindi,
+                  ),
+                ),
+              ),
+            );
+          }
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Printer lost connection. Bill Saved to Cloud Only.")));
+          }
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Printer Error: $e. Bill Saved to Cloud Only.")));
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text("Bill Saved! (Printer not connected)"),
+            action: SnackBarAction(
+              label: "WHATSAPP",
+              textColor: const Color(0xFF25D366),
+              onPressed: () => PdfReceiptService.showWhatsAppPdfDialog(
+                context: context,
+                bill: savedBillRecord,
+                initialLanguage: ReceiptLanguage.hindi,
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    confirmPrint();
+  }
+
+  void _saveAndPrintBill() async {
+    final savedBillRecord = await _saveBillRecord();
+    if (savedBillRecord == null) return;
+
+    final billNumber = (savedBillRecord['bill_number'] ?? "").toString();
+    final paidMoney = (savedBillRecord['amount_tendered'] as num?)?.toDouble() ?? 0.0;
+    final finalChangeDue = (savedBillRecord['change_due'] as num?)?.toDouble() ?? 0.0;
+    final dbPaymentMethod = (savedBillRecord['payment_method'] ?? paymentMethod).toString();
 
     // 2. Try Printing if connected
     if (_printerConnected) {
@@ -4777,7 +4888,8 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printLeftRight("Item", "Qty x Rate", 1);
           await bluetooth.printCustom("--------------------------------", 1, 1);
           
-          for (var item in cart) {
+          final billItems = savedBillRecord['items_json'] as List<dynamic>;
+          for (var item in billItems) {
             String name = cleanItemName(
               (item["itemName"] != null && item["itemName"].toString().isNotEmpty)
                   ? item["itemName"].toString()
@@ -4816,87 +4928,95 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.printNewLine();
           await bluetooth.printNewLine();
           await bluetooth.paperCut();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Text("Bill Saved & Printed!"),
-                  const Spacer(),
-                  TextButton.icon(
-                    icon: const Icon(Icons.picture_as_pdf, color: Colors.amberAccent, size: 16),
-                    label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                      PdfReceiptService.openPdfPreviewDialog(context: context, bill: savedBillRecord);
-                    },
-                  ),
-                  const SizedBox(width: 4),
-                  TextButton.icon(
-                    icon: const Icon(Icons.share, color: Color(0xFF25D366), size: 16),
-                    label: const Text("WHATSAPP", style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                      PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: savedBillRecord);
-                    },
-                  ),
-                ],
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Row(
+                  children: [
+                    const Text("Bill Saved & Printed!"),
+                    const Spacer(),
+                    TextButton.icon(
+                      icon: const Icon(Icons.picture_as_pdf, color: Colors.amberAccent, size: 16),
+                      label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                        PdfReceiptService.openPdfPreviewDialog(context: context, bill: savedBillRecord);
+                      },
+                    ),
+                    const SizedBox(width: 4),
+                    TextButton.icon(
+                      icon: const Icon(Icons.share, color: Color(0xFF25D366), size: 16),
+                      label: const Text("WHATSAPP", style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                        PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: savedBillRecord);
+                      },
+                    ),
+                  ],
+                ),
+                duration: const Duration(seconds: 8),
+                action: SnackBarAction(
+                  label: "THERMAL",
+                  textColor: Colors.white,
+                  onPressed: () => _openReprintPreview(savedBillRecord),
+                ),
               ),
-              duration: const Duration(seconds: 8),
-              action: SnackBarAction(
-                label: "THERMAL",
-                textColor: Colors.white,
-                onPressed: () => _openReprintPreview(savedBillRecord),
-              ),
-            ),
-          );
+            );
+          }
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Printer lost connection. Bill Saved to Cloud Only.")));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Printer lost connection. Bill Saved to Cloud Only.")));
+          }
         }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Printer Error: $e. Bill Saved to Cloud Only.")));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Printer Error: $e. Bill Saved to Cloud Only.")));
+        }
       }
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Text("Bill Saved!"),
-              const Spacer(),
-              TextButton.icon(
-                icon: const Icon(Icons.picture_as_pdf, color: Colors.amberAccent, size: 16),
-                label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
-                onPressed: () {
-                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                  PdfReceiptService.openPdfPreviewDialog(context: context, bill: savedBillRecord);
-                },
-              ),
-              const SizedBox(width: 4),
-              TextButton.icon(
-                icon: const Icon(Icons.share, color: Color(0xFF25D366), size: 16),
-                label: const Text("WHATSAPP", style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
-                onPressed: () {
-                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                  PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: savedBillRecord);
-                },
-              ),
-            ],
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Text("Bill Saved!"),
+                const Spacer(),
+                TextButton.icon(
+                  icon: const Icon(Icons.picture_as_pdf, color: Colors.amberAccent, size: 16),
+                  label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    PdfReceiptService.openPdfPreviewDialog(context: context, bill: savedBillRecord);
+                  },
+                ),
+                const SizedBox(width: 4),
+                TextButton.icon(
+                  icon: const Icon(Icons.share, color: Color(0xFF25D366), size: 16),
+                  label: const Text("WHATSAPP", style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                    PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: savedBillRecord);
+                  },
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 8),
+            action: SnackBarAction(
+              label: "THERMAL",
+              textColor: Colors.white,
+              onPressed: () => _openReprintPreview(savedBillRecord),
+            ),
           ),
-          duration: const Duration(seconds: 8),
-          action: SnackBarAction(
-            label: "THERMAL",
-            textColor: Colors.white,
-            onPressed: () => _openReprintPreview(savedBillRecord),
-          ),
-        ),
-      );
+        );
+      }
     }
 
     // 3. Clear Cart
     confirmPrint();
   }
 
-  void _reprintBill(Map<String, dynamic> bill) {
-    executeReprintThermalBill(context: context, bluetooth: bluetooth, bill: bill);
+  void _reprintBill(Map<String, dynamic> bill, {ReceiptLanguage language = ReceiptLanguage.english}) {
+    executeReprintThermalBill(context: context, bluetooth: bluetooth, bill: bill, language: language);
   }
 
   void _openReprintPreview(Map<String, dynamic> bill) {
@@ -4904,6 +5024,7 @@ class _PosScreenState extends State<PosScreen> {
       context: context,
       bill: bill,
       onPrint: () => _reprintBill(bill),
+      onPrintWithLanguage: (lang) => _reprintBill(bill, language: lang),
     );
   }
 
@@ -5794,25 +5915,122 @@ class _PosScreenState extends State<PosScreen> {
             
             // ACTION BUTTONS
             Container(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               color: Colors.white,
-              child: Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 20), side: const BorderSide(color: Colors.black, width: 2)),
-                      onPressed: () => setState(() => isPreviewingBill = false), 
-                      child: const Text("◀ EDIT BILL", style: TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w900)),
+                  // WhatsApp Direct Options (Instead of printing)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFF86EFAC), width: 1.5),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.share, size: 16, color: Color(0xFF166534)),
+                            SizedBox(width: 6),
+                            Text(
+                              "WHATSAPP BILL (INSTEAD OF PRINTING)",
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF166534),
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                icon: const Text("🇮🇳", style: TextStyle(fontSize: 16)),
+                                label: const Text(
+                                  "हिन्दी बिल",
+                                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: Colors.white),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF15803D),
+                                  padding: const EdgeInsets.symmetric(vertical: 13),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  elevation: 2,
+                                ),
+                                onPressed: () => _saveAndShareWhatsApp(initialLanguage: ReceiptLanguage.hindi),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                icon: const Text("🇬🇧", style: TextStyle(fontSize: 16)),
+                                label: const Text(
+                                  "English Bill",
+                                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: Colors.white),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1E40AF),
+                                  padding: const EdgeInsets.symmetric(vertical: 13),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  elevation: 2,
+                                ),
+                                onPressed: () => _saveAndShareWhatsApp(initialLanguage: ReceiptLanguage.english),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    flex: 2,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6), padding: const EdgeInsets.symmetric(vertical: 20)),
-                      onPressed: _saveAndPrintBill, 
-                      child: Text(_printerConnected ? "🖨️ SAVE & PRINT" : "☁️ SAVE BILL", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
-                    ),
+
+                  // Secondary / Paper Print Actions: EDIT and PRINT
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            side: const BorderSide(color: Colors.black87, width: 1.5),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () => setState(() => isPreviewingBill = false), 
+                          child: const Text("◀ EDIT BILL", style: TextStyle(color: Colors.black87, fontSize: 14, fontWeight: FontWeight.w900)),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: Tooltip(
+                          message: "Tap to print English bill, long-press for Hindi",
+                          child: ElevatedButton.icon(
+                            icon: Icon(_printerConnected ? Icons.print : Icons.cloud_upload, color: Colors.white, size: 20),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF374151),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              elevation: 2,
+                            ),
+                            onPressed: _saveAndPrintBill,
+                            onLongPress: () {
+                              if (_printerConnected) {
+                                _saveAndPrintBillHindi();
+                              }
+                            },
+                            label: Text(
+                              _printerConnected ? "🖨️ SAVE & PRINT" : "☁️ SAVE BILL", 
+                              style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -6679,6 +6897,7 @@ void showReceiptPreviewDialog({
   required BuildContext context,
   required Map<String, dynamic> bill,
   required VoidCallback onPrint,
+  void Function(ReceiptLanguage language)? onPrintWithLanguage,
 }) {
   final items = bill['items_json'] is List
       ? (bill['items_json'] as List<dynamic>)
@@ -6691,13 +6910,9 @@ void showReceiptPreviewDialog({
   final double pTendered = double.tryParse(bill['amount_tendered']?.toString() ?? "0") ?? total;
   final double pChange = double.tryParse(bill['change_due']?.toString() ?? "0") ?? (pTendered > total ? (pTendered - total) : 0.0);
   final String staffName = (bill['staff_name'] ?? "Staff").toString();
-  DateTime billDate = DateTime.now();
-  if (bill['created_at'] != null) {
-    try {
-      billDate = DateTime.parse(bill['created_at']).toLocal();
-    } catch (_) {}
-  }
-  final String formattedDate = billDate.toString().split('.')[0];
+  final DateTime billDate = PdfReceiptService.parseIndianStandardTime(bill['created_at']);
+  final String formattedDate =
+      "${billDate.day.toString().padLeft(2, '0')}-${billDate.month.toString().padLeft(2, '0')}-${billDate.year} ${billDate.hour.toString().padLeft(2, '0')}:${billDate.minute.toString().padLeft(2, '0')}";
 
   showDialog(
     context: context,
@@ -6989,18 +7204,29 @@ void showReceiptPreviewDialog({
                     ),
                     const SizedBox(width: 6),
                     Expanded(
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.print, color: Colors.white, size: 16),
-                        label: const Text("🖨️ PRINT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2563EB),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      child: Tooltip(
+                        message: "Tap to print English, long-press for Hindi",
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.print, color: Colors.white, size: 16),
+                          label: const Text("🖨️ PRINT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            onPrint();
+                          },
+                          onLongPress: () {
+                            Navigator.pop(dialogContext);
+                            if (onPrintWithLanguage != null) {
+                              onPrintWithLanguage(ReceiptLanguage.hindi);
+                            } else {
+                              onPrint();
+                            }
+                          },
                         ),
-                        onPressed: () {
-                          Navigator.pop(dialogContext);
-                          onPrint();
-                        },
                       ),
                     ),
                   ],
@@ -7227,8 +7453,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     }
   }
 
-  void _reprintBill(Map<String, dynamic> bill) {
-    executeReprintThermalBill(context: context, bluetooth: bluetooth, bill: bill);
+  void _reprintBill(Map<String, dynamic> bill, {ReceiptLanguage language = ReceiptLanguage.english}) {
+    executeReprintThermalBill(context: context, bluetooth: bluetooth, bill: bill, language: language);
   }
 
   void _showBillPreview(Map<String, dynamic> bill) {
@@ -7236,6 +7462,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       context: context,
       bill: bill,
       onPrint: () => _reprintBill(bill),
+      onPrintWithLanguage: (lang) => _reprintBill(bill, language: lang),
     );
   }
 
@@ -7449,7 +7676,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              DateTime.parse(bill['created_at']).toLocal().toString().split('.')[0].substring(11),
+                              () {
+                                final dt = PdfReceiptService.parseIndianStandardTime(bill['created_at']);
+                                return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}";
+                              }(),
                               style: const TextStyle(color: Colors.black54, fontSize: 12),
                             ),
                             const SizedBox(height: 4),

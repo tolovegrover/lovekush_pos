@@ -440,6 +440,44 @@ class PdfReceiptService {
     }).join('');
   }
 
+  /// Parse bill created_at and always normalize to Indian Standard Time (IST, UTC+05:30)
+  static DateTime parseIndianStandardTime(dynamic rawDate) {
+    if (rawDate == null) {
+      final nowUtc = DateTime.now().toUtc();
+      final ist = nowUtc.add(const Duration(hours: 5, minutes: 30));
+      return DateTime(ist.year, ist.month, ist.day, ist.hour, ist.minute, ist.second);
+    }
+    if (rawDate is DateTime) {
+      final utc = rawDate.toUtc();
+      final ist = utc.add(const Duration(hours: 5, minutes: 30));
+      return DateTime(ist.year, ist.month, ist.day, ist.hour, ist.minute, ist.second);
+    }
+    try {
+      final str = rawDate.toString().trim();
+      if (str.isEmpty) {
+        final nowUtc = DateTime.now().toUtc();
+        final ist = nowUtc.add(const Duration(hours: 5, minutes: 30));
+        return DateTime(ist.year, ist.month, ist.day, ist.hour, ist.minute, ist.second);
+      }
+
+      final hasExplicitTz = str.endsWith('Z') || RegExp(r'[+-]\d{2}(:\d{2})?$').hasMatch(str);
+
+      if (hasExplicitTz) {
+        final parsedUtc = DateTime.parse(str).toUtc();
+        final ist = parsedUtc.add(const Duration(hours: 5, minutes: 30));
+        return DateTime(ist.year, ist.month, ist.day, ist.hour, ist.minute, ist.second);
+      } else {
+        // Naive date string, e.g. "2026-09-12 13:13:00" or "2026-09-12T13:13:00"
+        final parsed = DateTime.parse(str);
+        return DateTime(parsed.year, parsed.month, parsed.day, parsed.hour, parsed.minute, parsed.second);
+      }
+    } catch (_) {
+      final nowUtc = DateTime.now().toUtc();
+      final ist = nowUtc.add(const Duration(hours: 5, minutes: 30));
+      return DateTime(ist.year, ist.month, ist.day, ist.hour, ist.minute, ist.second);
+    }
+  }
+
   /// Calculate traditional Hindu Panchang Tithi for any given bill DateTime
   static String _formatPanchangTithi(DateTime dt) {
     const tithiNames = [
@@ -462,7 +500,8 @@ class PdfReceiptService {
     ];
 
     try {
-      final utc = dt.toUtc();
+      // dt is in Indian Standard Time (IST). Subtract 5:30 to get celestial UTC moment:
+      final utc = dt.subtract(const Duration(hours: 5, minutes: 30));
       int y = utc.year;
       int m = utc.month;
       final double d = utc.day + (utc.hour + utc.minute / 60.0 + utc.second / 3600.0) / 24.0;
@@ -507,7 +546,7 @@ class PdfReceiptService {
 
       final double siderealSun = (sunLong - 24.2 + 360.0) % 360.0;
       final int rashi = (siderealSun / 30.0).floor();
-      final int masaIndex = (rashi + 2) % 12;
+      final int masaIndex = (rashi + 1) % 12;
       final String masa = masaNames[masaIndex];
 
       int samvat = dt.year + 57;
@@ -525,19 +564,19 @@ class PdfReceiptService {
     }
   }
 
-  /// Traditional Indian Pahar (प्रहर) of the day based on 8 pahars of day/night
+  /// Traditional Indian Pahar (प्रहर) of the day based on 8 prahars of day/night (in IST)
   static String getPaharName(DateTime dt) {
     final hour = dt.hour;
     if (hour >= 6 && hour < 9) {
-      return "प्रथम प्रहर";
+      return "प्रथम प्रहर (प्रातः)";
     } else if (hour >= 9 && hour < 12) {
-      return "द्वितीय प्रहर";
+      return "द्वितीय प्रहर (पूर्वाह्न)";
     } else if (hour >= 12 && hour < 15) {
-      return "तृतीय प्रहर";
+      return "तृतीय प्रहर (मध्याह्न)";
     } else if (hour >= 15 && hour < 18) {
-      return "चतुर्थ प्रहर";
+      return "चतुर्थ प्रहर (अपराह्न)";
     } else if (hour >= 18 && hour < 21) {
-      return "सायं प्रहर";
+      return "सायं प्रहर (प्रदोष)";
     } else if (hour >= 21 && hour < 24) {
       return "निशीथ प्रहर";
     } else if (hour >= 0 && hour < 3) {
@@ -561,9 +600,15 @@ class PdfReceiptService {
   /// Format payment method in classical Sanskritized Hindi
   static String _paymentModeSanskrit(String method) {
     final m = method.toLowerCase();
-    if (m.contains("cash")) return "रोकड़";
-    if (m.contains("online") || m.contains("upi") || m.contains("gpay") || m.contains("paytm")) return "ऑनलाइन (UPI)";
-    if (m.contains("card")) return "कार्ड";
+    if (m.contains("hybrid") || m.contains("मिश्र")) {
+      return method
+          .replaceAll(RegExp(r'hybrid', caseSensitive: false), 'मिश्रित भुगतान')
+          .replaceAll(RegExp(r'cash', caseSensitive: false), 'रोकड़ा')
+          .replaceAll(RegExp(r'online', caseSensitive: false), 'ऑनलाइन');
+    }
+    if (m == "cash" || m.contains("cash") || m == "रोकड़") return "रोकड़ा";
+    if (m.contains("online") || m.contains("upi") || m.contains("gpay") || m.contains("paytm")) return "ऑनलाइन (डिजिटल / UPI)";
+    if (m.contains("card")) return "कार्ड भुगतान";
     return method;
   }
 
@@ -631,12 +676,7 @@ class PdfReceiptService {
     final double amountTendered = _toDouble(bill['amount_tendered'], totalAmount);
     final double changeDue = _toDouble(bill['change_due'], amountTendered > totalAmount ? (amountTendered - totalAmount) : 0.0);
 
-    DateTime billDate = DateTime.now();
-    if (bill['created_at'] != null) {
-      try {
-        billDate = DateTime.parse(bill['created_at']).toLocal();
-      } catch (_) {}
-    }
+    final DateTime billDate = parseIndianStandardTime(bill['created_at']);
     final String formattedDate =
         "${billDate.day.toString().padLeft(2, '0')}-${billDate.month.toString().padLeft(2, '0')}-${billDate.year} ${billDate.hour.toString().padLeft(2, '0')}:${billDate.minute.toString().padLeft(2, '0')}";
 
@@ -743,7 +783,7 @@ class PdfReceiptService {
           pw.SizedBox(height: 2),
           pw.Center(
             child: pw.Text(
-              _fixDevanagari("*** खुदरा रोकड़ पर्ची ***"),
+              _fixDevanagari("*** खुदरा रोकड़ा बीजक ***"),
               style: pw.TextStyle(
                 fontSize: 7.5,
                 fontWeight: pw.FontWeight.bold,
@@ -910,32 +950,35 @@ class PdfReceiptService {
         ),
         pw.Divider(thickness: 0.5, color: PdfColors.grey600, borderStyle: pw.BorderStyle.dashed),
 
-        // Minimal Item Rows (Item names in English as requested)
+        // Item Rows with exact column-by-column alignment
         for (final item in receiptItems) ...[
           pw.Padding(
-            padding: const pw.EdgeInsets.symmetric(vertical: 2),
-            child: pw.Column(
+            padding: const pw.EdgeInsets.symmetric(vertical: 2.5),
+            child: pw.Row(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Text(
-                  _fixDevanagari(item.name),
-                  style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                pw.Expanded(
+                  flex: 5,
+                  child: pw.Text(
+                    _fixDevanagari(item.name),
+                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                  ),
                 ),
-                pw.SizedBox(height: 1),
-                pw.Row(
-                  children: [
-                    pw.SizedBox(width: 4),
-                    pw.Expanded(
-                      child: pw.Text(
-                        "${item.qty} x ₹${item.rate.toStringAsFixed(2)}",
-                        style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
-                      ),
-                    ),
-                    pw.Text(
-                      "₹${item.lineTotal.toStringAsFixed(2)}",
-                      style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
-                    ),
-                  ],
+                pw.Expanded(
+                  flex: 4,
+                  child: pw.Text(
+                    "${item.qty} × ₹${item.rate.toStringAsFixed(2)}",
+                    textAlign: pw.TextAlign.center,
+                    style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey900),
+                  ),
+                ),
+                pw.Expanded(
+                  flex: 3,
+                  child: pw.Text(
+                    "₹${item.lineTotal.toStringAsFixed(2)}",
+                    textAlign: pw.TextAlign.right,
+                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                  ),
                 ),
               ],
             ),
@@ -1104,12 +1147,7 @@ class PdfReceiptService {
     final String staffName = (bill['staff_name'] ?? "स्टाफ").toString();
     final rawItems = _extractItems(bill['items_json']);
 
-    DateTime billDate = DateTime.now();
-    if (bill['created_at'] != null) {
-      try {
-        billDate = DateTime.parse(bill['created_at']).toLocal();
-      } catch (_) {}
-    }
+    final DateTime billDate = parseIndianStandardTime(bill['created_at']);
     final String formattedDate =
         "${billDate.day.toString().padLeft(2, '0')}-${billDate.month.toString().padLeft(2, '0')}-${billDate.year} ${billDate.hour.toString().padLeft(2, '0')}:${billDate.minute.toString().padLeft(2, '0')}";
 

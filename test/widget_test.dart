@@ -355,5 +355,68 @@ void main() {
       final sampleMantras = List.generate(10, (_) => PdfReceiptService.resolveActiveInvocation(PdfReceiptService.randomMantraKey));
       expect(sampleMantras.every((m) => m.contains("\u0FD7")), isTrue);
     });
+
+    test('WhatsApp bill sharing formats both Hindi and English with Bhagwan Namaste invocation and no return disclaimer', () {
+      final sampleBill = {
+        'bill_number': 'LK-0912-0088',
+        'staff_name': 'Love Kush',
+        'total_amount': 550.0,
+        'payment_method': 'Cash',
+        'amount_tendered': 600.0,
+        'change_due': 50.0,
+        'items_json': [
+          {'itemName': 'Pond\'s Cold Cream 100ml', 'qty': 2, 'rate': 275.0, 'total': 550.0},
+        ],
+      };
+
+      // 1. Hindi WhatsApp bill format
+      final hindiWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.hindi);
+      expect(hindiWa, contains("\u0FD7"));
+      expect(hindiWa, contains("ॐ श्री महालक्ष्म्यै नमः"));
+      expect(hindiWa, contains("ल.कु.-०९१२-००८८"));
+      expect(hindiWa, contains("₹550.00"));
+      expect(hindiWa, contains("रोकड़ा")); // 'रोकड़ा' used instead of 'रोकड़'
+      expect(hindiWa, isNot(contains("न वापसी")));
+      expect(hindiWa, isNot(contains("NO RETURN")));
+
+      // 2. English WhatsApp bill format
+      final engWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.english);
+      expect(engWa, contains("\u0FD7"));
+      expect(engWa, contains("ॐ श्री महालक्ष्म्यै नमः"));
+      expect(engWa, contains("Bill No:* LK-0912-0088"));
+      expect(engWa, contains("₹550.00"));
+      expect(engWa, isNot(contains("NO RETURN")));
+      expect(engWa, isNot(contains("NO REFUND")));
+    });
+
+    test('Authentic Panchang, Prahar, Rokada, and Mishrit Bhugtan translation validation', () {
+      final sampleBill = {
+        'bill_number': 'LK-0912-0099',
+        'staff_name': 'Love Kush',
+        'total_amount': 700.0,
+        'payment_method': 'Hybrid (Cash: 500, Online: 200)',
+        'created_at': '2026-09-12T13:13:00+05:30',
+        'items_json': [
+          {'itemName': 'Pond\'s Cold Cream 100ml', 'qty': 2, 'rate': 275.0, 'total': 550.0},
+          {'itemName': 'Lakme Eyeliner', 'qty': 1, 'rate': 150.0, 'total': 150.0},
+        ],
+      };
+
+      // Check WhatsApp formatting for Bhadrapada, Shukla Dwitiya, Samvat 2083, Shanivasar, Tritiya Prahar (Madhyahna)
+      final hindiWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.hindi);
+      expect(hindiWa, contains("भाद्रपद"));
+      expect(hindiWa, contains("शुक्ल द्वितीया"));
+      expect(hindiWa, contains("संवत् २०८३"));
+      expect(hindiWa, contains("शनिवार"));
+      expect(hindiWa, contains("तृतीय प्रहर (मध्याह्न)"));
+      expect(hindiWa, contains("मिश्रित भुगतान"));
+      expect(hindiWa, contains("रोकड़ा"));
+
+      // Check IST timestamp normalization
+      final dt = PdfReceiptService.parseIndianStandardTime('2026-09-12T07:43:00Z'); // 07:43 UTC = 13:13 IST
+      expect(dt.hour, 13);
+      expect(dt.minute, 13);
+      expect(PdfReceiptService.getPaharName(dt), "तृतीय प्रहर (मध्याह्न)");
+    });
   });
 }
