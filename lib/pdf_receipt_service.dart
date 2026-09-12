@@ -2,8 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle, Clipboard, ClipboardData;
+import 'package:flutter/services.dart' show rootBundle, Clipboard, ClipboardData, MethodChannel;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -1481,6 +1482,33 @@ class PdfReceiptService {
     return null;
   }
 
+  static const MethodChannel _whatsAppChannel = MethodChannel('com.lovekush.pos/whatsapp');
+
+  /// Attempt to share PDF directly to WhatsApp using native Android Intent (bypassing system chooser)
+  static Future<bool> _sharePdfDirectWhatsApp({
+    required Uint8List pdfBytes,
+    required String filename,
+    String? phone,
+    String? caption,
+  }) async {
+    if (kIsWeb || !Platform.isAndroid) return false;
+    try {
+      final bool? success = await _whatsAppChannel.invokeMethod<bool>(
+        'sharePdfToWhatsApp',
+        {
+          'pdfBytes': pdfBytes,
+          'filename': filename,
+          'phone': phone,
+          'caption': caption,
+        },
+      );
+      return success == true;
+    } catch (e) {
+      debugPrint("Native WhatsApp direct share error: $e");
+      return false;
+    }
+  }
+
   /// Send PDF bill file directly via WhatsApp / system share sheet
   static Future<void> sharePdfBill({
     required BuildContext context,
@@ -1488,6 +1516,7 @@ class PdfReceiptService {
     String? phone,
     ReceiptLanguage language = ReceiptLanguage.hindi,
     String? invocation,
+    bool forceSystemShare = false,
   }) async {
     try {
       final String billNo = (bill['bill_number'] ?? "N/A").toString();
@@ -1499,21 +1528,60 @@ class PdfReceiptService {
       final cleanPhone = phone != null ? sanitizeIndianPhoneNumber(phone) : null;
       if (cleanPhone != null) {
         await Clipboard.setData(ClipboardData(text: cleanPhone));
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("Phone +$cleanPhone copied! Select contact in WhatsApp to send PDF."),
-              duration: const Duration(seconds: 4),
-              backgroundColor: const Color(0xFF047857),
-            ),
-          );
+      }
+
+      final filename = "LoveKush_${langTag}_Bill_$safeBillNo.pdf";
+      final subject = "Love Kush Shopping Center ($langTag) - Bill #$billNo (₹${totalAmount.toStringAsFixed(2)})";
+      final caption = language == ReceiptLanguage.hindi
+          ? "🧾 लव कुश शॉपिङ्ग सेण्टर\nबीजक: #$billNo | राशि: ₹${totalAmount.toStringAsFixed(2)}\n🙏 सधन्यवाद! पुनः पधारें!"
+          : "🧾 Love Kush Shopping Center\nBill: #$billNo | Amount: ₹${totalAmount.toStringAsFixed(2)}\n🙏 Thank you! Visit again!";
+
+      // If on Android and system chooser not explicitly forced, send directly to WhatsApp!
+      if (!forceSystemShare && !kIsWeb && Platform.isAndroid) {
+        final bool sentDirect = await _sharePdfDirectWhatsApp(
+          pdfBytes: pdfBytes,
+          filename: filename,
+          phone: cleanPhone,
+          caption: caption,
+        );
+
+        if (sentDirect) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  cleanPhone != null
+                      ? (language == ReceiptLanguage.hindi
+                          ? "WhatsApp पर सीधे PDF भेजा जा रहा है (+${cleanPhone})!"
+                          : "Opening WhatsApp directly for +${cleanPhone} with PDF bill!")
+                      : (language == ReceiptLanguage.hindi
+                          ? "WhatsApp पर PDF बीजक खोला जा रहा है..."
+                          : "Opening WhatsApp directly with PDF bill..."),
+                ),
+                duration: const Duration(seconds: 4),
+                backgroundColor: const Color(0xFF047857),
+              ),
+            );
+          }
+          return;
         }
+      }
+
+      // Fallback to system share sheet (if WhatsApp not installed or explicitly requested)
+      if (cleanPhone != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Phone +$cleanPhone copied! Select contact to share PDF."),
+            duration: const Duration(seconds: 4),
+            backgroundColor: const Color(0xFF047857),
+          ),
+        );
       }
 
       await Printing.sharePdf(
         bytes: pdfBytes,
-        filename: "LoveKush_${langTag}_Bill_$safeBillNo.pdf",
-        subject: "Love Kush Shopping Center ($langTag) - Bill #$billNo (₹${totalAmount.toStringAsFixed(2)})",
+        filename: filename,
+        subject: subject,
       );
     } catch (e) {
       if (context.mounted) {
@@ -1543,7 +1611,16 @@ class PdfReceiptService {
           await sharePdfBill(context: context, bill: bill, phone: phone, language: language, invocation: invocation);
         }
       } else {
-        await sharePdfBill(context: context, bill: bill, language: language, invocation: invocation);
+        final waUri = Uri.parse("whatsapp://send?text=${Uri.encodeComponent(messageText)}");
+        bool launched = false;
+        try {
+          launched = await launchUrl(waUri, mode: LaunchMode.externalApplication);
+        } catch (_) {
+          launched = false;
+        }
+        if (!launched) {
+          await sharePdfBill(context: context, bill: bill, language: language, invocation: invocation);
+        }
       }
     } catch (e) {
       if (context.mounted) {
@@ -1880,294 +1957,342 @@ class PdfReceiptService {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
                 child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Title Row
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF25D366).withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.share, color: Color(0xFF25D366), size: 24),
-                          ),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Text(
-                              "Send Bill on WhatsApp / PDF",
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Bilingual Switcher Segmented Control
-                      Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Title Row
+                        Row(
                           children: [
-                            Expanded(
-                              child: InkWell(
-                                onTap: () {
-                                  setDialogState(() {
-                                    selectedLanguage = ReceiptLanguage.hindi;
-                                  });
-                                },
-                                borderRadius: BorderRadius.circular(8),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: isHindi ? const Color(0xFF111827) : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(8),
-                                    boxShadow: isHindi ? [const BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))] : null,
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Text("🇮🇳 ", style: TextStyle(fontSize: 14)),
-                                      Text(
-                                        "हिन्दी बिल",
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                          color: isHindi ? Colors.white : Colors.grey.shade700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF25D366).withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(10),
                               ),
+                              child: const Icon(Icons.share, color: Color(0xFF25D366), size: 24),
                             ),
-                            Expanded(
-                              child: InkWell(
-                                onTap: () {
-                                  setDialogState(() {
-                                    selectedLanguage = ReceiptLanguage.english;
-                                  });
-                                },
-                                borderRadius: BorderRadius.circular(8),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: !isHindi ? const Color(0xFF111827) : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(8),
-                                    boxShadow: !isHindi ? [const BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))] : null,
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Text("🇬🇧 ", style: TextStyle(fontSize: 14)),
-                                      Text(
-                                        "English Bill",
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                          color: !isHindi ? Colors.white : Colors.grey.shade700,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Text(
+                                "Send Bill on WhatsApp / PDF",
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 14),
 
-                      // Bill Info Chip
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text("Bill: #$billNo", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                            Text("${rawItems.length} items", style: const TextStyle(color: Colors.black54, fontSize: 12)),
-                            Text(
-                              "₹${totalAmount.toStringAsFixed(2)}",
-                              style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 14),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Customer Phone Number Input
-                      const Text(
-                        "Customer Mobile (Optional):",
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87),
-                      ),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: phoneController,
-                        keyboardType: TextInputType.phone,
-                        autofocus: true,
-                        decoration: InputDecoration(
-                          hintText: "Enter 10-digit number (e.g. 9812345678)",
-                          prefixIcon: const Icon(Icons.phone_android, color: Colors.teal),
-                          prefixText: "+91 ",
-                          filled: true,
-                          fillColor: Colors.grey.shade50,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                        ),
-                      ),
-                      // Mangalacharan Mantra Selector Bar (Shows active mantra / random badge)
-                      if (isHindi) ...[
-                        InkWell(
-                          onTap: () {
-                            showMantraSelectionDialog(
-                              context: context,
-                              currentMantra: currentInvocation,
-                              onSelected: (newMantra) {
-                                setDialogState(() {});
-                              },
-                            );
-                          },
-                          borderRadius: BorderRadius.circular(8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFF7ED),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFFFDBA74)),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.temple_hindu, size: 16, color: Color(0xFFEA580C)),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    currentInvocation == randomMantraKey
-                                        ? "🎲 यादृच्छिक मन्त्र (Random Mantra on Every Bill)"
-                                        : currentInvocation,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF9A3412),
+                        // Bilingual Switcher Segmented Control
+                        Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () {
+                                    setDialogState(() {
+                                      selectedLanguage = ReceiptLanguage.hindi;
+                                    });
+                                  },
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: isHindi ? const Color(0xFF111827) : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(8),
+                                      boxShadow: isHindi ? [const BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))] : null,
                                     ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          const Text("🇮🇳 ", style: TextStyle(fontSize: 14)),
+                                          Text(
+                                            "हिन्दी बिल",
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                              color: isHindi ? Colors.white : Colors.grey.shade700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ),
                                 ),
-                                const SizedBox(width: 4),
-                                const Text(
-                                  "बदलें",
-                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFEA580C)),
+                              ),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () {
+                                    setDialogState(() {
+                                      selectedLanguage = ReceiptLanguage.english;
+                                    });
+                                  },
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: !isHindi ? const Color(0xFF111827) : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(8),
+                                      boxShadow: !isHindi ? [const BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1))] : null,
+                                    ),
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          const Text("🇬🇧 ", style: TextStyle(fontSize: 14)),
+                                          Text(
+                                            "English Bill",
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                              color: !isHindi ? Colors.white : Colors.grey.shade700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                                const Icon(Icons.chevron_right, size: 16, color: Color(0xFFEA580C)),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 12),
-                      ],
 
-                      // Action Button 1: Send PDF Bill on WhatsApp (Primary)
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.picture_as_pdf, color: Colors.white, size: 20),
-                        label: Text(
-                          isHindi ? "SEND HINDI PDF BILL" : "SEND ENGLISH PDF BILL",
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Colors.white),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF25D366),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        onPressed: () {
-                          final phone = phoneController.text.trim();
-                          Navigator.pop(ctx);
-                          sharePdfBill(
-                            context: context,
-                            bill: bill,
-                            phone: phone.isNotEmpty ? phone : null,
-                            language: selectedLanguage,
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Action Button 2: Send Text Summary (Optional alternative)
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.chat_bubble_outline, color: Color(0xFF047857), size: 17),
-                        label: Text(
-                          isHindi ? "Send Hindi Text Summary Instead" : "Send English Text Summary Instead",
-                          style: const TextStyle(color: Color(0xFF047857), fontWeight: FontWeight.bold, fontSize: 13),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 10),
-                          side: const BorderSide(color: Color(0xFF10B981)),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        onPressed: () {
-                          final phone = phoneController.text.trim();
-                          Navigator.pop(ctx);
-                          sendWhatsAppTextMessage(
-                            context: context,
-                            bill: bill,
-                            phone: phone.isNotEmpty ? phone : null,
-                            language: selectedLanguage,
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Action Button 3: Print or View PDF Directly
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              icon: const Icon(Icons.visibility, color: Color(0xFF2563EB), size: 18),
-                              label: Text(
-                                isHindi ? "PREVIEW HINDI" : "PREVIEW ENGLISH",
-                                style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 12),
+                        // Bill Info Chip
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  "Bill: #$billNo",
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 11),
-                                side: const BorderSide(color: Color(0xFF2563EB)),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              Text("${rawItems.length} items", style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                              const SizedBox(width: 8),
+                              Text(
+                                "₹${totalAmount.toStringAsFixed(2)}",
+                                style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 14),
                               ),
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                openPdfPreviewDialog(
-                                  context: context,
-                                  bill: bill,
-                                  initialLanguage: selectedLanguage,
-                                );
-                              },
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Customer Phone Number Input
+                        Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(
+                              isHindi ? "ग्राहक का मोबाइल (WhatsApp):" : "Customer Mobile (WhatsApp):",
+                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.black87),
+                            ),
+                            Text(
+                              isHindi ? "बिना नम्बर सेव किये" : "No contact save needed",
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF047857), fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: phoneController,
+                          keyboardType: TextInputType.phone,
+                          autofocus: true,
+                          decoration: InputDecoration(
+                            hintText: isHindi ? "१० अंकों का मोबाइल (उदा. 9812345678)" : "10-digit mobile (e.g. 9812345678)",
+                            prefixIcon: const Icon(Icons.phone_android, color: Color(0xFF0D9488)),
+                            prefixText: "+91 ",
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Mangalacharan Mantra Selector Bar (Shows active mantra / random badge)
+                        if (isHindi) ...[
+                          InkWell(
+                            onTap: () {
+                              showMantraSelectionDialog(
+                                context: context,
+                                currentMantra: currentInvocation,
+                                onSelected: (newMantra) {
+                                  setDialogState(() {});
+                                },
+                              );
+                            },
+                            borderRadius: BorderRadius.circular(8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFF7ED),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFFFDBA74)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.temple_hindu, size: 16, color: Color(0xFFEA580C)),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      currentInvocation == randomMantraKey
+                                          ? "🎲 यादृच्छिक मन्त्र (Random Mantra on Every Bill)"
+                                          : currentInvocation,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF9A3412),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Text(
+                                    "बदलें",
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFEA580C)),
+                                  ),
+                                  const Icon(Icons.chevron_right, size: 16, color: Color(0xFFEA580C)),
+                                ],
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton(
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 11),
-                                side: const BorderSide(color: Colors.grey),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
-                              onPressed: () => Navigator.pop(ctx),
-                              child: const Text("CANCEL", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
-                            ),
-                          ),
+                          const SizedBox(height: 12),
                         ],
-                      ),
-                    ],
+
+                        // Action Button 1: Send Direct WhatsApp Chat Message (Instant, no saving number required)
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.chat, color: Colors.white, size: 20),
+                          label: Text(
+                            isHindi ? "सीधे WHATSAPP चैट खोलें (Direct Chat)" : "OPEN DIRECT WHATSAPP CHAT",
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Colors.white),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF25D366),
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () {
+                            final phone = phoneController.text.trim();
+                            Navigator.pop(ctx);
+                            sendWhatsAppTextMessage(
+                              context: context,
+                              bill: bill,
+                              phone: phone.isNotEmpty ? phone : null,
+                              language: selectedLanguage,
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Action Button 2: Direct WhatsApp PDF file (Opens WhatsApp directly, no system chooser)
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.picture_as_pdf, color: Colors.white, size: 20),
+                          label: Text(
+                            isHindi ? "WHATSAPP पर PDF बीजक भेजें" : "SEND PDF BILL ON WHATSAPP",
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Colors.white),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F766E), // Deep Teal
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () {
+                            final phone = phoneController.text.trim();
+                            Navigator.pop(ctx);
+                            sharePdfBill(
+                              context: context,
+                              bill: bill,
+                              phone: phone.isNotEmpty ? phone : null,
+                              language: selectedLanguage,
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 8),
+
+                        // Action Buttons Row: Preview & Other Apps / System Share
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.visibility, color: Color(0xFF2563EB), size: 16),
+                                label: Text(
+                                  isHindi ? "बिल देखें" : "PREVIEW",
+                                  style: const TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 11),
+                                  side: const BorderSide(color: Color(0xFF2563EB)),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                onPressed: () {
+                                  Navigator.pop(ctx);
+                                  openPdfPreviewDialog(
+                                    context: context,
+                                    bill: bill,
+                                    initialLanguage: selectedLanguage,
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.share, color: Colors.black87, size: 16),
+                                label: Text(
+                                  isHindi ? "अन्य ऐप्स" : "OTHER APPS",
+                                  style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 11),
+                                  side: const BorderSide(color: Colors.grey),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                onPressed: () {
+                                  final phone = phoneController.text.trim();
+                                  Navigator.pop(ctx);
+                                  sharePdfBill(
+                                    context: context,
+                                    bill: bill,
+                                    phone: phone.isNotEmpty ? phone : null,
+                                    language: selectedLanguage,
+                                    forceSystemShare: true,
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: Text(
+                                isHindi ? "रद्द" : "CANCEL",
+                                style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w600, fontSize: 12),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lovekush_pos/main.dart';
 import 'package:lovekush_pos/cosmetics_catalog.dart';
@@ -436,6 +437,49 @@ void main() {
 
       final pdfBytes = await PdfReceiptService.generateReceiptPdf(sampleBill, language: ReceiptLanguage.hindi);
       expect(pdfBytes.length, greaterThan(1000));
+    });
+
+    testWidgets('PdfReceiptService direct WhatsApp dialog UI and buttons validation', (WidgetTester tester) async {
+      final testBill = {
+        'bill_number': 'LK-WA-101',
+        'staff_name': 'Test Cashier',
+        'total_amount': 450.0,
+        'payment_method': 'Cash',
+        'created_at': '2026-09-12T10:00:00+05:30',
+        'items_json': [
+          {'itemName': 'Patanjali Dant Kanti', 'qty': 1, 'rate': 120.0, 'total': 120.0},
+        ],
+      };
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (ctx) => ElevatedButton(
+                onPressed: () => PdfReceiptService.showWhatsAppPdfDialog(context: ctx, bill: testBill),
+                child: const Text('OPEN DIALOG'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Tap open dialog
+      await tester.tap(find.text('OPEN DIALOG'));
+      await tester.pumpAndSettle();
+
+      // Verify direct WhatsApp options and buttons are rendered
+      expect(find.text("सीधे WHATSAPP चैट खोलें (Direct Chat)"), findsOneWidget);
+      expect(find.text("WHATSAPP पर PDF बीजक भेजें"), findsOneWidget);
+      expect(find.text("अन्य ऐप्स"), findsOneWidget);
+      expect(find.text("बिल देखें"), findsOneWidget);
+      expect(find.text("ग्राहक का मोबाइल (WhatsApp):"), findsOneWidget);
+      expect(find.text("बिना नम्बर सेव किये"), findsOneWidget);
+
+      // Verify phone sanitization
+      expect(PdfReceiptService.sanitizeIndianPhoneNumber("9812345678"), "919812345678");
+      expect(PdfReceiptService.sanitizeIndianPhoneNumber("+91 98123 45678"), "919812345678");
+      expect(PdfReceiptService.sanitizeIndianPhoneNumber("09812345678"), "919812345678");
     });
   });
 }
