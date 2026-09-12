@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lovekush_pos/main.dart';
 import 'package:lovekush_pos/cosmetics_catalog.dart';
@@ -183,12 +184,16 @@ void main() {
       };
 
       final msg = PdfReceiptService.formatWhatsAppBillMessage(sampleBill);
+      expect(msg, contains("लव कुश शॉपिङ्ग सेण्टर"));
       expect(msg, contains("LOVE KUSH SHOPPING CENTER"));
       expect(msg, contains("LK-2026-0042"));
       expect(msg, contains("Lakme Eyeconic Kajal"));
       expect(msg, contains("Ponds Cold Cream"));
-      expect(msg, contains("GRAND TOTAL: ₹410.00"));
+      expect(msg, contains("कुल योग (GRAND TOTAL): ₹410.00"));
       expect(msg, contains("CASH"));
+      expect(msg, contains("बिका हुआ माल वापस या रिफंड नहीं होगा"));
+      expect(msg, contains("केवल 24 घंटे के अंदर असली बिल के साथ"));
+      expect(msg, contains("लिपस्टिक, नेलपॉलिश, क्रीम, कटा अस्तर, लेस/गोटा"));
     });
 
     test('PdfReceiptService validates and formats Indian phone numbers', () {
@@ -253,10 +258,12 @@ void main() {
       // 1. WhatsApp summary formatting must never throw type cast exception
       final waMsg = PdfReceiptService.formatWhatsAppBillMessage(stringTypedBill);
       expect(waMsg, contains("Pond's White Beauty Cream"));
-      expect(waMsg, contains("GRAND TOTAL: ₹450.50"));
+      expect(waMsg, contains("कुल योग (GRAND TOTAL): ₹450.50"));
 
       // 2. PDF generation must never throw 'String is not subtype of num?'
       final bytes = await PdfReceiptService.generateReceiptPdf(stringTypedBill);
+      Directory('build').createSync(recursive: true);
+      File('build/sample_receipt.pdf').writeAsBytesSync(bytes);
       expect(bytes, isNotNull);
       expect(bytes.length, greaterThan(1000));
       expect(bytes[0], 0x25); // %

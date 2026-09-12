@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle, Clipboard, ClipboardData;
@@ -12,6 +13,77 @@ import 'package:url_launcher/url_launcher.dart';
 // ==========================================
 
 class PdfReceiptService {
+  static pw.Font? _cachedHindiRegular;
+  static pw.Font? _cachedHindiBold;
+
+  /// Load and cache Hindi TrueType fonts offline from bundled assets (with local File fallback for tests)
+  static Future<pw.ThemeData> _loadTheme() async {
+    if (_cachedHindiRegular != null && _cachedHindiBold != null) {
+      return pw.ThemeData.withFont(
+        base: pw.Font.helvetica(),
+        bold: pw.Font.helveticaBold(),
+        fontFallback: [_cachedHindiRegular!, _cachedHindiBold!],
+      );
+    }
+
+    pw.Font? regular = _cachedHindiRegular;
+    pw.Font? bold = _cachedHindiBold;
+
+    if (regular == null) {
+      try {
+        final data = await rootBundle.load("assets/fonts/NotoSansDevanagari-Regular.ttf");
+        regular = pw.Font.ttf(data);
+        _cachedHindiRegular = regular;
+      } catch (_) {
+        try {
+          final file = File("assets/fonts/NotoSansDevanagari-Regular.ttf");
+          if (file.existsSync()) {
+            final bytes = await file.readAsBytes();
+            regular = pw.Font.ttf(bytes.buffer.asByteData());
+            _cachedHindiRegular = regular;
+          }
+        } catch (_) {}
+      }
+    }
+
+    if (bold == null) {
+      try {
+        final data = await rootBundle.load("assets/fonts/NotoSansDevanagari-Bold.ttf");
+        bold = pw.Font.ttf(data);
+        _cachedHindiBold = bold;
+      } catch (_) {
+        try {
+          final file = File("assets/fonts/NotoSansDevanagari-Bold.ttf");
+          if (file.existsSync()) {
+            final bytes = await file.readAsBytes();
+            bold = pw.Font.ttf(bytes.buffer.asByteData());
+            _cachedHindiBold = bold;
+          }
+        } catch (_) {}
+      }
+    }
+
+    final fallbacks = <pw.Font>[];
+    if (regular != null) fallbacks.add(regular);
+    if (bold != null) fallbacks.add(bold);
+
+    if (fallbacks.isNotEmpty) {
+      return pw.ThemeData.withFont(
+        base: pw.Font.helvetica(),
+        bold: pw.Font.helveticaBold(),
+        fontFallback: fallbacks,
+      );
+    }
+    return pw.ThemeData.base();
+  }
+
+  /// Format Devanagari text for dart_pdf rendering by reordering Chhoti-Ee (U+093F)
+  /// before preceding consonant clusters so it displays in the visually correct order.
+  static String _fixDevanagari(String text) {
+    if (text.isEmpty) return text;
+    final exp = RegExp(r'((?:[\u0915-\u0939\u0958-\u095F][\u094D])*[\u0915-\u0939\u0958-\u095F])[\u093F]');
+    return text.replaceAllMapped(exp, (m) => '\u093F${m.group(1)}');
+  }
   /// Robust double parser for String, num, double, int, or null
   static double _toDouble(dynamic val, [double defaultVal = 0.0]) {
     if (val == null) return defaultVal;
@@ -55,7 +127,8 @@ class PdfReceiptService {
     Uint8List? logoBytes,
     PdfPageFormat? pageFormat,
   }) async {
-    final doc = pw.Document();
+    final theme = await _loadTheme();
+    final doc = pw.Document(theme: theme);
 
     // 1. Extract and sanitize bill metadata
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
@@ -81,7 +154,14 @@ class PdfReceiptService {
       try {
         final byteData = await rootBundle.load("assets/logo_bw.jpg");
         effectiveLogo = byteData.buffer.asUint8List();
-      } catch (_) {}
+      } catch (_) {
+        try {
+          final file = File("assets/logo_bw.jpg");
+          if (file.existsSync()) {
+            effectiveLogo = await file.readAsBytes();
+          }
+        } catch (_) {}
+      }
     }
 
     final pw.ImageProvider? logoImage = effectiveLogo != null ? pw.MemoryImage(effectiveLogo) : null;
@@ -122,12 +202,22 @@ class PdfReceiptService {
           ),
         ],
 
-        // Store Titles
+        // Store Titles (Hindi & English)
+        pw.Center(
+          child: pw.Text(
+            _fixDevanagari("लव कुश शॉपिंग सेंटर"),
+            style: pw.TextStyle(
+              fontSize: 13,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.black,
+            ),
+          ),
+        ),
         pw.Center(
           child: pw.Text(
             "LOVE KUSH",
             style: pw.TextStyle(
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: pw.FontWeight.bold,
               color: PdfColors.black,
             ),
@@ -137,7 +227,7 @@ class PdfReceiptService {
           child: pw.Text(
             "SHOPPING CENTER",
             style: pw.TextStyle(
-              fontSize: 11,
+              fontSize: 10.5,
               fontWeight: pw.FontWeight.bold,
               color: PdfColors.black,
             ),
@@ -239,7 +329,7 @@ class PdfReceiptService {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text(
-                  item.name,
+                  _fixDevanagari(item.name),
                   style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
                 ),
                 pw.SizedBox(height: 1),
@@ -310,7 +400,7 @@ class PdfReceiptService {
         // Dashed Divider
         pw.Divider(thickness: 0.8, color: PdfColors.black, borderStyle: pw.BorderStyle.dashed),
 
-        // Terms & Conditions (Strict policy requested by user)
+        // Terms & Conditions (Strict Hindi policy for shop audience)
         pw.Container(
           padding: const pw.EdgeInsets.symmetric(vertical: 2),
           child: pw.Column(
@@ -318,7 +408,7 @@ class PdfReceiptService {
             children: [
               pw.Center(
                 child: pw.Text(
-                  "TERMS & CONDITIONS",
+                  _fixDevanagari("नियम एवं शर्तें (जरूरी सूचना)"),
                   style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
                 ),
               ),
@@ -326,10 +416,15 @@ class PdfReceiptService {
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text("- ", style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+                  pw.Container(
+                    width: 2.5,
+                    height: 2.5,
+                    margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
+                    decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
+                  ),
                   pw.Expanded(
                     child: pw.Text(
-                      "No Return / No Refund.",
+                      _fixDevanagari("बिका हुआ माल वापस या रिफंड नहीं होगा।"),
                       style: pw.TextStyle(fontSize: 6.8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
                     ),
                   ),
@@ -339,10 +434,15 @@ class PdfReceiptService {
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text("- ", style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+                  pw.Container(
+                    width: 2.5,
+                    height: 2.5,
+                    margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
+                    decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
+                  ),
                   pw.Expanded(
                     child: pw.Text(
-                      "Only exchange within 24 hours (with original bill).",
+                      _fixDevanagari("केवल 24 घंटे के अंदर असली बिल के साथ सामान बदला (Exchange) जा सकता है।"),
                       style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
                     ),
                   ),
@@ -352,14 +452,26 @@ class PdfReceiptService {
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  pw.Text("- ", style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+                  pw.Container(
+                    width: 2.5,
+                    height: 2.5,
+                    margin: const pw.EdgeInsets.only(top: 3, right: 3.5),
+                    decoration: const pw.BoxDecoration(color: PdfColors.black, shape: pw.BoxShape.circle),
+                  ),
                   pw.Expanded(
                     child: pw.Text(
-                      "No exchange of lipstick, nail polish, creams, cut astar, and laces etc. (cut from thaan or usable) and any opened bottle.",
+                      _fixDevanagari("लिपस्टिक, नेलपॉलिश, क्रीम, कटा अस्तर, लेस/गोटा (थान से कटा या प्रयोग होने वाला सामान) और खुली शीशी/बोतल बदली नहीं जाएगी।"),
                       style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
                     ),
                   ),
                 ],
+              ),
+              pw.SizedBox(height: 2),
+              pw.Center(
+                child: pw.Text(
+                  "(No Return/Refund. Exchange within 24h with bill)",
+                  style: const pw.TextStyle(fontSize: 6.0, color: PdfColors.grey700),
+                ),
               ),
             ],
           ),
@@ -371,13 +483,13 @@ class PdfReceiptService {
           child: pw.Column(
             children: [
               pw.Text(
-                "*** THANK YOU FOR SHOPPING! ***",
-                style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                _fixDevanagari("*** धन्यवाद! फिर पधारें! ***"),
+                style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
               ),
               pw.SizedBox(height: 1),
               pw.Text(
-                "*** VISIT AGAIN ***",
-                style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey700),
+                "*** THANK YOU FOR SHOPPING! VISIT AGAIN ***",
+                style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.grey700),
               ),
             ],
           ),
@@ -457,13 +569,14 @@ class PdfReceiptService {
         "${billDate.day.toString().padLeft(2, '0')}-${billDate.month.toString().padLeft(2, '0')}-${billDate.year} ${billDate.hour.toString().padLeft(2, '0')}:${billDate.minute.toString().padLeft(2, '0')}";
 
     final StringBuffer buffer = StringBuffer();
-    buffer.writeln("🧾 *LOVE KUSH SHOPPING CENTER*");
+    buffer.writeln("🧾 *लव कुश शॉपिङ्ग सेण्टर*");
+    buffer.writeln("   *LOVE KUSH SHOPPING CENTER*");
     buffer.writeln("📍 _${counterName}_");
     buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
     buffer.writeln("📋 *Bill No:* $billNo");
     buffer.writeln("📅 *Date:* $formattedDate");
     buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-    buffer.writeln("*Items Purchased:*");
+    buffer.writeln("*खरीदा गया सामान (Items Purchased):*");
 
     for (int i = 0; i < rawItems.length; i++) {
       final item = rawItems[i] is Map ? rawItems[i] as Map : {};
@@ -476,16 +589,17 @@ class PdfReceiptService {
     }
 
     buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-    buffer.writeln("💰 *GRAND TOTAL: ₹${totalAmount.toStringAsFixed(2)}*");
-    buffer.writeln("💳 *Payment:* ${paymentMethod.toUpperCase()}");
+    buffer.writeln("💰 *कुल योग (GRAND TOTAL): ₹${totalAmount.toStringAsFixed(2)}*");
+    buffer.writeln("💳 *भुगतान (Payment):* ${paymentMethod.toUpperCase()}");
     buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-    buffer.writeln("📌 *Exchange Policy:*");
-    buffer.writeln("• No Return / No Refund.");
-    buffer.writeln("• Only exchange within 24 hours (with original bill).");
-    buffer.writeln("• No exchange of lipstick, nail polish, creams, cut astar, laces, etc. and any opened bottle.");
+    buffer.writeln("📌 *नियम एवं शर्तें (जरूरी सूचना):*");
+    buffer.writeln("• बिका हुआ माल वापस या रिफंड नहीं होगा।");
+    buffer.writeln("• केवल 24 घंटे के अंदर असली बिल के साथ सामान बदला (Exchange) जा सकता है।");
+    buffer.writeln("• लिपस्टिक, नेलपॉलिश, क्रीम, कटा अस्तर, लेस/गोटा और खुली बोतल बदली नहीं जाएगी।");
+    buffer.writeln("  _(No Return / No Refund. Exchange within 24h with bill)_");
     buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-    buffer.writeln("🙏 *Thank you for shopping with us!*");
-    buffer.writeln("🌿 _Digital PDF Bill attached._");
+    buffer.writeln("🙏 *हमारे यहाँ खरीदारी के लिए धन्यवाद! फिर पधारें!*");
+    buffer.writeln("🌿 _डिजिटल पीडीएफ बिल संलग्न है (Digital PDF Bill attached)._");
 
     return buffer.toString();
   }
