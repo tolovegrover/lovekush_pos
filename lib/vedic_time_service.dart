@@ -96,6 +96,23 @@ class VedicPanchang {
     required this.solar,
   });
 
+  /// Common Hindi day name corresponding to the Vedic Vaar
+  String get commonVaar {
+    switch (vaar) {
+      case "सोमवासर": return "सोमवार";
+      case "भौमवासर": return "मंगलवार";
+      case "बुधवासर": return "बुधवार";
+      case "गुरुवासर": return "गुरुवार";
+      case "शुक्रवासर": return "शुक्रवार";
+      case "शनिवासर": return "शनिवार";
+      case "रविवासर": return "रविवार";
+      default: return vaar;
+    }
+  }
+
+  /// Full Vedic Vaar with common Hindi name: e.g. "शनिवासर (शनिवार)"
+  String get fullVaarDisplay => "$vaar ($commonVaar)";
+
   /// Single-line authentic header for receipts and displays
   String toReceiptPanchangLine() {
     return "$masa, $paksha $udayaTithi, ${VedicTime.toDevanagariDigits(samvat)} विक्रम संवत् ($pahar)";
@@ -212,6 +229,72 @@ class VedicTimeService {
     );
   }
 
+  /// Convert modern clock [dt] into authentic 30-Ghati Vedic Time (Drik Panchang 30-Ghati mode)
+  /// where Daytime (Sunrise to Sunset) is divided into exactly 30 Ghatis (Sunset is always 30:00:00),
+  /// and Nighttime (Sunset to next Sunrise) is divided into 30 Ghatis.
+  static VedicTime normalToVedic30Ghati(
+    DateTime dt, {
+    double lat = defaultLat,
+    double lon = defaultLon,
+    DateTime? overrideSunrise,
+    DateTime? overrideSunset,
+  }) {
+    final solar = calculateSolarTimings(dt, lat: lat, lon: lon);
+    final sunrise = overrideSunrise ?? solar.sunrise;
+    final sunset = overrideSunset ?? solar.sunset;
+
+    double totalGhatis;
+    double totalSec;
+
+    if (dt.isBefore(sunrise)) {
+      // Prior to today's sunrise: part of previous night (Sunset to Sunrise = 30 Ghatis)
+      final prevDaySunset = getLocalSunset(dt.subtract(const Duration(days: 1)), lat: lat, lon: lon);
+      final nightDuration = sunrise.difference(prevDaySunset);
+      final elapsed = dt.difference(prevDaySunset);
+      totalSec = elapsed.inMicroseconds / 1000000.0;
+      totalGhatis = (totalSec / (nightDuration.inMicroseconds / 1000000.0)) * 30.0;
+    } else if (dt.isBefore(sunset) || dt.isAtSameMomentAs(sunset)) {
+      // Daytime: Sunrise to Sunset = exactly 30 Ghatis
+      final dayDuration = sunset.difference(sunrise);
+      final elapsed = dt.difference(sunrise);
+      totalSec = elapsed.inMicroseconds / 1000000.0;
+      totalGhatis = (totalSec / (dayDuration.inMicroseconds / 1000000.0)) * 30.0;
+    } else {
+      // Nighttime: Sunset to next Sunrise = 30 Ghatis
+      final nextDaySunrise = getLocalSunrise(dt.add(const Duration(days: 1)), lat: lat, lon: lon);
+      final nightDuration = nextDaySunrise.difference(sunset);
+      final elapsed = dt.difference(sunset);
+      totalSec = elapsed.inMicroseconds / 1000000.0;
+      totalGhatis = (totalSec / (nightDuration.inMicroseconds / 1000000.0)) * 30.0;
+    }
+
+    int ghati = totalGhatis.floor();
+    double remGhati = totalGhatis - ghati;
+
+    double totalPals = remGhati * 60.0;
+    int pal = totalPals.floor();
+    double remPal = totalPals - pal;
+
+    double vipal = remPal * 60.0;
+
+    if (vipal >= 60.0) {
+      vipal -= 60.0;
+      pal += 1;
+    }
+    if (pal >= 60) {
+      pal -= 60;
+      ghati += 1;
+    }
+    ghati = ghati % 60;
+
+    return VedicTime(
+      ghati: ghati,
+      pal: pal,
+      vipal: vipal,
+      totalSecondsSinceSunrise: totalSec,
+    );
+  }
+
   // =========================================================================
   // 2. CONVERT VEDIC TIME -> NORMAL CLOCK TIME
   // =========================================================================
@@ -236,6 +319,38 @@ class VedicTimeService {
     final int microSeconds = ((elapsedSeconds - wholeSeconds) * 1000000).round();
 
     return sunrise.add(Duration(seconds: wholeSeconds, microseconds: microSeconds));
+  }
+
+  /// Convert 30-Ghati Vedic time ([ghati], [pal], [vipal]) into modern clock [DateTime] (IST)
+  /// where 0-30 Ghatis represent daytime (Sunrise to Sunset) and 30-60 represent nighttime.
+  static DateTime vedicToNormal30Ghati({
+    required int ghati,
+    required int pal,
+    double vipal = 0.0,
+    required DateTime date,
+    double lat = defaultLat,
+    double lon = defaultLon,
+    DateTime? overrideSunrise,
+    DateTime? overrideSunset,
+  }) {
+    final solar = calculateSolarTimings(date, lat: lat, lon: lon);
+    final sunrise = overrideSunrise ?? solar.sunrise;
+    final sunset = overrideSunset ?? solar.sunset;
+
+    final double ghatiFraction = (ghati + (pal / 60.0) + (vipal / 3600.0));
+
+    if (ghatiFraction <= 30.0) {
+      // Daytime (Sunrise to Sunset = 30 Ghatis)
+      final dayDurationUs = sunset.difference(sunrise).inMicroseconds;
+      final elapsedUs = ((ghatiFraction / 30.0) * dayDurationUs).round();
+      return sunrise.add(Duration(microseconds: elapsedUs));
+    } else {
+      // Nighttime (Sunset to next Sunrise = 30 Ghatis)
+      final nextSunrise = getLocalSunrise(date.add(const Duration(days: 1)), lat: lat, lon: lon);
+      final nightDurationUs = nextSunrise.difference(sunset).inMicroseconds;
+      final elapsedUs = (((ghatiFraction - 30.0) / 30.0) * nightDurationUs).round();
+      return sunset.add(Duration(microseconds: elapsedUs));
+    }
   }
 
   // =========================================================================

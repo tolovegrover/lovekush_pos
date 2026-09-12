@@ -27,7 +27,7 @@ void main() {
       // Check Live Clock content
       expect(find.textContaining("श्री गणेशाय नमः"), findsOneWidget);
       expect(find.textContaining("वैदिक समय (घटी : पल : विपल)"), findsOneWidget);
-      expect(find.textContaining("60 घटी मान"), findsOneWidget);
+      expect(find.textContaining("60 घटी"), findsWidgets);
       expect(find.textContaining("2.5x"), findsWidgets);
       expect(find.textContaining("वैदिक समय की गति तेज क्यों होती है?"), findsOneWidget);
       expect(find.textContaining("सूर्योदय (Sunrise)"), findsOneWidget);
@@ -36,9 +36,9 @@ void main() {
       expect(find.textContaining("विक्रम संवत्"), findsWidgets);
 
       // Tap 30-Ghati toggle
-      await tester.tap(find.text("30 घटी समय (12h चक्र)"));
+      await tester.tap(find.text("30 घटी (द्रिक पञ्चाङ्ग)"));
       await tester.pump();
-      expect(find.textContaining("30 घटी मान"), findsOneWidget);
+      expect(find.textContaining("३० घटी"), findsWidgets);
     });
 
     testWidgets('VedicClockScreen Converter tab converts clock time to vedic and vice-versa', (tester) async {
@@ -56,15 +56,15 @@ void main() {
       // Verify converter sections exist
       expect(find.textContaining("घड़ी समय ➔ वैदिक समय"), findsOneWidget);
       expect(find.textContaining("वैदिक समय ➔ घड़ी समय"), findsOneWidget);
-      expect(find.textContaining("सूर्योदय आधार (Sunrise Base):"), findsOneWidget);
+      expect(find.textContaining("सूर्योदय आधार"), findsOneWidget);
 
       // Check calculation results for pre-loaded 13:27:06
       expect(find.textContaining("वैदिक समय परिणाम:"), findsOneWidget);
       expect(find.textContaining("सामान्य घड़ी समय परिणाम:"), findsOneWidget);
 
       // Verify preset chips
-      expect(find.text("13:27:06 (ऑनलाइन टेस्ट)"), findsOneWidget);
-      expect(find.text("18:27:00 (ऑनलाइन टेस्ट)"), findsOneWidget);
+      expect(find.text("13:27:06 (द्रिक ६० घटी -> 18:26:28)"), findsOneWidget);
+      expect(find.text("18:26:28 (द्रिक ६० -> 13:27:06)"), findsOneWidget);
     });
 
     testWidgets('VedicClockScreen Rules tab renders unit reference table', (tester) async {

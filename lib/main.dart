@@ -5196,7 +5196,7 @@ class _PosScreenState extends State<PosScreen> {
             ListTile(
               leading: const Icon(Icons.wb_sunny_rounded, color: Color(0xFFD97706)),
               title: const Text('वैदिक समय (Vedic Clock)', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFB45309))),
-              subtitle: const Text('घटी • पल • विपल एवं पञ्चाङ्ग (Live & Converter)'),
+              subtitle: const Text('वैदिक वार • घटी-पल-विपल एवं पञ्चाङ्ग (Live)'),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const VedicClockScreen()));

@@ -91,5 +91,64 @@ void main() {
       expect(solar.sunrise.minute, inInclusiveRange(3, 5));
       expect(solar.sunset.hour, 18);
     });
+
+    test('Drik Panchang Live Verification: 30-Ghati vs 60-Ghati matches drikpanchang.com', () {
+      final date = DateTime(2026, 9, 12);
+      final sunrise = DateTime(2026, 9, 12, 6, 4, 23);
+      final sunset = DateTime(2026, 9, 12, 18, 29, 57);
+
+      // 1. Drik Panchang at 16:32:09 in 30-Ghati mode -> 25:15:35
+      final dt1632 = DateTime(2026, 9, 12, 16, 32, 9);
+      final vt30 = VedicTimeService.normalToVedic30Ghati(
+        dt1632,
+        overrideSunrise: sunrise,
+        overrideSunset: sunset,
+      );
+      expect(vt30.ghati, 25);
+      expect(vt30.pal, 15);
+      expect(vt30.vipal.round(), inInclusiveRange(34, 36));
+
+      // 2. Drik Panchang at 16:32:09 in 60-Ghati mode -> 26:09:25
+      final vt60 = VedicTimeService.normalToVedic(
+        dt1632,
+        overrideSunrise: sunrise,
+      );
+      expect(vt60.ghati, 26);
+      expect(vt60.pal, 9);
+      expect(vt60.vipal.round(), inInclusiveRange(24, 26));
+
+      // 3. At Sunset in 30-Ghati mode -> Exactly 30:00:00
+      final vtSunset30 = VedicTimeService.normalToVedic30Ghati(
+        sunset,
+        overrideSunrise: sunrise,
+        overrideSunset: sunset,
+      );
+      expect(vtSunset30.ghati, 30);
+      expect(vtSunset30.pal, 0);
+
+      // 4. Drik Panchang at 13:27:06 in 60-Ghati mode -> 18:26:28 (with ~06:04:31 sunrise)
+      final dt1327 = DateTime(2026, 9, 12, 13, 27, 6);
+      final sunrise1826 = DateTime(2026, 9, 12, 6, 4, 31);
+      final vt1327_60 = VedicTimeService.normalToVedic(
+        dt1327,
+        overrideSunrise: sunrise1826,
+      );
+      expect(vt1327_60.ghati, 18);
+      expect(vt1327_60.pal, 26);
+      expect(vt1327_60.vipal.round(), 28);
+
+      // 5. Bidirectional 30-Ghati conversion: 25:15:35.34 back to 16:32:09
+      final convertedBack = VedicTimeService.vedicToNormal30Ghati(
+        ghati: vt30.ghati,
+        pal: vt30.pal,
+        vipal: vt30.vipal,
+        date: date,
+        overrideSunrise: sunrise,
+        overrideSunset: sunset,
+      );
+      expect(convertedBack.hour, 16);
+      expect(convertedBack.minute, 32);
+      expect(convertedBack.second, 9);
+    });
   });
 }

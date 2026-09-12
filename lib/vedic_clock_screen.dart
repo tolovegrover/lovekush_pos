@@ -33,6 +33,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
 
   // Mode: 60 Ghati (24h Ahoratra) vs 30 Ghati (12h cycle)
   bool _is30GhatiMode = false;
+  bool _converter30GhatiMode = false;
 
   @override
   void initState() {
@@ -88,7 +89,45 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
 
     final targetTime = DateTime(_now.year, _now.month, _now.day, h, m, s);
     final sunrise = _parseCustomSunrise() ?? VedicTimeService.getLocalSunrise(_now);
+    final sunriseStr = "${sunrise.hour.toString().padLeft(2, '0')}:${sunrise.minute.toString().padLeft(2, '0')}:${sunrise.second.toString().padLeft(2, '0')}";
+    final targetStr = "${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}";
 
+    if (_converter30GhatiMode) {
+      final solar = VedicTimeService.calculateSolarTimings(targetTime);
+      final sunset = solar.sunset;
+      final sunsetStr = "${sunset.hour.toString().padLeft(2, '0')}:${sunset.minute.toString().padLeft(2, '0')}:${sunset.second.toString().padLeft(2, '0')}";
+      final dayDuration = sunset.difference(sunrise);
+      final daySec = dayDuration.inSeconds;
+      final ghatiLenSec = daySec / 30.0;
+
+      final vt = VedicTimeService.normalToVedic30Ghati(
+        targetTime,
+        overrideSunrise: sunrise,
+        overrideSunset: sunset,
+      );
+
+      final elapsed = targetTime.difference(sunrise);
+      final totalSec = elapsed.inSeconds;
+
+      final breakdown = StringBuffer();
+      breakdown.writeln("1. पद्धति: द्रिक पञ्चाङ्ग ३० घटी दिनमान मान (Drik Panchang 30-Ghati Mode)");
+      breakdown.writeln("2. सूर्योदय: $sunriseStr IST | सूर्यास्त: $sunsetStr IST");
+      breakdown.writeln("3. कुल दिनमान: ${dayDuration.inHours}घ ${dayDuration.inMinutes % 60}मि ${dayDuration.inSeconds % 60}से (= $daySec सेकण्ड)");
+      breakdown.writeln("4. १ घटी का मान: $daySec ÷ 30 = ${ghatiLenSec.toStringAsFixed(2)} सेकण्ड (~${(ghatiLenSec / 60).floor()} मिनट ${(ghatiLenSec % 60).round()} सेकण्ड)");
+      breakdown.writeln("5. सूर्योदय से व्यतीत समय: ${elapsed.inHours}घ ${elapsed.inMinutes % 60}मि ${elapsed.inSeconds % 60}से (= $totalSec सेकण्ड)");
+      breakdown.writeln("6. घटी गणना: ($totalSec ÷ $daySec) × 30 = ${vt.ghati} घटी");
+      breakdown.writeln("7. पल व विपल: ${vt.pal} पल, ${vt.vipal.toStringAsFixed(1)} विपल");
+      breakdown.writeln("👉 द्रिक पञ्चाङ्ग परिणाम: ${vt.toNumericString()} घटी:पल:विपल");
+      breakdown.writeln("⚡ द्रिक पञ्चाङ्ग प्रमाण: दिनमान के अनुपात से सूर्यास्त पर ठीक ३०:००:०० घटी होती है।");
+
+      setState(() {
+        _convertedVedicTime = vt;
+        _converter1Breakdown = breakdown.toString();
+      });
+      return;
+    }
+
+    // 60-Ghati fixed Ishtakala mode
     final vt = VedicTimeService.normalToVedic(targetTime, overrideSunrise: sunrise);
 
     Duration elapsed;
@@ -105,19 +144,17 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
     final palSec = vt.pal * 24;
     final remAfterPal = remAfterGhati - palSec;
 
-    final sunriseStr = "${sunrise.hour.toString().padLeft(2, '0')}:${sunrise.minute.toString().padLeft(2, '0')}:${sunrise.second.toString().padLeft(2, '0')}";
-    final targetStr = "${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}";
-
     final breakdown = StringBuffer();
-    breakdown.writeln("1. सूर्योदय (Sunrise): $sunriseStr IST");
-    breakdown.writeln("2. अभीष्ट समय (Target Time): $targetStr IST");
-    breakdown.writeln("3. सूर्योदय से व्यतीत कुल समय (इष्टकाल): ${elapsed.inHours} घण्टे ${elapsed.inMinutes % 60} मिनट ${elapsed.inSeconds % 60} सेकण्ड (= $totalSec सेकण्ड)");
-    breakdown.writeln("4. घटी गणना: $totalSec ÷ 1440 = ${vt.ghati} घटी (1 घटी = 24 मिनट = 1440 सेकण्ड)");
-    breakdown.writeln("5. शेष सेकण्ड: $totalSec - $ghatiSec = $remAfterGhati सेकण्ड");
-    breakdown.writeln("6. पल गणना: $remAfterGhati ÷ 24 = ${vt.pal} पल (1 पल = 24 सेकण्ड)");
-    breakdown.writeln("7. शेष सेकण्ड: $remAfterGhati - $palSec = $remAfterPal सेकण्ड");
-    breakdown.writeln("8. विपल गणना: $remAfterPal ÷ 0.4 = ${vt.vipal.toStringAsFixed(1)} विपल (1 विपल = 0.4 सेकण्ड)");
-    breakdown.writeln("👉 परिणाम (Result): ${vt.toNumericString()} घटी:पल:विपल");
+    breakdown.writeln("1. पद्धति: ६० घटी इष्टकाल मान (Fixed 24-minute Ghati Mode)");
+    breakdown.writeln("2. सूर्योदय (Sunrise): $sunriseStr IST");
+    breakdown.writeln("3. अभीष्ट समय (Target Time): $targetStr IST");
+    breakdown.writeln("4. सूर्योदय से व्यतीत कुल समय (इष्टकाल): ${elapsed.inHours} घण्टे ${elapsed.inMinutes % 60} मिनट ${elapsed.inSeconds % 60} सेकण्ड (= $totalSec सेकण्ड)");
+    breakdown.writeln("5. घटी गणना: $totalSec ÷ 1440 = ${vt.ghati} घटी (1 घटी = 24 मिनट = 1440 सेकण्ड)");
+    breakdown.writeln("6. शेष सेकण्ड: $totalSec - $ghatiSec = $remAfterGhati सेकण्ड");
+    breakdown.writeln("7. पल गणना: $remAfterGhati ÷ 24 = ${vt.pal} पल (1 पल = 24 सेकण्ड)");
+    breakdown.writeln("8. शेष सेकण्ड: $remAfterGhati - $palSec = $remAfterPal सेकण्ड");
+    breakdown.writeln("9. विपल गणना: $remAfterPal ÷ 0.4 = ${vt.vipal.toStringAsFixed(1)} विपल (1 विपल = 0.4 सेकण्ड)");
+    breakdown.writeln("👉 इष्टकाल परिणाम: ${vt.toNumericString()} घटी:पल:विपल");
     breakdown.writeln("⚡ गति नियम (2.5x Speed Rule): 1 सामान्य घंटा = 2.5 घटी (2 घटी 30 पल)। 60 घटी ÷ 24 घंटे = 2.5 गुना गति।");
 
     setState(() {
@@ -132,6 +169,39 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
     final vipal = double.tryParse(_vipalCtrl.text.trim()) ?? 0.0;
 
     final sunrise = _parseCustomSunrise() ?? VedicTimeService.getLocalSunrise(_now);
+    final sunriseStr = "${sunrise.hour.toString().padLeft(2, '0')}:${sunrise.minute.toString().padLeft(2, '0')}:${sunrise.second.toString().padLeft(2, '0')}";
+
+    if (_converter30GhatiMode) {
+      final solar = VedicTimeService.calculateSolarTimings(_now);
+      final sunset = solar.sunset;
+      final sunsetStr = "${sunset.hour.toString().padLeft(2, '0')}:${sunset.minute.toString().padLeft(2, '0')}:${sunset.second.toString().padLeft(2, '0')}";
+      final dayDuration = sunset.difference(sunrise);
+
+      final converted = VedicTimeService.vedicToNormal30Ghati(
+        ghati: ghati,
+        pal: pal,
+        vipal: vipal,
+        date: _now,
+        overrideSunrise: sunrise,
+        overrideSunset: sunset,
+      );
+
+      final breakdown = StringBuffer();
+      breakdown.writeln("1. पद्धति: द्रिक पञ्चाङ्ग ३० घटी दिनमान मान");
+      breakdown.writeln("2. दिया गया वैदिक समय: $ghati घटी, $pal पल, ${vipal.toStringAsFixed(1)} विपल");
+      breakdown.writeln("3. सूर्योदय: $sunriseStr IST | सूर्यास्त: $sunsetStr IST");
+      breakdown.writeln("4. कुल दिनमान: ${dayDuration.inHours}घ ${dayDuration.inMinutes % 60}मि ${dayDuration.inSeconds % 60}से");
+      breakdown.writeln("5. दिनमान आनुपातिक गणना: ($ghati + $pal/60 + ${vipal.toStringAsFixed(1)}/3600) ÷ 30");
+      breakdown.writeln("👉 परिणाम (Result): ${_formatClockTime(converted)} IST (${_format12HourTime(converted)})");
+
+      setState(() {
+        _convertedClockTime = converted;
+        _converter2Breakdown = breakdown.toString();
+      });
+      return;
+    }
+
+    // 60-Ghati fixed Ishtakala mode
     final converted = VedicTimeService.vedicToNormal(
       ghati: ghati,
       pal: pal,
@@ -141,13 +211,13 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
     );
 
     final totalElapsedSec = (ghati * 1440.0) + (pal * 24.0) + (vipal * 0.4);
-    final sunriseStr = "${sunrise.hour.toString().padLeft(2, '0')}:${sunrise.minute.toString().padLeft(2, '0')}:${sunrise.second.toString().padLeft(2, '0')}";
 
     final breakdown = StringBuffer();
-    breakdown.writeln("1. दिया गया वैदिक समय: $ghati घटी, $pal पल, ${vipal.toStringAsFixed(1)} विपल");
-    breakdown.writeln("2. कुल व्यतीत सेकण्ड: ($ghati × 1440) + ($pal × 24) + ($vipal × 0.4) = ${totalElapsedSec.toStringAsFixed(1)} सेकण्ड");
-    breakdown.writeln("3. सूर्योदय का आधार: $sunriseStr IST");
-    breakdown.writeln("4. सामान्य घड़ी समय: सूर्योदय + ${totalElapsedSec.toStringAsFixed(1)} सेकण्ड");
+    breakdown.writeln("1. पद्धति: ६० घटी इष्टकाल मान");
+    breakdown.writeln("2. दिया गया वैदिक समय: $ghati घटी, $pal पल, ${vipal.toStringAsFixed(1)} विपल");
+    breakdown.writeln("3. कुल व्यतीत सेकण्ड: ($ghati × 1440) + ($pal × 24) + ($vipal × 0.4) = ${totalElapsedSec.toStringAsFixed(1)} सेकण्ड");
+    breakdown.writeln("4. सूर्योदय का आधार: $sunriseStr IST");
+    breakdown.writeln("5. सामान्य घड़ी समय: सूर्योदय + ${totalElapsedSec.toStringAsFixed(1)} सेकण्ड");
     breakdown.writeln("👉 परिणाम (Result): ${_formatClockTime(converted)} IST");
 
     setState(() {
@@ -169,6 +239,14 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
     final s = dt.second.toString().padLeft(2, '0');
     final ampm = dt.hour >= 12 ? "PM" : "AM";
     return "${h12.toString().padLeft(2, '0')}:$m:$s $ampm";
+  }
+
+  String _formatVedicDateString(DateTime dt) {
+    const hindiMonths = [
+      "जनवरी", "फरवरी", "मार्च", "अप्रैल", "मई", "जून",
+      "जुलाई", "अगस्त", "सितम्बर", "अक्टूबर", "नवम्बर", "दिसम्बर"
+    ];
+    return "${hindiMonths[dt.month - 1]} ${dt.day}, ${dt.year}";
   }
 
   void _copyToClipboard(String text, String message) {
@@ -196,14 +274,18 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
   @override
   Widget build(BuildContext context) {
     final panchang = VedicTimeService.calculatePanchang(_now);
-    final liveVedic = panchang.vedicTime;
+    final liveVedic = _is30GhatiMode
+        ? VedicTimeService.normalToVedic30Ghati(_now)
+        : panchang.vedicTime;
     final solar = panchang.solar;
 
     final sunriseStr = "${solar.sunrise.hour.toString().padLeft(2, '0')}:${solar.sunrise.minute.toString().padLeft(2, '0')}:${solar.sunrise.second.toString().padLeft(2, '0')}";
     final sunsetStr = "${solar.sunset.hour.toString().padLeft(2, '0')}:${solar.sunset.minute.toString().padLeft(2, '0')}:${solar.sunset.second.toString().padLeft(2, '0')}";
 
     // Day/Night progress
-    final double dayFraction = (liveVedic.ghati + (liveVedic.pal / 60.0)) / 60.0;
+    final double dayFraction = _is30GhatiMode
+        ? (liveVedic.ghati + (liveVedic.pal / 60.0)) / 30.0
+        : (liveVedic.ghati + (liveVedic.pal / 60.0)) / 60.0;
 
     return Scaffold(
       appBar: AppBar(
@@ -240,12 +322,13 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
             icon: const Icon(Icons.copy, color: Colors.black87),
             onPressed: () {
               final shareText = "🕉️ लव कुश वैदिक समय एवं पञ्चाङ्ग (New Delhi)\n"
-                  "वैदिक समय: ${liveVedic.toDevanagariString()} (${liveVedic.toNumericString()})\n"
-                  "घड़ी समय: ${_formatClockTime(_now)} IST\n"
+                  "वैदिक समय: ${liveVedic.toDevanagariString()} (${liveVedic.toNumericString()}) [${_is30GhatiMode ? 'द्रिक ३० घटी' : '६० घटी इष्टकाल'}]\n"
+                  "वैदिक वार: ${panchang.fullVaarDisplay}\n"
+                  "दिनांक व समय: ${panchang.fullVaarDisplay}, ${_formatVedicDateString(_now)} | ${_formatClockTime(_now)} IST\n"
                   "सूर्योदय: $sunriseStr | सूर्यास्त: $sunsetStr\n"
                   "पञ्चाङ्ग: ${panchang.toReceiptPanchangLine()}\n"
                   "दिनमान: ${solar.dayLengthGhatis.toStringAsFixed(2)} घटी | रात्रिमान: ${solar.nightLengthGhatis.toStringAsFixed(2)} घटी\n"
-                  "वार: ${panchang.vaar} | मुहूर्त: ${panchang.muhurta}";
+                  "मुहूर्त: ${panchang.muhurta}";
               _copyToClipboard(shareText, "वैदिक समय व पञ्चाङ्ग कॉपी किया गया");
             },
           ),
@@ -254,12 +337,13 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
             icon: const Icon(Icons.share, color: Colors.green),
             onPressed: () {
               final shareText = "🕉️ *लव कुश वैदिक समय एवं पञ्चाङ्ग* (New Delhi)\n"
-                  "⏰ *वैदिक समय:* ${liveVedic.toDevanagariString()} (${liveVedic.toNumericString()})\n"
-                  "⌚ *घड़ी समय:* ${_formatClockTime(_now)} IST\n"
+                  "⏰ *वैदिक समय:* ${liveVedic.toDevanagariString()} (${liveVedic.toNumericString()}) [${_is30GhatiMode ? 'द्रिक ३० घटी' : '६० घटी इष्टकाल'}]\n"
+                  "🔱 *वैदिक वार:* ${panchang.fullVaarDisplay}\n"
+                  "📅 *दिनांक व समय:* ${panchang.fullVaarDisplay}, ${_formatVedicDateString(_now)} | ${_formatClockTime(_now)} IST\n"
                   "🌅 *सूर्योदय:* $sunriseStr | 🌇 *सूर्यास्त:* $sunsetStr\n"
                   "📜 *पञ्चाङ्ग:* ${panchang.toReceiptPanchangLine()}\n"
                   "☀️ *दिनमान:* ${solar.dayLengthGhatis.toStringAsFixed(2)} घटी | *रात्रिमान:* ${solar.nightLengthGhatis.toStringAsFixed(2)} घटी\n"
-                  "🔱 *वार:* ${panchang.vaar} | *मुहूर्त:* ${panchang.muhurta}";
+                  "✨ *मुहूर्त:* ${panchang.muhurta}";
               _shareToWhatsApp(shareText);
             },
           ),
@@ -331,6 +415,27 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                     Text("卐  श्री गणेशाय नमः  卐", style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
                   ],
                 ),
+                const SizedBox(height: 8),
+
+                // Authentic Devanagari Vedic Panchang & Vedic Vaar
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.25),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Text(
+                    "${panchang.masa}, ${panchang.paksha} पक्ष, ${VedicTime.toDevanagariDigits(panchang.samvat)} विक्रम संवत् • वैदिक वार: ${panchang.fullVaarDisplay}",
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 12),
 
                 // 30 Ghati vs 60 Ghati Mode Toggle
@@ -352,7 +457,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                             borderRadius: BorderRadius.circular(18),
                           ),
                           child: Text(
-                            "60 घटी समय (24h चक्र)",
+                            "60 घटी (इष्टकाल - 24m)",
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
@@ -370,7 +475,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                             borderRadius: BorderRadius.circular(18),
                           ),
                           child: Text(
-                            "30 घटी समय (12h चक्र)",
+                            "30 घटी (द्रिक पञ्चाङ्ग)",
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
@@ -389,8 +494,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
 
                 // Devanagari Digits
                 Builder(builder: (context) {
-                  final displayGhati = _is30GhatiMode ? (liveVedic.ghati % 30) : liveVedic.ghati;
-                  final timeStr = "${displayGhati.toString().padLeft(2, '0')}:${liveVedic.pal.toString().padLeft(2, '0')}:${liveVedic.vipal.round().toString().padLeft(2, '0')}";
+                  final timeStr = "${liveVedic.ghati.toString().padLeft(2, '0')}:${liveVedic.pal.toString().padLeft(2, '0')}:${liveVedic.vipal.round().toString().padLeft(2, '0')}";
                   return FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
@@ -408,8 +512,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
 
                 // English Digits
                 Builder(builder: (context) {
-                  final displayGhati = _is30GhatiMode ? (liveVedic.ghati % 30) : liveVedic.ghati;
-                  final timeStr = "${displayGhati.toString().padLeft(2, '0')}:${liveVedic.pal.toString().padLeft(2, '0')}:${liveVedic.vipal.round().toString().padLeft(2, '0')}";
+                  final timeStr = "${liveVedic.ghati.toString().padLeft(2, '0')}:${liveVedic.pal.toString().padLeft(2, '0')}:${liveVedic.vipal.round().toString().padLeft(2, '0')}";
                   return Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                     decoration: BoxDecoration(
@@ -417,7 +520,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      "$timeStr (${_is30GhatiMode ? '30 घटी मान' : '60 घटी मान'})",
+                      "$timeStr (${_is30GhatiMode ? 'द्रिक ३० घटी मान' : '६० घटी इष्टकाल'})",
                       style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 1.2),
                     ),
                   );
@@ -426,9 +529,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
 
                 // Verbal Hindi
                 Text(
-                  _is30GhatiMode
-                      ? "${VedicTime.toDevanagariDigits(liveVedic.ghati % 30)} घटी, ${VedicTime.toDevanagariDigits(liveVedic.pal)} पल, ${VedicTime.toDevanagariDigits(liveVedic.vipal.round())} विपल"
-                      : liveVedic.toVerboseHindi(),
+                  "${VedicTime.toDevanagariDigits(liveVedic.ghati)} घटी, ${VedicTime.toDevanagariDigits(liveVedic.pal)} पल, ${VedicTime.toDevanagariDigits(liveVedic.vipal.round())} विपल",
                   style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
                 ),
                 const Divider(color: Colors.white24, height: 24),
@@ -463,6 +564,30 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                   ],
                 ),
 
+                // Single-line Gregorian Date and Time with Vedic Vaar
+                Container(
+                  margin: const EdgeInsets.only(top: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.25),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.calendar_today, size: 14, color: Colors.amberAccent),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          "${panchang.fullVaarDisplay}, ${_formatVedicDateString(_now)} | ${_formatClockTime(_now)} IST",
+                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
                 // Speed Ratio Banner
                 Container(
                   margin: const EdgeInsets.only(top: 14),
@@ -474,13 +599,15 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Icon(Icons.bolt, color: Colors.amberAccent, size: 16),
-                      SizedBox(width: 6),
+                    children: [
+                      const Icon(Icons.bolt, color: Colors.amberAccent, size: 16),
+                      const SizedBox(width: 6),
                       Flexible(
                         child: Text(
-                          "चक्र गति: 2.5x तेज — 1 सेकण्ड = 2.5 विपल | 24 मिनट = 1 घटी",
-                          style: TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                          _is30GhatiMode
+                              ? "द्रिक ३० घटी मान: सूर्योदय 00:00 • सूर्यास्त ठीक 30:00:00 घटी • 1 घटी = ~24m 51s"
+                              : "इष्टकाल ६० घटी मान: 1 सेकण्ड = 2.5 विपल • 24 मिनट = 1 घटी • 2.5x गति",
+                          style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],
@@ -653,7 +780,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                         iconColor: Colors.indigo,
                         label: "सूर्यास्त (Sunset)",
                         value: "$sunsetStr PM",
-                        subValue: "${solar.dayLengthGhatis.toStringAsFixed(2)} घटी",
+                        subValue: _is30GhatiMode ? "30:00:00 घटी (द्रिक मान)" : "${solar.dayLengthGhatis.toStringAsFixed(2)} घटी",
                       ),
                     ),
                   ],
@@ -666,7 +793,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                         icon: Icons.wb_sunny_outlined,
                         iconColor: Colors.amber.shade800,
                         label: "दिनमान (Day Length)",
-                        value: "${solar.dayLengthGhatis.toStringAsFixed(2)} घटी",
+                        value: _is30GhatiMode ? "30.00 घटी (३० घटी मान)" : "${solar.dayLengthGhatis.toStringAsFixed(2)} घटी",
                         subValue: "${solar.dayDuration.inHours}घ ${solar.dayDuration.inMinutes % 60}मि",
                       ),
                     ),
@@ -675,7 +802,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                         icon: Icons.bedtime_outlined,
                         iconColor: Colors.purple,
                         label: "रात्रिमान (Night Length)",
-                        value: "${solar.nightLengthGhatis.toStringAsFixed(2)} घटी",
+                        value: _is30GhatiMode ? "30.00 घटी (३० घटी मान)" : "${solar.nightLengthGhatis.toStringAsFixed(2)} घटी",
                         subValue: "${solar.nightDuration.inHours}घ ${solar.nightDuration.inMinutes % 60}मि",
                       ),
                     ),
@@ -709,7 +836,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                 _buildPanchangRow("मास एवं पक्ष", "${panchang.masa}, ${panchang.paksha} पक्ष"),
                 _buildPanchangRow("उदय तिथि", "${panchang.udayaTithi} (सूर्योदय कालीन)"),
                 _buildPanchangRow("वर्तमान तिथि", panchang.currentTithi),
-                _buildPanchangRow("वैदिक वार", "${panchang.vaar} (अहोरात्र आधारित)"),
+                _buildPanchangRow("वैदिक वार (Vedic Vaar)", "${panchang.fullVaarDisplay} • अहोरात्र (सूर्योदय) आधारित"),
                 _buildPanchangRow("वर्तमान प्रहर", panchang.pahar),
                 _buildPanchangRow("वर्तमान मुहूर्त", panchang.muhurta),
                 const SizedBox(height: 8),
@@ -773,7 +900,77 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
           ),
           const SizedBox(height: 16),
 
-          // Sunrise configuration tile
+          // Mode Toggle for Converter: 60 Ghati (Ishtakala) vs 30 Ghati (Drik Panchang Dinamana)
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.amber.shade300),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _converter30GhatiMode = false;
+                      });
+                      _performClockToVedicConversion();
+                      _performVedicToClockConversion();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: !_converter30GhatiMode ? const Color(0xFFD97706) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        "६० घटी (इष्टकाल • स्थिर २४m)",
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: !_converter30GhatiMode ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _converter30GhatiMode = true;
+                      });
+                      _performClockToVedicConversion();
+                      _performVedicToClockConversion();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _converter30GhatiMode ? const Color(0xFFD97706) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        "३० घटी (द्रिक पञ्चाङ्ग • दिनमान)",
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: _converter30GhatiMode ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Sunrise configuration tile (Deshantar base)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
@@ -786,7 +983,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                 const Icon(Icons.wb_twilight, color: Colors.orange, size: 20),
                 const SizedBox(width: 10),
                 const Expanded(
-                  child: Text("सूर्योदय आधार (Sunrise Base):", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  child: Text("सूर्योदय आधार (देशान्तर 77.21° E नई दिल्ली):", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 ),
                 SizedBox(
                   width: 90,
@@ -855,40 +1052,40 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                       _secCtrl.text = _now.second.toString().padLeft(2, '0');
                       _performClockToVedicConversion();
                     }),
+                    _buildPresetChip("16:32:09 (द्रिक ३० घटी -> 25:15:35)", () {
+                      _hourCtrl.text = "16";
+                      _minCtrl.text = "32";
+                      _secCtrl.text = "09";
+                      _customSunriseCtrl.text = "06:04:23";
+                      _converter30GhatiMode = true;
+                      _performClockToVedicConversion();
+                    }),
+                    _buildPresetChip("16:31:38 (द्रिक ३० घटी -> 25:14:20)", () {
+                      _hourCtrl.text = "16";
+                      _minCtrl.text = "31";
+                      _secCtrl.text = "38";
+                      _customSunriseCtrl.text = "06:04:23";
+                      _converter30GhatiMode = true;
+                      _performClockToVedicConversion();
+                    }),
+                    _buildPresetChip("13:27:06 (द्रिक ६० घटी -> 18:26:28)", () {
+                      _hourCtrl.text = "13";
+                      _minCtrl.text = "27";
+                      _secCtrl.text = "06";
+                      _customSunriseCtrl.text = "06:04:31";
+                      _converter30GhatiMode = false;
+                      _performClockToVedicConversion();
+                    }),
                     _buildPresetChip("06:04:18 (सूर्योदय)", () {
                       _hourCtrl.text = "06";
                       _minCtrl.text = "04";
                       _secCtrl.text = "18";
                       _performClockToVedicConversion();
                     }),
-                    _buildPresetChip("12:00:00 (दोपहर)", () {
-                      _hourCtrl.text = "12";
-                      _minCtrl.text = "00";
-                      _secCtrl.text = "00";
-                      _performClockToVedicConversion();
-                    }),
-                    _buildPresetChip("13:27:06 (ऑनलाइन टेस्ट)", () {
-                      _hourCtrl.text = "13";
-                      _minCtrl.text = "27";
-                      _secCtrl.text = "06";
-                      _performClockToVedicConversion();
-                    }),
-                    _buildPresetChip("14:27:06 (+1h -> +2.5 घटी)", () {
-                      _hourCtrl.text = "14";
-                      _minCtrl.text = "27";
-                      _secCtrl.text = "06";
-                      _performClockToVedicConversion();
-                    }),
-                    _buildPresetChip("15:27:06 (+2h -> +5.0 घटी)", () {
-                      _hourCtrl.text = "15";
-                      _minCtrl.text = "27";
-                      _secCtrl.text = "06";
-                      _performClockToVedicConversion();
-                    }),
-                    _buildPresetChip("18:30:28 (सूर्यास्त)", () {
+                    _buildPresetChip("18:29:57 (सूर्यास्त)", () {
                       _hourCtrl.text = "18";
-                      _minCtrl.text = "30";
-                      _secCtrl.text = "28";
+                      _minCtrl.text = "29";
+                      _secCtrl.text = "57";
                       _performClockToVedicConversion();
                     }),
                   ],
@@ -993,22 +1190,42 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                       _vipalCtrl.text = "0";
                       _performVedicToClockConversion();
                     }),
-                    _buildPresetChip("15:00:00 (मध्याह्न)", () {
-                      _ghatiCtrl.text = "15";
+                    _buildPresetChip("25:15:35 (द्रिक ३० -> 16:32:09)", () {
+                      _ghatiCtrl.text = "25";
+                      _palCtrl.text = "15";
+                      _vipalCtrl.text = "35";
+                      _customSunriseCtrl.text = "06:04:23";
+                      _converter30GhatiMode = true;
+                      _performVedicToClockConversion();
+                    }),
+                    _buildPresetChip("25:14:20 (द्रिक ३० -> 16:31:38)", () {
+                      _ghatiCtrl.text = "25";
+                      _palCtrl.text = "14";
+                      _vipalCtrl.text = "20";
+                      _customSunriseCtrl.text = "06:04:23";
+                      _converter30GhatiMode = true;
+                      _performVedicToClockConversion();
+                    }),
+                    _buildPresetChip("18:26:28 (द्रिक ६० -> 13:27:06)", () {
+                      _ghatiCtrl.text = "18";
+                      _palCtrl.text = "26";
+                      _vipalCtrl.text = "28";
+                      _customSunriseCtrl.text = "06:04:31";
+                      _converter30GhatiMode = false;
+                      _performVedicToClockConversion();
+                    }),
+                    _buildPresetChip("30:00:00 (सूर्यास्त ३० घटी)", () {
+                      _ghatiCtrl.text = "30";
                       _palCtrl.text = "0";
                       _vipalCtrl.text = "0";
+                      _converter30GhatiMode = true;
                       _performVedicToClockConversion();
                     }),
-                    _buildPresetChip("18:27:00 (ऑनलाइन टेस्ट)", () {
-                      _ghatiCtrl.text = "18";
-                      _palCtrl.text = "27";
-                      _vipalCtrl.text = "0";
-                      _performVedicToClockConversion();
-                    }),
-                    _buildPresetChip("31:05:25 (सूर्यास्त)", () {
+                    _buildPresetChip("31:03:17 (सूर्यास्त ६० घटी)", () {
                       _ghatiCtrl.text = "31";
-                      _palCtrl.text = "5";
-                      _vipalCtrl.text = "25";
+                      _palCtrl.text = "3";
+                      _vipalCtrl.text = "17";
+                      _converter30GhatiMode = false;
                       _performVedicToClockConversion();
                     }),
                   ],
@@ -1172,9 +1389,44 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                 SizedBox(height: 10),
                 Text(
                   "• hinducalendar.app/ghati-pal: सूर्योदय को 00:00:00 मानकर घटी-पल गणना करता है।\n"
+                  "• drikpanchang.com: ३० घटी दिनमान मान (डिफ़ॉल्ट) एवं ६० घटी इष्टकाल मान दोनों प्रदान करता है।\n"
                   "• nakshtratak.com/en/calculators/ghati-hour: 1 घटी = 24 मिनट मानक सूत्र।\n"
                   "• astrosage.com/calculators/ghati-to-hour-converter: सटीक इष्टकाल आधारित मान।\n"
                   "• Love Kush POS: न्यू दिल्ली वेधशाला के सटीक अक्षांश-देशांतर (28.61° N, 77.21° E) एवं NOAA सौर समीकरण के आधार पर मिलीसेकण्ड स्तर पर गणना करता है।",
+                  style: TextStyle(fontSize: 12, height: 1.5, color: Colors.black87),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Deshantara (Longitude) & City Variation Card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blue.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text("स्थान भेद एवं देशान्तर संस्कार (Deshantara & Longitude Effect)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E3A8A))),
+                SizedBox(height: 10),
+                Text(
+                  "विभिन्न शहरों अथवा ऑनलाइन सेवाओं में समय में अन्तर आने का मुख्य कारण देशान्तर (Longitude) और अक्षांश (Latitude) का भेद होता है:\n\n"
+                  "१. देशान्तर क्या है? (What is Deshantara):\n"
+                  "   भारतीय मानक समय (IST) ८२.५०° पूर्व देशान्तर (प्रयागराज/मिर्ज़ापुर) पर आधारित है।\n"
+                  "   जबकि नई दिल्ली का देशान्तर ७७.२१° पूर्व है।\n"
+                  "   अन्तर = ८२.५०° - ७७.२१° = ५.२९° (डिग्री)।\n"
+                  "   १ डिग्री = ४ मिनट समय अन्तर ➔ ५.२९° × ४ = २१ मिनट १० सेकण्ड!\n\n"
+                  "२. स्थानीय सूर्योदय भेद (Local Sunrise):\n"
+                  "   वैदिक समय (इष्टकाल) सूर्योदय से प्रारम्भ होता है। सूर्योदय का समय प्रत्येक नगर के देशान्तर और अक्षांश पर निर्भर करता है।\n"
+                  "   • नई दिल्ली: सूर्योदय ~०६:०४ IST (देशान्तर 77.21° E)\n"
+                  "   • उज्जैन (प्राचीन अवन्तिका): सूर्योदय ~०६:१२ IST (देशान्तर 75.76° E)\n"
+                  "   • कोलकाता: सूर्योदय ~०५:२२ IST (देशान्तर 88.36° E)\n\n"
+                  "३. निष्कर्ष:\n"
+                  "   यदि किसी ऑनलाइन सेवा में सूर्योदय आधार ५-१० मिनट आगे-पीछे लिया गया हो (जैसे उज्जैन या मानक LMT), तो वैदिक समय में अन्तर दिखाई देगा। लव कुश POS न्यू दिल्ली के वास्तविक देशान्तर (77.21° E) के अनुसार सूक्ष्म गणना करता है।",
                   style: TextStyle(fontSize: 12, height: 1.5, color: Colors.black87),
                 ),
               ],
@@ -1205,6 +1457,71 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
                   "७. मध्यरात्रि प्रहर: रात्रि १२:०० से ०३:००\n"
                   "८. ब्रह्ममुहूर्त प्रहर: रात्रि ०३:०० से प्रातः ०६:००",
                   style: TextStyle(fontSize: 12, height: 1.5, color: Colors.black87),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Vedic Vaars (7 Days) Reference Card
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.amber.shade300),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("सप्त वैदिक वार / वासर नामावली (7 Authentic Vedic Days)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF92400E))),
+                const SizedBox(height: 8),
+                const Text(
+                  "वैदिक काल गणना में वार (वासर) का निर्धारण अहोरात्र (सूर्योदय से अगले सूर्योदय) के आधार पर होता है, मध्यरात्रि १२:०० बजे नहीं। प्रत्येक दिन का नाम उसके अधिष्ठाता आकाशीय ग्रह के नाम पर है:",
+                  style: TextStyle(fontSize: 12, height: 1.4, color: Colors.black87),
+                ),
+                const SizedBox(height: 10),
+                Table(
+                  border: TableBorder.all(color: Colors.grey.shade300),
+                  columnWidths: const {
+                    0: FlexColumnWidth(2.0),
+                    1: FlexColumnWidth(2.5),
+                    2: FlexColumnWidth(3.5),
+                  },
+                  children: [
+                    TableRow(
+                      decoration: BoxDecoration(color: Colors.amber.shade50),
+                      children: const [
+                        Padding(padding: EdgeInsets.all(8), child: Text("ग्रेगोरियन वार", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                        Padding(padding: EdgeInsets.all(8), child: Text("वैदिक वासर नाम", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                        Padding(padding: EdgeInsets.all(8), child: Text("अधिष्ठाता ग्रह / संस्कृत पर्याय", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                      ],
+                    ),
+                    _buildTableRow("रविवार (Sunday)", "रविवासर", "सूर्य देव (भानुवासर / आदित्यवासर)"),
+                    _buildTableRow("सोमवार (Monday)", "सोमवासर", "चन्द्र देव (इन्दुवासर)"),
+                    _buildTableRow("मंगलवार (Tuesday)", "भौमवासर", "मंगल देव (मङ्गलवासर / कुजवासर)"),
+                    _buildTableRow("बुधवार (Wednesday)", "बुधवासर", "बुध देव (सौम्यवासर)"),
+                    _buildTableRow("गुरुवार (Thursday)", "गुरुवासर", "देवगुरु बृहस्पति (बृहस्पतिवासर)"),
+                    _buildTableRow("शुक्रवार (Friday)", "शुक्रवासर", "शुक्र देव (भृगुवासर)"),
+                    _buildTableRow("शनिवार (Saturday)", "शनिवासर", "शनि देव (मन्दवासर / सौरिवासर)"),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(6)),
+                  child: Row(
+                    children: const [
+                      Icon(Icons.wb_sunny_outlined, size: 16, color: Color(0xFFD97706)),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          "अहोरात्र नियम: यदि रात्रि ०२:०० बजे (मध्यरात्रि के बाद) समय देखा जाए, तब भी सूर्योदय न होने तक पूर्व दिवस का ही वैदिक वार रहता है।",
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
