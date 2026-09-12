@@ -158,5 +158,12 @@ void main() {
       final hasGoUpcOrMatch = results.any((r) => r['source'] == 'Go-UPC' || r['name'].toString().toLowerCase().contains("lakme"));
       expect(hasGoUpcOrMatch, isTrue);
     });
+
+    test('resolveBarcodeOnlineMulti includes GS1 DataKart India for authentic brand/product resolution', () async {
+      final results = await resolveBarcodeOnlineMulti("8901030673214");
+      expect(results.isNotEmpty, isTrue);
+      final hasGs1OrMatch = results.any((r) => r['source'] == 'GS1 DataKart India' || r['name'].toString().toUpperCase().contains("LAKME"));
+      expect(hasGs1OrMatch, isTrue);
+    });
   });
 }

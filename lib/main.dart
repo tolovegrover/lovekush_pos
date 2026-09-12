@@ -730,13 +730,14 @@ Future<List<Map<String, dynamic>>> resolveBarcodeOnlineMulti(String barcode) asy
     }
   }
 
-  // 2. Open Facts Endpoints (Open Beauty, Open Food, Open Products)
+  // 2. Open Facts Endpoints (Open Beauty, Open Food, Open Products, Open Pet Food)
   final openFactsEndpoints = [
     ("https://world.openbeautyfacts.org/api/v2/product/$clean.json", "Open Beauty Facts"),
     ("https://world.openbeautyfacts.org/api/v0/product/$clean.json", "Open Beauty Facts"),
     ("https://in.openfoodfacts.org/api/v2/product/$clean.json", "Open Food Facts India"),
     ("https://world.openfoodfacts.org/api/v2/product/$clean.json", "Open Food Facts"),
     ("https://world.openproductsfacts.org/api/v2/product/$clean.json", "Open Products Facts"),
+    ("https://world.openpetfoodfacts.org/api/v2/product/$clean.json", "Open Pet Food Facts"),
   ];
 
   Future<void> queryOpenFacts(String url, String source) async {
@@ -900,12 +901,60 @@ Future<List<Map<String, dynamic>>> resolveBarcodeOnlineMulti(String barcode) asy
     }
   }
 
+  // 6. GS1 India DataKart Verified GTIN API (Official National Indian Barcode Registry)
+  Future<void> queryGs1DataKart() async {
+    HttpClient? client;
+    try {
+      client = HttpClient();
+      client.connectionTimeout = const Duration(milliseconds: 2800);
+      final uri = Uri.parse("https://dk-app.org/verified_gtin");
+      final req = await client.postUrl(uri);
+      final gtin14 = clean.padLeft(14, '0');
+      const token =
+          'DeVFjnh2K1GydCinuhQt3PrM235h7iLTnozqRxk4KYbnM4kmB8Zs1SfV6UNNwUByw4gRsbdmIv6CSDhc2V5tj/LfVICX/IuhR66ylCKfNOyOBmGO5/IOTo2NpmxamjgbliATP8P/lQLewdk8oRyga/evjp5t51QvbviSk6pErxWHu9x0NgAZY2wpVjdeuX452KnS33YHjE6GJIaPLsJVkR1Gje9djegdpgVg/CmyseJqqKoNQb0SRAie2QGvzLmc/oFcTyeFinOYpeYYdTLq6ZEy8RhgpiyPhWtgtpini00=';
+      req.headers.set('Authorization', 'Bearer $token');
+      req.headers.set('Content-Type', 'application/json');
+      req.headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+      req.add(utf8.encode(json.encode([gtin14])));
+      final resp = await req.close().timeout(const Duration(milliseconds: 2800));
+      if (resp.statusCode == 200) {
+        final body = await resp.transform(utf8.decoder).join();
+        final list = json.decode(body);
+        if (list is List && list.isNotEmpty) {
+          final first = list.first;
+          if (first is Map) {
+            String brand = '';
+            if (first['brandName'] is List && (first['brandName'] as List).isNotEmpty) {
+              brand = (first['brandName'][0]['value'] ?? '').toString().trim();
+            }
+            String desc = '';
+            if (first['productDescription'] is List && (first['productDescription'] as List).isNotEmpty) {
+              desc = (first['productDescription'][0]['value'] ?? '').toString().trim();
+            }
+            if (desc.isNotEmpty && desc != clean) {
+              // Clean redundant duplicate suffixes if present
+              String cleanDesc = desc;
+              if (brand.isNotEmpty && !cleanDesc.toLowerCase().contains(brand.toLowerCase())) {
+                cleanDesc = "$brand $cleanDesc";
+              }
+              addResult(cleanDesc, brand, 0.0, 'Cosmetics', 'GS1 DataKart India');
+            }
+          }
+        }
+      }
+    } catch (_) {
+    } finally {
+      client?.close(force: true);
+    }
+  }
+
   await Future.wait([
     queryUpcItemDb(),
     ...openFactsEndpoints.map((e) => queryOpenFacts(e.$1, e.$2)),
     queryRetailWebSearch(),
     queryBarcodeList(),
     queryGoUpc(),
+    queryGs1DataKart(),
   ]).timeout(const Duration(milliseconds: 3200), onTimeout: () => []);
 
   return results;
