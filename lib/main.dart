@@ -965,15 +965,106 @@ Future<List<Map<String, dynamic>>> resolveBarcodeOnlineMulti(String barcode) asy
   return results;
 }
 
-Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
-  final list = await resolveBarcodeOnlineMulti(barcode);
-  if (list.isNotEmpty) {
-    final first = list.first;
+String normalizeCosmeticCategory(String? cat) {
+  if (cat == null || cat.trim().isEmpty) return "Cosmetics";
+  final lower = cat.trim().toLowerCase();
+  if (lower.contains("eye")) return "Eyes";
+  if (lower.contains("lip")) return "Lips";
+  if (lower.contains("face")) return "Face";
+  if (lower.contains("nail")) return "Nails";
+  if (lower.contains("skin") || lower.contains("cream") || lower.contains("lotion") || lower.contains("wash") || lower.contains("soap")) return "Skincare";
+  if (lower.contains("hair") || lower.contains("shampoo") || lower.contains("oil")) return "Hair";
+  if (lower.contains("bangle")) return "Bangles";
+  if (lower.contains("jewel")) return "Jewelry";
+  if (lower.contains("access")) return "Accessories";
+  if (lower.contains("general")) return "General";
+  return "Cosmetics";
+}
+
+/// Multi-tiered product lookup for any barcode (EAN-13, EAN-8, UPC, etc.):
+/// 1. Instant O(1) Offline Cosmetics Catalog (Lakme, Pond's, Nivea, Fair & Lovely, etc.)
+/// 2. Supabase Cloud Master Catalog
+/// 3. Multi-API Online Search across GS1 DataKart India, UPCitemdb, Open Beauty Facts
+Future<Map<String, dynamic>?> fetchProductDetailsByBarcode(String barcode) async {
+  final clean = barcode.trim().replaceAll(' ', '').toUpperCase();
+  if (clean.length < 5) return null;
+
+  // 1. Check Offline Cosmetics Master Catalog (Instant 0ms O(1) hash map)
+  final localMatch = findCosmeticByBarcode(clean);
+  if (localMatch != null) {
+    final double p = (localMatch['price'] as num?)?.toDouble() ?? 0.0;
     return {
-      'name': first['name']?.toString() ?? '',
-      'brand': first['brand']?.toString() ?? '',
-      'category': first['category']?.toString() ?? 'Cosmetics',
-      'price': (first['price']?.toString() ?? '0.0'),
+      'name': (localMatch['name'] ?? '').toString(),
+      'brand': (localMatch['brand'] ?? '').toString(),
+      'price': p,
+      'mrp': p,
+      'category': normalizeCosmeticCategory((localMatch['category'] ?? '').toString()),
+      'source': 'Cosmetics Catalog',
+    };
+  }
+
+  // 2. Supabase Cloud Master Catalog
+  try {
+    final res = await Supabase.instance.client
+        .from('master_catalog')
+        .select()
+        .eq('barcode', clean)
+        .maybeSingle();
+    if (res != null) {
+      final name = (res['product_name'] ?? '').toString();
+      final mrp = (res['mrp'] as num?)?.toDouble() ?? 0.0;
+      final cat = (res['category'] ?? '').toString();
+      final brand = (res['brand'] ?? '').toString();
+      if (name.isNotEmpty) {
+        return {
+          'name': name,
+          'brand': brand,
+          'price': mrp,
+          'mrp': mrp,
+          'category': normalizeCosmeticCategory(cat),
+          'source': 'Cloud Master Catalog',
+        };
+      }
+    }
+  } catch (_) {}
+
+  // 3. Multi-API Online Search across GS1 DataKart India, UPCitemdb, Open Beauty Facts
+  final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
+  if (clean.length >= 8 && digitsOnly.length == clean.length) {
+    try {
+      final onlineResults = await resolveBarcodeOnlineMulti(clean);
+      if (onlineResults.isNotEmpty) {
+        final first = onlineResults.first;
+        final name = (first['name'] ?? '').toString();
+        final price = (first['price'] as num?)?.toDouble() ?? 0.0;
+        final cat = (first['category'] ?? '').toString();
+        final brand = (first['brand'] ?? '').toString();
+        final source = (first['source'] ?? 'Online').toString();
+        if (name.isNotEmpty) {
+          return {
+            'name': name,
+            'brand': brand,
+            'price': price,
+            'mrp': price,
+            'category': normalizeCosmeticCategory(cat),
+            'source': source,
+          };
+        }
+      }
+    } catch (_) {}
+  }
+
+  return null;
+}
+
+Future<Map<String, String>?> fetchOpenBeautyFacts(String barcode) async {
+  final details = await fetchProductDetailsByBarcode(barcode);
+  if (details != null) {
+    return {
+      'name': details['name']?.toString() ?? '',
+      'brand': details['brand']?.toString() ?? '',
+      'category': details['category']?.toString() ?? 'Cosmetics',
+      'price': details['price']?.toString() ?? '0.0',
     };
   }
   return null;
@@ -1267,7 +1358,9 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
   void initState() {
     super.initState();
     _loadLastUsedCode();
-    _fetchInventory();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _fetchInventory();
+    });
     PendingItemsManager.load().then((_) {
       if (mounted) setState(() {});
     });
@@ -1292,13 +1385,13 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       final data = await Supabase.instance.client.from('inventory').select().order('item_code');
       setState(() {
         items = List<Map<String, dynamic>>.from(data);
-        isLoading = false;
       });
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error fetching items: $e")));
-        setState(() => isLoading = false);
       }
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -2269,6 +2362,9 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     String selectedCategory = isEdit ? (existing['category'] ?? 'Cosmetics') : 'Cosmetics';
     bool isOnline = isEdit ? (existing['is_online'] ?? true) : true;
     bool isFetchingObf = false;
+    Timer? barcodeDebounce;
+    String lastFetchedBarcode = "";
+    bool initialFetchTriggered = false;
 
     List<Map<String, dynamic>> suggestions = [];
 
@@ -2277,6 +2373,124 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
       builder: (dialogCtx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           final breakdown = ShelfCodeBreakdown.parse(shelfCodeCtrl.text);
+
+          Future<void> autoFetchBarcodeDetails(String rawCode, {bool userTriggered = false}) async {
+            final clean = rawCode.trim().replaceAll(' ', '');
+            if (clean.length < 5) {
+              if (userTriggered && ctx.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Enter a valid barcode (at least 5 digits)")),
+                );
+              }
+              return;
+            }
+
+            if (clean == lastFetchedBarcode && !userTriggered) return;
+            lastFetchedBarcode = clean;
+
+            if (ctx.mounted) {
+              setDialogState(() => isFetchingObf = true);
+            }
+
+            // 1. Check shop inventory first (in case product is already known in store)
+            Map<String, dynamic>? shopMatch;
+            for (var it in items) {
+              final itBar = (it['company_barcode'] ?? '').toString().trim().toUpperCase();
+              final itCode = (it['item_code'] ?? '').toString().trim().toUpperCase();
+              if ((itBar.isNotEmpty && itBar == clean.toUpperCase()) || (itCode.isNotEmpty && itCode == clean.toUpperCase())) {
+                shopMatch = it;
+                break;
+              }
+            }
+
+            if (shopMatch != null) {
+              final sName = (shopMatch['item_name'] ?? '').toString();
+              final sPrice = (shopMatch['price'] as num?)?.toDouble() ?? 0.0;
+              final sMrp = (shopMatch['mrp'] as num?)?.toDouble() ?? sPrice;
+              final sCat = (shopMatch['category'] ?? '').toString();
+
+              if (ctx.mounted) {
+                setDialogState(() {
+                  isFetchingObf = false;
+                  if (sName.isNotEmpty) nameCtrl.text = sName;
+                  if (sPrice > 0) {
+                    priceCtrl.text = sPrice % 1 == 0 ? sPrice.toInt().toString() : sPrice.toString();
+                  }
+                  if (sMrp > 0) {
+                    mrpCtrl.text = sMrp % 1 == 0 ? sMrp.toInt().toString() : sMrp.toString();
+                  }
+                  if (sCat.isNotEmpty) {
+                    selectedCategory = normalizeCosmeticCategory(sCat);
+                  }
+                });
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text("Found in Shop Inventory: $sName"),
+                    backgroundColor: Colors.blueAccent,
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+              return;
+            }
+
+            // 2. Multi-tier resolution (Offline Cosmetics Catalog -> Supabase Master Catalog -> Online APIs)
+            final details = await fetchProductDetailsByBarcode(clean);
+
+            if (!ctx.mounted) return;
+
+            if (details != null && (details['name'] ?? '').toString().isNotEmpty) {
+              final dName = details['name'].toString();
+              final dPrice = (details['price'] as num?)?.toDouble() ?? 0.0;
+              final dMrp = (details['mrp'] as num?)?.toDouble() ?? dPrice;
+              final dCat = (details['category'] ?? '').toString();
+              final dSource = (details['source'] ?? 'Catalog').toString();
+
+              setDialogState(() {
+                isFetchingObf = false;
+                nameCtrl.text = dName;
+                if (dMrp > 0) {
+                  final pStr = dMrp % 1 == 0 ? dMrp.toInt().toString() : dMrp.toString();
+                  mrpCtrl.text = pStr;
+                  if (priceCtrl.text.isEmpty || priceCtrl.text == '0') {
+                    priceCtrl.text = pStr;
+                  }
+                }
+                if (dCat.isNotEmpty) {
+                  selectedCategory = normalizeCosmeticCategory(dCat);
+                }
+              });
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text("$dSource: $dName${dMrp > 0 ? ' (₹${dMrp % 1 == 0 ? dMrp.toInt() : dMrp})' : ''}"),
+                  backgroundColor: const Color(0xFF10B981),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            } else {
+              setDialogState(() => isFetchingObf = false);
+              if (userTriggered && ctx.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text("No details found for $clean. Enter details manually."),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            }
+          }
+
+          // Auto-trigger on initial dialog open if company barcode is prefilled and name is empty
+          if (!initialFetchTriggered && initialCompanyBarcode.length >= 5 && nameCtrl.text.isEmpty) {
+            initialFetchTriggered = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (ctx.mounted) {
+                autoFetchBarcodeDetails(initialCompanyBarcode, userTriggered: false);
+              }
+            });
+          }
 
           return AlertDialog(
             title: Row(
@@ -2305,10 +2519,18 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                   // 1. COMPANY BARCODE (Optional / Commercial EAN-13)
                   TextField(
                     controller: companyBarcodeCtrl,
+                    textInputAction: TextInputAction.next,
+                    keyboardType: TextInputType.text,
                     decoration: InputDecoration(
                       labelText: "Company Barcode (Optional)",
                       hintText: "e.g. 8901030732585 (from box)",
-                      helperText: "Leave blank for unbranded items (bangles/loose)",
+                      helperText: isFetchingObf
+                          ? "Fetching product details automatically..."
+                          : "Type or scan box barcode — details auto-fetch automatically!",
+                      helperStyle: TextStyle(
+                        color: isFetchingObf ? Colors.teal : Colors.grey.shade600,
+                        fontWeight: isFetchingObf ? FontWeight.bold : FontWeight.normal,
+                      ),
                       isDense: true,
                       border: const OutlineInputBorder(),
                       suffixIcon: Row(
@@ -2322,24 +2544,14 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                           else
                             IconButton(
                               icon: const Icon(Icons.cloud_download, color: Colors.teal, size: 20),
-                              tooltip: "Fetch Name from Open Facts Cloud (<2s)",
+                              tooltip: "Fetch Product Details",
                               onPressed: () async {
                                 final bar = companyBarcodeCtrl.text.trim();
                                 if (bar.isEmpty) {
                                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Enter barcode first to fetch details")));
                                   return;
                                 }
-                                setDialogState(() => isFetchingObf = true);
-                                final obf = await fetchOpenBeautyFacts(bar);
-                                setDialogState(() {
-                                  isFetchingObf = false;
-                                  if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
-                                    nameCtrl.text = obf['name']!;
-                                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Cloud Fetched: ${obf['name']}")));
-                                  } else {
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No match in Open Facts Cloud (<2s). Enter name manually.")));
-                                  }
-                                });
+                                await autoFetchBarcodeDetails(bar, userTriggered: true);
                               },
                             ),
                           IconButton(
@@ -2355,21 +2567,28 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                               if (scanned != null && scanned is String && scanned.isNotEmpty) {
                                 final clean = scanned.trim();
                                 setDialogState(() => companyBarcodeCtrl.text = clean);
-                                // Attempt auto-fetch name
-                                setDialogState(() => isFetchingObf = true);
-                                final obf = await fetchOpenBeautyFacts(clean);
-                                setDialogState(() {
-                                  isFetchingObf = false;
-                                  if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty) {
-                                    nameCtrl.text = obf['name']!;
-                                  }
-                                });
+                                await autoFetchBarcodeDetails(clean, userTriggered: true);
                               }
                             },
                           ),
                         ],
                       ),
                     ),
+                    onChanged: (val) {
+                      barcodeDebounce?.cancel();
+                      final clean = val.trim().replaceAll(' ', '');
+                      if (clean.length >= 8 && RegExp(r'^[0-9]+$').hasMatch(clean)) {
+                        barcodeDebounce = Timer(const Duration(milliseconds: 300), () {
+                          if (ctx.mounted) {
+                            autoFetchBarcodeDetails(clean, userTriggered: false);
+                          }
+                        });
+                      }
+                    },
+                    onSubmitted: (val) {
+                      barcodeDebounce?.cancel();
+                      autoFetchBarcodeDetails(val.trim(), userTriggered: true);
+                    },
                   ),
                   const SizedBox(height: 12),
 
@@ -2377,7 +2596,20 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                   TextField(
                     controller: shelfCodeCtrl,
                     inputFormatters: [ShelfCodeInputFormatter()],
-                    onChanged: (_) => setDialogState(() {}),
+                    onChanged: (val) {
+                      setDialogState(() {});
+                      final rawDigits = val.replaceAll('-', '').replaceAll(' ', '').trim();
+                      if (rawDigits.length >= 8 && RegExp(r'^[0-9]+$').hasMatch(rawDigits) && rawDigits.startsWith('890')) {
+                        // User accidentally scanned/typed product box barcode into shelf code field!
+                        if (companyBarcodeCtrl.text.isEmpty || companyBarcodeCtrl.text != rawDigits) {
+                          setDialogState(() {
+                            companyBarcodeCtrl.text = rawDigits;
+                            shelfCodeCtrl.text = initialShelfCode;
+                          });
+                          autoFetchBarcodeDetails(rawDigits, userTriggered: true);
+                        }
+                      }
+                    },
                     decoration: InputDecoration(
                       labelText: "Shelf Location & Item Code",
                       hintText: "e.g. 01-03-C-134 or 01-03-C",
@@ -2399,14 +2631,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                             final digitsOnly = clean.replaceAll(RegExp(r'[^0-9]'), '');
                             if (clean.length >= 8 && digitsOnly.length == clean.length) {
                               setDialogState(() => companyBarcodeCtrl.text = clean);
-                              setDialogState(() => isFetchingObf = true);
-                              final obf = await fetchOpenBeautyFacts(clean);
-                              setDialogState(() {
-                                isFetchingObf = false;
-                                if (obf != null && obf['name'] != null && obf['name']!.isNotEmpty && nameCtrl.text.isEmpty) {
-                                  nameCtrl.text = obf['name']!;
-                                }
-                              });
+                              await autoFetchBarcodeDetails(clean, userTriggered: true);
                             } else {
                               final parsed = ShelfCodeBreakdown.parse(clean);
                               setDialogState(() {
@@ -2572,7 +2797,9 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                             Expanded(
                               flex: 3,
                               child: DropdownButtonFormField<String>(
-                                value: selectedCategory,
+                                value: const ["Cosmetics", "Eyes", "Lips", "Face", "Nails", "Skincare", "Hair", "Bangles", "Jewelry", "Accessories", "General"].contains(selectedCategory)
+                                    ? selectedCategory
+                                    : normalizeCosmeticCategory(selectedCategory),
                                 isDense: true,
                                 decoration: const InputDecoration(labelText: "Category", border: OutlineInputBorder(), isDense: true),
                                 items: ["Cosmetics", "Eyes", "Lips", "Face", "Nails", "Skincare", "Hair", "Bangles", "Jewelry", "Accessories", "General"]
@@ -2614,12 +2841,16 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(dialogCtx),
+                onPressed: () {
+                  barcodeDebounce?.cancel();
+                  Navigator.pop(dialogCtx);
+                },
                 child: const Text("CANCEL", style: TextStyle(color: Colors.black54)),
               ),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6)),
                 onPressed: () {
+                  barcodeDebounce?.cancel();
                   final bd = ShelfCodeBreakdown.parse(shelfCodeCtrl.text);
                   final companyBar = companyBarcodeCtrl.text.trim();
                   final name = nameCtrl.text.trim();
@@ -2743,10 +2974,10 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
           ),
           const SizedBox(width: 10),
           FloatingActionButton.extended(
-            heroTag: "fab_add_code",
+            heroTag: "fab_add_item",
             backgroundColor: const Color(0xFF3B82F6),
             icon: const Icon(Icons.add, color: Colors.white),
-            label: const Text("Add Code", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            label: const Text("Add Item", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             onPressed: () => _showAddEditDialog(),
           ),
         ],
@@ -2977,7 +3208,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                               const SizedBox(height: 16),
                               Text(searchQuery.isEmpty ? "No Items Mapped Yet" : "No matching items found", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                               const SizedBox(height: 8),
-                              const Text("Tap '+ Add Code' or 'Cosmetics' to map shelf codes to products and rates.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+                              const Text("Tap '+ Add Item' or 'Cosmetics' to map shelf codes to products and rates.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
                             ],
                           ),
                         ),

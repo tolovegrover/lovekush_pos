@@ -480,5 +480,86 @@ void main() {
       expect(PdfReceiptService.sanitizeIndianPhoneNumber("+91 98123 45678"), "919812345678");
       expect(PdfReceiptService.sanitizeIndianPhoneNumber("09812345678"), "919812345678");
     });
+
+    test('fetchProductDetailsByBarcode resolves commercial cosmetics barcodes with name, price, and category', () async {
+      // 1. Lakme Eyeconic Kajal (8901030732585)
+      final lakmeKajal = await fetchProductDetailsByBarcode("8901030732585");
+      expect(lakmeKajal, isNotNull);
+      expect(lakmeKajal!['name'], contains("Lakme Eyeconic Kajal"));
+      expect(lakmeKajal['price'], 190.0);
+      expect(lakmeKajal['mrp'], 190.0);
+      expect(lakmeKajal['category'], "Eyes");
+      expect(lakmeKajal['source'], "Cosmetics Catalog");
+
+      // 2. Lakme 9 To 5 Double Duty (8901030767609)
+      final doubleDuty = await fetchProductDetailsByBarcode("8901030767609");
+      expect(doubleDuty, isNotNull);
+      expect(doubleDuty!['name'], contains("Lakme 9 To 5 Double Duty"));
+      expect(doubleDuty['price'], 349.0);
+      expect(doubleDuty['category'], "Lips");
+
+      // 3. Pond's White Beauty (8901030839122)
+      final ponds = await fetchProductDetailsByBarcode("8901030839122");
+      expect(ponds, isNotNull);
+      expect(ponds!['name'], contains("Ponds White Beauty"));
+      expect(ponds['price'], 35.0);
+      expect(ponds['category'], "Skincare");
+
+      // 4. fetchOpenBeautyFacts wraps fetchProductDetailsByBarcode correctly
+      final obf = await fetchOpenBeautyFacts("8901030732585");
+      expect(obf, isNotNull);
+      expect(obf!['name'], contains("Lakme Eyeconic Kajal"));
+      expect(obf['price'], "190.0");
+    });
+
+    test('normalizeCosmeticCategory maps diverse beauty taxonomy to valid POS categories', () {
+      expect(normalizeCosmeticCategory("Eye Liner"), "Eyes");
+      expect(normalizeCosmeticCategory("Eyeshadow"), "Eyes");
+      expect(normalizeCosmeticCategory("Lipstick"), "Lips");
+      expect(normalizeCosmeticCategory("Lip Balm"), "Lips");
+      expect(normalizeCosmeticCategory("Compact Powder Face"), "Face");
+      expect(normalizeCosmeticCategory("Nail Polish"), "Nails");
+      expect(normalizeCosmeticCategory("Skin Care Cold Cream"), "Skincare");
+      expect(normalizeCosmeticCategory("Face Wash"), "Face");
+      expect(normalizeCosmeticCategory("Hair Care Shampoo"), "Hair");
+      expect(normalizeCosmeticCategory("Hair Oil"), "Hair");
+      expect(normalizeCosmeticCategory("Glass Bangles"), "Bangles");
+      expect(normalizeCosmeticCategory("Jewelry"), "Jewelry");
+      expect(normalizeCosmeticCategory("General"), "General");
+      expect(normalizeCosmeticCategory(null), "Cosmetics");
+      expect(normalizeCosmeticCategory(""), "Cosmetics");
+    });
+
+    testWidgets('ItemCatalogScreen Add Item dialog auto-fetches details when barcode is entered', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: ItemCatalogScreen(),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // Find and tap the "+ Add Item" FAB
+      final addItemFab = find.widgetWithText(FloatingActionButton, "Add Item");
+      expect(addItemFab, findsOneWidget);
+      await tester.tap(addItemFab);
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // Dialog should be open
+      expect(find.text("Add Item (Dual Barcodes)"), findsOneWidget);
+
+      // Enter Lakme Eyeconic Kajal barcode
+      final companyBarcodeField = find.widgetWithText(TextField, "Company Barcode (Optional)");
+      expect(companyBarcodeField, findsOneWidget);
+
+      // Type the barcode into the field and trigger auto-fetch
+      await tester.enterText(companyBarcodeField, "8901030732585");
+      // Wait for debounce timer (300ms) to fire
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Verify item name and MRP are auto-populated!
+      expect(find.text("Lakme Eyeconic Kajal Deep Black"), findsOneWidget);
+      expect(find.text("190"), findsWidgets);
+    });
   });
 }
