@@ -191,8 +191,7 @@ void main() {
       expect(msg, contains("Lakme Eyeconic Kajal"));
       expect(msg, contains("Ponds Cold Cream"));
       expect(msg, contains("सकल देय राशि: ₹ 410.00"));
-      expect(msg, contains("पञ्चाङ्ग"));
-      expect(msg, contains("रोचक तथ्य"));
+      expect(msg, contains("पञ्चाङ्ग:"));
       expect(msg, contains("प्रहर"));
       expect(msg, contains("दिनाङ्क व समय:"));
       expect(msg, contains("कोषपाल:"));
@@ -304,8 +303,7 @@ void main() {
       expect(hindiMsg, contains("*बीजक सङ्ख्या:* ल.कु.-बी.आई.-२०२६"));
       expect(hindiMsg, contains("Lakme Absolute Kajal")); // Item name in English
       expect(hindiMsg, contains("Pond's White Beauty Cream")); // Item name in English
-      expect(hindiMsg, contains("पञ्चाङ्ग"));
-      expect(hindiMsg, contains("रोचक तथ्य"));
+      expect(hindiMsg, contains("पञ्चाङ्ग:"));
       expect(hindiMsg, contains("प्रहर"));
       expect(hindiMsg, contains("दिनाङ्क व समय:"));
       expect(hindiMsg, contains("कोषपाल:"));
@@ -381,7 +379,7 @@ void main() {
       expect(hindiWa, contains("रोकड़ा")); // 'रोकड़ा' used instead of 'रोकड़'
       expect(hindiWa, contains("बिका हुआ माल वापस या बदला नहीं जाएगा"));
       expect(hindiWa, isNot(contains("NO RETURN, NO EXCHANGE")));
-      expect(hindiWa, contains("पञ्चाङ्ग (रोचक तथ्य):"));
+      expect(hindiWa, contains("पञ्चाङ्ग:"));
 
       // 2. English WhatsApp bill format
       final engWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.english);

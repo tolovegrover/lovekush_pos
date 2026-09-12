@@ -1415,8 +1415,8 @@ class PdfReceiptService {
           child: pw.Center(
             child: pw.Text(
               language == ReceiptLanguage.hindi
-                  ? _fixDevanagari("पञ्चाङ्ग (रोचक तथ्य): आज ${_formatPanchangTithi(billDate)} है। (वैदिक समय: ${toDevanagariDigits(VedicTimeService.normalToVedic(billDate).toNumericString())})")
-                  : "Panchang (Fun Fact): Today is ${_formatPanchangEnglish(billDate)} (Vedic Time: ${VedicTimeService.normalToVedic(billDate).toNumericString()})",
+                  ? _fixDevanagari("पञ्चाङ्ग: आज ${_formatPanchangTithi(billDate)} है। (वैदिक समय: ${toDevanagariDigits(VedicTimeService.normalToVedic(billDate).toNumericString())})")
+                  : "Panchang: Today is ${_formatPanchangEnglish(billDate)} (Vedic Time: ${VedicTimeService.normalToVedic(billDate).toNumericString()})",
               textAlign: pw.TextAlign.center,
               style: const pw.TextStyle(
                 fontSize: 6.2,
@@ -1544,7 +1544,7 @@ class PdfReceiptService {
       buffer.writeln("⚠️ *बिका हुआ माल वापस या बदला नहीं जाएगा*");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *सधन्यवाद! पुनः पधारें!*");
-      buffer.writeln("✨ *पञ्चाङ्ग (रोचक तथ्य):* आज ${_formatPanchangTithi(billDate)} है। (वैदिक समय: ${toDevanagariDigits(vedicTime.toNumericString())})");
+      buffer.writeln("🗓️ *पञ्चाङ्ग:* आज ${_formatPanchangTithi(billDate)} है। (वैदिक समय: ${toDevanagariDigits(vedicTime.toNumericString())})");
       buffer.writeln("🌿 _डिजिटल पीडीएफ बीजक संलग्न है।_");
     } else {
       final vedicTime = VedicTimeService.normalToVedic(billDate);
@@ -1581,7 +1581,7 @@ class PdfReceiptService {
       buffer.writeln("⚠️ *NO RETURN, NO EXCHANGE*");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *THANK YOU FOR SHOPPING! VISIT AGAIN!*");
-      buffer.writeln("✨ *Panchang (Fun Fact):* Today is ${_formatPanchangEnglish(billDate)} (Vedic Time: ${vedicTime.toNumericString()})");
+      buffer.writeln("🗓️ *Panchang:* Today is ${_formatPanchangEnglish(billDate)} (Vedic Time: ${vedicTime.toNumericString()})");
       buffer.writeln("🌿 _Digital PDF Bill attached._");
     }
 
