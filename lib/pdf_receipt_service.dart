@@ -899,46 +899,31 @@ class PdfReceiptService {
     // 4. Build Minimal Thermal-Style Receipt Content
     List<pw.Widget> buildReceiptWidgets(pw.Context context) {
       return [
-        // Top Header: Fixed Centered Logo & Sacred Invocation with Black & White Peacock Feather on Top Right
-        pw.Stack(
-          children: [
-            pw.Align(
-              alignment: pw.Alignment.topCenter,
-              child: pw.Column(
-                mainAxisSize: pw.MainAxisSize.min,
-                children: [
-                  if (logoImage != null) ...[
-                    pw.Container(
-                      width: 48,
-                      height: 48,
-                      margin: const pw.EdgeInsets.only(bottom: 4),
-                      child: pw.Image(logoImage, fit: pw.BoxFit.contain),
-                    ),
-                  ],
-                  // Sanskrit Bhagwan Namaste Invocation with Satiya (Always on top for both Hindi & English)
-                  pw.Text(
-                    _fixDevanagari(effectiveInvocation),
-                    style: pw.TextStyle(
-                      fontSize: 9.5,
-                      fontWeight: pw.FontWeight.bold,
-                      color: PdfColors.black,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (featherImage != null) ...[
-              pw.Positioned(
-                top: 0,
-                right: 0,
-                child: pw.Container(
-                  width: 36,
-                  height: 48,
-                  child: pw.Image(featherImage, fit: pw.BoxFit.contain),
+        // Top Header: Centered Bag Logo with Krishna Mor Pankh & Sacred Invocation
+        pw.Align(
+          alignment: pw.Alignment.topCenter,
+          child: pw.Column(
+            mainAxisSize: pw.MainAxisSize.min,
+            children: [
+              if (logoImage != null) ...[
+                pw.Container(
+                  width: 54,
+                  height: 54,
+                  margin: const pw.EdgeInsets.only(bottom: 4),
+                  child: pw.Image(logoImage, fit: pw.BoxFit.contain),
+                ),
+              ],
+              // Sanskrit Bhagwan Namaste Invocation with Satiya (Always on top for both Hindi & English)
+              pw.Text(
+                _fixDevanagari(effectiveInvocation),
+                style: pw.TextStyle(
+                  fontSize: 9.5,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.black,
                 ),
               ),
             ],
-          ],
+          ),
         ),
         pw.SizedBox(height: 3),
 
