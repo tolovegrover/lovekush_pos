@@ -431,10 +431,10 @@ class PdfReceiptService {
     return res;
   }
 
-  /// Convert standard Arabic numerals into authentic Devanagari digits (e.g. 2083 -> २०८३)
-  static String toDevanagariDigits(int number) {
+  /// Convert standard Arabic numerals into authentic Devanagari digits (e.g. 2083 -> २०८३, or 'LK-2026' -> 'LK-२०२६')
+  static String toDevanagariDigits(dynamic value) {
     const digits = ['०', '१', '२', '३', '४', '५', '६', '७', '८', '९'];
-    return number.toString().split('').map((char) {
+    return value.toString().split('').map((char) {
       final d = int.tryParse(char);
       return d != null ? digits[d] : char;
     }).join('');
@@ -517,11 +517,45 @@ class PdfReceiptService {
 
       final int weekdayIndex = dt.weekday - 1;
       final String vaar = vaarNames[weekdayIndex % 7];
+      final String pahar = getPaharName(dt);
 
-      return "$masa $paksha $tithi, संवत् ${toDevanagariDigits(samvat)} ($vaar)";
+      return "$masa $paksha $tithi, संवत् ${toDevanagariDigits(samvat)} ($vaar, $pahar)";
     } catch (_) {
       return "तिथि पञ्चाङ्ग";
     }
+  }
+
+  /// Traditional Indian Pahar (प्रहर) of the day based on 8 pahars of day/night
+  static String getPaharName(DateTime dt) {
+    final hour = dt.hour;
+    if (hour >= 6 && hour < 9) {
+      return "प्रथम प्रहर";
+    } else if (hour >= 9 && hour < 12) {
+      return "द्वितीय प्रहर";
+    } else if (hour >= 12 && hour < 15) {
+      return "तृतीय प्रहर";
+    } else if (hour >= 15 && hour < 18) {
+      return "चतुर्थ प्रहर";
+    } else if (hour >= 18 && hour < 21) {
+      return "सायं प्रहर";
+    } else if (hour >= 21 && hour < 24) {
+      return "निशीथ प्रहर";
+    } else if (hour >= 0 && hour < 3) {
+      return "मध्यरात्रि प्रहर";
+    } else {
+      return "ब्रह्ममुहूर्त प्रहर";
+    }
+  }
+
+  /// Format bill number string in Devanagari script for Hindi receipts
+  static String formatBillNumberHindi(String billNo) {
+    if (billNo.isEmpty || billNo == "N/A") return billNo;
+    String text = billNo
+        .replaceAll(RegExp(r'LK[-_]?', caseSensitive: false), 'ल.कु.-')
+        .replaceAll(RegExp(r'STR', caseSensitive: false), 'एस.टी.आर.')
+        .replaceAll(RegExp(r'RND', caseSensitive: false), 'आर.एन.डी.')
+        .replaceAll(RegExp(r'BI', caseSensitive: false), 'बी.आई.');
+    return toDevanagariDigits(text);
   }
 
   /// Format payment method in classical Sanskritized Hindi
@@ -661,18 +695,20 @@ class PdfReceiptService {
         ],
 
         // Store Titles & Header
-        if (language == ReceiptLanguage.hindi) ...[
-          pw.Center(
-            child: pw.Text(
-              _fixDevanagari(effectiveInvocation),
-              style: pw.TextStyle(
-                fontSize: 9.5,
-                fontWeight: pw.FontWeight.bold,
-                color: PdfColors.black,
-              ),
+        // Sanskrit Bhagwan Namaste Invocation with Satiya (Always on top for both Hindi & English)
+        pw.Center(
+          child: pw.Text(
+            _fixDevanagari(effectiveInvocation),
+            style: pw.TextStyle(
+              fontSize: 9.5,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.black,
             ),
           ),
-          pw.SizedBox(height: 3),
+        ),
+        pw.SizedBox(height: 3),
+
+        if (language == ReceiptLanguage.hindi) ...[
           pw.Center(
             child: pw.Text(
               _fixDevanagari("लव कुश"),
@@ -766,7 +802,7 @@ class PdfReceiptService {
           pw.Center(
             child: pw.Text(
               language == ReceiptLanguage.hindi
-                  ? _fixDevanagari("बीजक सङ्ख्या: $billNo")
+                  ? _fixDevanagari("बीजक सङ्ख्या: ${formatBillNumberHindi(billNo)}")
                   : "BILL NO: $billNo",
               style: pw.TextStyle(
                 fontSize: 9,
@@ -792,7 +828,7 @@ class PdfReceiptService {
         if (language == ReceiptLanguage.hindi) ...[
           pw.Text(
             _fixDevanagari("पञ्चाङ्ग तिथि: ${_formatPanchangTithi(billDate)}"),
-            style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
+            style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
           ),
           pw.SizedBox(height: 1.5),
           pw.Row(
@@ -976,53 +1012,7 @@ class PdfReceiptService {
         // Dashed Divider
         pw.Divider(thickness: 0.8, color: PdfColors.black, borderStyle: pw.BorderStyle.dashed),
 
-        // Policy: Simple No Return, No Refund, No Exchange
-        if (language == ReceiptLanguage.hindi) ...[
-          pw.Container(
-            padding: const pw.EdgeInsets.symmetric(vertical: 2.5),
-            child: pw.Column(
-              children: [
-                pw.Center(
-                  child: pw.Text(
-                    _fixDevanagari("॥ न वापसी • न प्रतिदान • न विनिमय ॥"),
-                    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
-                  ),
-                ),
-                pw.SizedBox(height: 1.5),
-                pw.Center(
-                  child: pw.Text(
-                    _fixDevanagari("विक्रीत वस्तु की वापसी, धन-प्रतिदान अथवा विनिमय नहीं होगा।"),
-                    style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ] else ...[
-          pw.Container(
-            padding: const pw.EdgeInsets.symmetric(vertical: 2.5),
-            child: pw.Column(
-              children: [
-                pw.Center(
-                  child: pw.Text(
-                    "*** NO RETURN • NO REFUND • NO EXCHANGE ***",
-                    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
-                  ),
-                ),
-                pw.SizedBox(height: 1.5),
-                pw.Center(
-                  child: pw.Text(
-                    "Goods once sold will not be returned, refunded, or exchanged.",
-                    style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-
         // Footer Thank You
-        pw.Divider(thickness: 0.5, color: PdfColors.grey600, borderStyle: pw.BorderStyle.dashed),
         pw.Center(
           child: pw.Column(
             children: [
@@ -1030,7 +1020,11 @@ class PdfReceiptService {
                 language == ReceiptLanguage.hindi
                     ? _fixDevanagari("*** सधन्यवाद! पुनः पधारें! ***")
                     : "*** THANK YOU FOR SHOPPING! VISIT AGAIN ***",
-                style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                style: pw.TextStyle(
+                  fontSize: language == ReceiptLanguage.hindi ? 8.5 : 6.8,
+                  fontWeight: language == ReceiptLanguage.hindi ? pw.FontWeight.bold : pw.FontWeight.normal,
+                  color: PdfColors.black,
+                ),
               ),
             ],
           ),
@@ -1127,7 +1121,7 @@ class PdfReceiptService {
       buffer.writeln("   *LOVE KUSH SHOPPING CENTER*");
       buffer.writeln("📍 *पता:* ए-२/३९२, सुभाष कंसल मार्ग, हर्ष विहार, दिल्ली - ११००९३");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("📋 *बीजक सङ्ख्या:* $billNo");
+      buffer.writeln("📋 *बीजक सङ्ख्या:* ${formatBillNumberHindi(billNo)}");
       buffer.writeln("🗓️ *पञ्चाङ्ग तिथि:* ${_formatPanchangTithi(billDate)}");
       buffer.writeln("📅 *आङ्ग्ल तिथि:* $formattedDate");
       buffer.writeln("👤 *कोषपाल:* $staffName");
@@ -1149,13 +1143,10 @@ class PdfReceiptService {
       buffer.writeln("💰 *सकल देय राशि: ₹${totalAmount.toStringAsFixed(2)}*");
       buffer.writeln("💳 *भुगतान विधि:* ${_paymentModeSanskrit(paymentMethod)}");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("📌 *सूचना:*");
-      buffer.writeln("• न वापसी • न प्रतिदान • न विनिमय");
-      buffer.writeln("• विक्रीत वस्तु की वापसी, धन-प्रतिदान अथवा विनिमय नहीं होगा।");
-      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *सधन्यवाद! पुनः पधारें!*");
       buffer.writeln("🌿 _डिजिटल पीडीएफ बीजक संलग्न है।_");
     } else {
+      buffer.writeln(effectiveInvocation);
       buffer.writeln("🧾 *LOVE KUSH SHOPPING CENTER*");
       buffer.writeln("📍 *Address:* A-2/392, Subhash Kansal Marg, Harsh Vihar, Delhi - 110093");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
@@ -1179,10 +1170,6 @@ class PdfReceiptService {
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("💰 *GRAND TOTAL: ₹${totalAmount.toStringAsFixed(2)}*");
       buffer.writeln("💳 *Payment Method:* ${paymentMethod.toUpperCase()}");
-      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("📌 *POLICY:*");
-      buffer.writeln("• NO RETURN • NO REFUND • NO EXCHANGE");
-      buffer.writeln("• Goods once sold will not be returned, refunded, or exchanged.");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *THANK YOU FOR SHOPPING! VISIT AGAIN!*");
       buffer.writeln("🌿 _Digital PDF Bill attached._");

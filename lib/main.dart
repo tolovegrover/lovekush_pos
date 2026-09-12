@@ -17,6 +17,7 @@ import 'dart:ui' as ui;
 import 'firebase_options.dart';
 import 'cosmetics_catalog.dart';
 import 'pdf_receipt_service.dart';
+import 'package:printing/printing.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -4744,6 +4745,15 @@ class _PosScreenState extends State<PosScreen> {
           ByteData bytesAsset = await rootBundle.load("assets/logo_bw.jpg");
           Uint8List imageBytes = bytesAsset.buffer.asUint8List();
           await bluetooth.printImageBytes(imageBytes);
+
+          // Top Sanskrit Bhagwan Namaste with Satiya (Always on top)
+          try {
+            final activeMantra = PdfReceiptService.resolveActiveInvocation(PdfReceiptService.currentInvocation);
+            final mantraBytes = await generateMantraBannerBytes(activeMantra);
+            if (mantraBytes != null) {
+              await bluetooth.printImageBytes(mantraBytes);
+            }
+          } catch (_) {}
           
           await bluetooth.printNewLine();
           await bluetooth.printCustom("LOVE KUSH", 3, 1); 
@@ -4802,8 +4812,7 @@ class _PosScreenState extends State<PosScreen> {
           }
           await bluetooth.printNewLine();
 
-          await bluetooth.printCustom("Thank you for shopping!", 1, 1);
-          await bluetooth.printCustom("NO RETURN * NO REFUND * NO EXCHANGE", 1, 1);
+          await bluetooth.printCustom("Thank you for shopping! Visit again!", 0, 1);
           await bluetooth.printNewLine();
           await bluetooth.printNewLine();
           await bluetooth.paperCut();
@@ -6496,10 +6505,62 @@ Future<Uint8List?> generateBarcodeImageBytes(String data, {double width = 340, d
   }
 }
 
+Future<Uint8List?> generateMantraBannerBytes(String text, {double width = 384, double height = 48}) async {
+  try {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width, height));
+    final bgPaint = Paint()..color = Colors.white;
+    canvas.drawRect(Rect.fromLTWH(0, 0, width, height), bgPaint);
+
+    final textSpan = TextSpan(
+      text: text,
+      style: const TextStyle(
+        color: Colors.black,
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+      ),
+    );
+    final textPainter = TextPainter(
+      text: textSpan,
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+    );
+    textPainter.layout(minWidth: width, maxWidth: width);
+    final offset = Offset(0, (height - textPainter.height) / 2);
+    textPainter.paint(canvas, offset);
+
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(width.toInt(), height.toInt());
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return byteData?.buffer.asUint8List();
+  } catch (_) {
+    return null;
+  }
+}
+
+Future<void> printHindiThermalBill({
+  required BlueThermalPrinter bluetooth,
+  required Map<String, dynamic> bill,
+}) async {
+  final pdfBytes = await PdfReceiptService.generateReceiptPdf(
+    bill,
+    language: ReceiptLanguage.hindi,
+  );
+  await for (final page in Printing.raster(pdfBytes, dpi: 203)) {
+    final pngBytes = await page.toPng();
+    await bluetooth.printImageBytes(pngBytes);
+    break;
+  }
+  await bluetooth.printNewLine();
+  await bluetooth.printNewLine();
+  await bluetooth.paperCut();
+}
+
 Future<void> executeReprintThermalBill({
   required BuildContext context,
   required BlueThermalPrinter bluetooth,
   required Map<String, dynamic> bill,
+  ReceiptLanguage language = ReceiptLanguage.english,
 }) async {
   bool? isConnected = await bluetooth.isConnected;
   if (isConnected != true) {
@@ -6510,6 +6571,14 @@ Future<void> executeReprintThermalBill({
   }
 
   try {
+    if (language == ReceiptLanguage.hindi) {
+      await printHindiThermalBill(bluetooth: bluetooth, bill: bill);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("हिन्दी रसीद प्रिंट की गई! (Hindi Bill Printed)")));
+      }
+      return;
+    }
+
     final items = bill['items_json'] is List
         ? (bill['items_json'] as List<dynamic>)
         : (bill['items_json'] is String ? (json.decode(bill['items_json']) as List<dynamic>) : []);
@@ -6522,6 +6591,19 @@ Future<void> executeReprintThermalBill({
       ByteData bytesAsset = await rootBundle.load("assets/logo_bw.jpg");
       Uint8List imageBytes = bytesAsset.buffer.asUint8List();
       await bluetooth.printImageBytes(imageBytes);
+    } catch (_) {}
+
+    // Top Sanskrit Bhagwan Namaste with Satiya (Always on top)
+    try {
+      final activeMantra = PdfReceiptService.resolveActiveInvocation(
+        bill['invocation_mantra']?.toString().trim().isNotEmpty == true
+            ? bill['invocation_mantra'].toString().trim()
+            : PdfReceiptService.currentInvocation,
+      );
+      final mantraBytes = await generateMantraBannerBytes(activeMantra);
+      if (mantraBytes != null) {
+        await bluetooth.printImageBytes(mantraBytes);
+      }
     } catch (_) {}
 
     await bluetooth.printNewLine();
@@ -6577,8 +6659,7 @@ Future<void> executeReprintThermalBill({
     if (pChange > 0) {
       await bluetooth.printLeftRight("Change Given:", "Rs${pChange.toStringAsFixed(2)}", 1);
     }
-    await bluetooth.printCustom("Thank you for shopping!", 1, 1);
-    await bluetooth.printCustom("NO RETURN * NO REFUND * NO EXCHANGE", 1, 1);
+    await bluetooth.printCustom("Thank you for shopping! Visit again!", 0, 1);
     await bluetooth.printCustom("*** DUPLICATE COPY ***", 1, 1);
     await bluetooth.printNewLine();
     await bluetooth.printNewLine();
@@ -6680,6 +6761,17 @@ void showReceiptPreviewDialog({
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        // Sanskrit Bhagwan Namaste on top always
+                        Text(
+                          PdfReceiptService.resolveActiveInvocation(
+                            bill['invocation_mantra']?.toString().trim().isNotEmpty == true
+                                ? bill['invocation_mantra'].toString().trim()
+                                : PdfReceiptService.currentInvocation,
+                          ),
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 6),
                         // Store branding
                         const Text(
                           "लव कुश शॉपिङ्ग सेण्टर",
@@ -6839,9 +6931,6 @@ void showReceiptPreviewDialog({
                         ),
                         const SizedBox(height: 8),
                         const Text("सधन्यवाद! पुनः पधारें! | Thank you for shopping!", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54)),
-                        const SizedBox(height: 3),
-                        const Text("॥ न वापसी • न प्रतिदान • न विनिमय ॥", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black87), textAlign: TextAlign.center),
-                        const Text("NO RETURN • NO REFUND • NO EXCHANGE", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.black54), textAlign: TextAlign.center),
                         const SizedBox(height: 4),
                         const Text("*** DUPLICATE COPY ***", style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 1.2, color: Colors.redAccent)),
                       ],

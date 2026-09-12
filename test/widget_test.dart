@@ -186,14 +186,14 @@ void main() {
       expect(msg, contains("࿗ ॐ श्री महालक्ष्म्यै नमः ࿗"));
       expect(msg, contains("लव कुश शॉपिङ्ग सेण्टर"));
       expect(msg, contains("LOVE KUSH SHOPPING CENTER"));
-      expect(msg, contains("LK-2026-0042"));
+      expect(msg, contains("ल.कु.-२०२६-००४२"));
       expect(msg, contains("Lakme Eyeconic Kajal"));
       expect(msg, contains("Ponds Cold Cream"));
       expect(msg, contains("सकल देय राशि: ₹410.00"));
       expect(msg, contains("पञ्चाङ्ग तिथि:"));
+      expect(msg, contains("प्रहर"));
       expect(msg, contains("आङ्ग्ल तिथि:"));
       expect(msg, contains("कोषपाल:"));
-      expect(msg, contains("न वापसी • न प्रतिदान • न विनिमय"));
       expect(msg, contains("सधन्यवाद! पुनः पधारें!"));
     });
 
@@ -286,31 +286,32 @@ void main() {
 
       // 1. English WhatsApp summary
       final engMsg = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.english);
+      expect(engMsg, contains("࿗ ॐ श्री महालक्ष्म्यै नमः ࿗")); // Bhagwan namaste on top in English too!
       expect(engMsg, contains("LOVE KUSH SHOPPING CENTER"));
       expect(engMsg, contains("*Bill No:* LK-BI-2026"));
       expect(engMsg, contains("Lakme Absolute Kajal")); // Item name in English
       expect(engMsg, contains("Pond's White Beauty Cream")); // Item name in English
       expect(engMsg, contains("GRAND TOTAL: ₹550.00"));
       expect(engMsg, contains("*Payment Method:* CASH"));
-      expect(engMsg, contains("NO RETURN • NO REFUND • NO EXCHANGE"));
       expect(engMsg, contains("THANK YOU FOR SHOPPING! VISIT AGAIN!"));
 
       // 2. Hindi WhatsApp summary
       final hindiMsg = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.hindi);
       expect(hindiMsg, contains("࿗ ॐ श्री महालक्ष्म्यै नमः ࿗"));
       expect(hindiMsg, contains("लव कुश शॉपिङ्ग सेण्टर"));
-      expect(hindiMsg, contains("*बीजक सङ्ख्या:* LK-BI-2026"));
+      expect(hindiMsg, contains("*बीजक सङ्ख्या:* ल.कु.-बी.आई.-२०२६"));
       expect(hindiMsg, contains("Lakme Absolute Kajal")); // Item name in English
       expect(hindiMsg, contains("Pond's White Beauty Cream")); // Item name in English
       expect(hindiMsg, contains("पञ्चाङ्ग तिथि:"));
+      expect(hindiMsg, contains("प्रहर"));
       expect(hindiMsg, contains("आङ्ग्ल तिथि:"));
       expect(hindiMsg, contains("कोषपाल:"));
       expect(hindiMsg, contains("सकल देय राशि: ₹550.00"));
-      expect(hindiMsg, contains("न वापसी • न प्रतिदान • न विनिमय"));
       expect(hindiMsg, contains("सधन्यवाद! पुनः पधारें!"));
 
       // 3. English PDF Generation
       final engPdfBytes = await PdfReceiptService.generateReceiptPdf(sampleBill, language: ReceiptLanguage.english);
+      File('build/english_receipt.pdf').writeAsBytesSync(engPdfBytes);
       expect(engPdfBytes, isNotNull);
       expect(engPdfBytes.length, greaterThan(1000));
       expect(engPdfBytes[0], 0x25); // %
@@ -318,6 +319,7 @@ void main() {
 
       // 4. Hindi PDF Generation (with Siddhanta Calcutta font)
       final hindiPdfBytes = await PdfReceiptService.generateReceiptPdf(sampleBill, language: ReceiptLanguage.hindi);
+      File('build/hindi_receipt.pdf').writeAsBytesSync(hindiPdfBytes);
       expect(hindiPdfBytes, isNotNull);
       expect(hindiPdfBytes.length, greaterThan(1000));
       expect(hindiPdfBytes[0], 0x25); // %
