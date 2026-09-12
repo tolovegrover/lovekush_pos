@@ -701,5 +701,80 @@ void main() {
 
       expect(find.text("Bill Saved & Printed!"), findsNothing);
     });
+
+    testWidgets('FestiveStockScreen renders upcoming festival spotlight, demand multipliers, and stock roadmap', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: FestiveStockScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text("Upcoming Festivals & Stock"), findsOneWidget);
+      expect(find.text("Inventory Stock"), findsOneWidget);
+      expect(find.text("Indian Retail Festive Season Roadmap"), findsOneWidget);
+      expect(find.textContaining("Standard Turnover"), findsWidgets);
+      expect(find.text("Open Inventory & Update Stock"), findsOneWidget);
+    });
+
+    testWidgets('PosScreen Drawer includes Upcoming Festivals (Stock) navigation tile', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: PosScreen(userName: "Admin", userEmail: "admin@lovekush.com", isAdmin: true),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Open drawer
+      final ScaffoldState state = tester.firstState(find.byType(Scaffold));
+      state.openDrawer();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Upcoming Festivals (Stock)'), findsOneWidget);
+      expect(find.text('Festive rush calendar, demand surge & stock planner'), findsOneWidget);
+    });
+
+    testWidgets('PosScreen deducts stock quantity for billed items upon completing bill', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: PosScreen(userName: "Admin", userEmail: "admin@lovekush.com", isAdmin: true),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final state = tester.state(find.byType(PosScreen)) as dynamic;
+      // Pre-seed cloud inventory with an item having 10 units in stock
+      state.setState(() {
+        state.cloudInventory["01-03-C-134"] = {
+          'item_code': '01-03-C-134',
+          'item_name': 'Ponds Cold Cream 55ml',
+          'price': 110.0,
+          'company_barcode': '8901030609183',
+          'shelf_location': '01-03-C',
+          'stock_qty': 10,
+        };
+      });
+
+      // Billed items: 3 units of 01-03-C-134
+      final billedItems = [
+        {
+          "qty": "3",
+          "rawItemCode": "01-03-C-134",
+          "item_code": "01-03-C-134",
+          "itemName": "Ponds Cold Cream 55ml",
+          "rate": "110",
+          "price": 330.0,
+        }
+      ];
+
+      // Invoke stock deduction
+      await state.deductStockForCompletedBill(billedItems);
+      await tester.pump();
+
+      // Verify stock was subtracted from 10 to 7
+      expect(state.cloudInventory["01-03-C-134"]!['stock_qty'], 7);
+    });
   });
 }
+
+

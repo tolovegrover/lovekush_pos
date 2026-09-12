@@ -1398,7 +1398,8 @@ class PendingRateChangesManager {
 // ==========================================
 class ItemCatalogScreen extends StatefulWidget {
   final bool selectMode;
-  const ItemCatalogScreen({Key? key, this.selectMode = false}) : super(key: key);
+  final String? initialSearchQuery;
+  const ItemCatalogScreen({Key? key, this.selectMode = false, this.initialSearchQuery}) : super(key: key);
 
   @override
   State<ItemCatalogScreen> createState() => _ItemCatalogScreenState();
@@ -1409,7 +1410,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
   List<Map<String, dynamic>> items = [];
   String searchQuery = "";
   String stockFilter = "all"; // 'all', 'low', 'out'
-
+  late TextEditingController _searchController;
 
   // Last used code components for rapid sequential shelf entry
   static String _lastRack = "01";
@@ -1420,6 +1421,8 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
   @override
   void initState() {
     super.initState();
+    searchQuery = widget.initialSearchQuery ?? "";
+    _searchController = TextEditingController(text: searchQuery);
     _loadLastUsedCode();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _fetchInventory();
@@ -1430,6 +1433,12 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     PendingRateChangesManager.load().then((_) {
       if (mounted) setState(() {});
     });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   void _loadLastUsedCode() async {
@@ -3196,6 +3205,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
             padding: const EdgeInsets.all(12),
             color: Colors.white,
             child: TextField(
+              controller: _searchController,
               decoration: InputDecoration(
                 hintText: "Search by code (e.g. 01-03) or item name...",
                 prefixIcon: const Icon(Icons.search),
@@ -3205,7 +3215,10 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                     if (searchQuery.isNotEmpty)
                       IconButton(
                         icon: const Icon(Icons.clear),
-                        onPressed: () => setState(() => searchQuery = ""),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => searchQuery = "");
+                        },
                       ),
                     IconButton(
                       icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent),
@@ -3987,7 +4000,17 @@ class _PosScreenState extends State<PosScreen> {
       String code = (item['item_code'] ?? '').toString();
       rawItemCode = _parseToRaw(code);
       activeItemName = (item['item_name'] ?? '').toString();
-      activeItemSub = "📍 Shelf: ${item['shelf_location'] ?? ''}";
+      final currentStock = (item['stock_qty'] as num?)?.toInt() ?? 10;
+      final shelf = (item['shelf_location'] ?? '').toString();
+      String stockBadge;
+      if (currentStock <= 0) {
+        stockBadge = " • ⚠️ OUT OF STOCK (0)";
+      } else if (currentStock <= 3) {
+        stockBadge = " • ⚠️ Low Stock: $currentStock";
+      } else {
+        stockBadge = " • Stock: $currentStock";
+      }
+      activeItemSub = shelf.isNotEmpty ? "📍 Shelf: $shelf$stockBadge" : "📦$stockBadge";
       activeConflicts = [];
       activeOnlineSuggestions = [];
       double p = (item['price'] as num?)?.toDouble() ?? 0.0;
@@ -4003,7 +4026,17 @@ class _PosScreenState extends State<PosScreen> {
       String code = (item['item_code'] ?? '').toString();
       rawItemCode = _parseToRaw(code);
       activeItemName = (item['item_name'] ?? '').toString();
-      activeItemSub = "📍 Shelf: ${item['shelf_location'] ?? ''}";
+      final currentStock = (item['stock_qty'] as num?)?.toInt() ?? 10;
+      final shelf = (item['shelf_location'] ?? '').toString();
+      String stockBadge;
+      if (currentStock <= 0) {
+        stockBadge = " • ⚠️ OUT OF STOCK (0)";
+      } else if (currentStock <= 3) {
+        stockBadge = " • ⚠️ Low Stock: $currentStock";
+      } else {
+        stockBadge = " • Stock: $currentStock";
+      }
+      activeItemSub = shelf.isNotEmpty ? "📍 Shelf: $shelf$stockBadge" : "📦$stockBadge";
       activeConflicts = [];
       activeOnlineSuggestions = [];
       rate = chosenPrice % 1 == 0 ? chosenPrice.toInt().toString() : chosenPrice.toString();
@@ -4988,11 +5021,13 @@ class _PosScreenState extends State<PosScreen> {
       itemName = rawItemCode.isNotEmpty ? rawItemCode : "Item";
     }
 
+    // Resolve matching inventory item if already exists
+    final resolvedMatch = _lookupItem(rawItemCode);
+
     // Save/update pending item with user-entered rate if not yet in inventory
     double parsedRate = double.tryParse(rate) ?? 0.0;
     if (parsedRate > 0) {
-      final match = _lookupItem(rawItemCode);
-      if (match == null) {
+      if (resolvedMatch == null) {
         PendingItemsManager.addPending(
           barcode: rawItemCode,
           name: itemName,
@@ -5005,12 +5040,12 @@ class _PosScreenState extends State<PosScreen> {
         );
       } else {
         // Item exists in inventory! Check if cashier changed the rate from catalog price:
-        final catPrice = (match['price'] as num?)?.toDouble() ?? 0.0;
-        final existingDual = extractDualRates(match);
+        final catPrice = (resolvedMatch['price'] as num?)?.toDouble() ?? 0.0;
+        final existingDual = extractDualRates(resolvedMatch);
         if (catPrice > 0 && (catPrice - parsedRate).abs() >= 0.01 && !existingDual.contains(parsedRate)) {
           PendingRateChangesManager.addRateChange(
-            itemCode: (match['item_code'] ?? rawItemCode).toString(),
-            barcode: (match['company_barcode'] ?? rawItemCode).toString(),
+            itemCode: (resolvedMatch['item_code'] ?? rawItemCode).toString(),
+            barcode: (resolvedMatch['company_barcode'] ?? rawItemCode).toString(),
             itemName: itemName,
             oldRate: catPrice,
             newRate: parsedRate,
@@ -5023,12 +5058,15 @@ class _PosScreenState extends State<PosScreen> {
         ? "$itemName\n$formattedItemCode"
         : itemName;
 
+    final assignedItemCode = resolvedMatch != null ? (resolvedMatch['item_code'] ?? rawItemCode) : rawItemCode;
+
     setState(() {
       cart.insert(0, {
         "qty": qty.isEmpty ? "1" : qty,
         "item": displayTitle,
         "itemName": itemName,
-        "rawItemCode": rawItemCode, 
+        "rawItemCode": rawItemCode,
+        "item_code": assignedItemCode,
         "rate": rate,
         "price": totalPrice, 
       });
@@ -5290,6 +5328,10 @@ class _PosScreenState extends State<PosScreen> {
     try {
       await Supabase.instance.client.from('bills').insert(savedBillRecord);
       _lastCompletedBill = savedBillRecord;
+
+      // 2. Subtract inventory stock for all billed items in both local cache and Supabase
+      await deductStockForCompletedBill(List<Map<String, dynamic>>.from(cart));
+
       return savedBillRecord;
     } catch (dbError) {
       print("Supabase Error: $dbError");
@@ -5297,6 +5339,84 @@ class _PosScreenState extends State<PosScreen> {
         _showPosNotification("Cloud Sync Failed: $dbError", color: Colors.red.shade800, icon: Icons.cloud_off);
       }
       return null; 
+    }
+  }
+
+  /// Automatically deducts sold quantities from local cache and Supabase inventory
+  Future<void> deductStockForCompletedBill(List<Map<String, dynamic>> billedItems) async {
+    try {
+      // 1. Aggregate total sold quantity per item_code / barcode
+      Map<String, int> qtySoldPerCode = {};
+      for (var it in billedItems) {
+        final rawCode = (it["rawItemCode"] ?? it["item_code"] ?? "").toString().trim();
+        final soldQty = int.tryParse(it['qty']?.toString() ?? '1') ?? 1;
+        if (soldQty <= 0) continue;
+
+        String? targetCode;
+        final match = _lookupItem(rawCode);
+        if (match != null && (match['item_code']?.toString().isNotEmpty ?? false)) {
+          targetCode = match['item_code']!.toString();
+        } else if (it['item_code'] != null && it['item_code'].toString().isNotEmpty) {
+          targetCode = it['item_code'].toString();
+        } else if (cloudInventory.containsKey(rawCode)) {
+          targetCode = rawCode;
+        } else if (rawCode.isNotEmpty) {
+          targetCode = rawCode;
+        }
+
+        if (targetCode != null && targetCode.isNotEmpty) {
+          qtySoldPerCode[targetCode] = (qtySoldPerCode[targetCode] ?? 0) + soldQty;
+        }
+      }
+
+      if (qtySoldPerCode.isEmpty) return;
+
+      // 2. Subtract stock for each item in local cache and Supabase inventory table
+      for (var entry in qtySoldPerCode.entries) {
+        final code = entry.key;
+        final totalSold = entry.value;
+
+        int currentStock = 10;
+        if (cloudInventory.containsKey(code)) {
+          currentStock = (cloudInventory[code]?['stock_qty'] as num?)?.toInt() ?? 10;
+        } else {
+          try {
+            final res = await Supabase.instance.client
+                .from('inventory')
+                .select('item_code, stock_qty')
+                .or('item_code.eq.$code,company_barcode.eq.$code')
+                .maybeSingle();
+            if (res != null && res['stock_qty'] != null) {
+              currentStock = (res['stock_qty'] as num).toInt();
+            }
+          } catch (_) {}
+        }
+
+        final newStock = (currentStock - totalSold) < 0 ? 0 : (currentStock - totalSold);
+
+        // Update in-memory cloudInventory cache immediately
+        if (cloudInventory.containsKey(code)) {
+          setState(() {
+            cloudInventory[code]!['stock_qty'] = newStock;
+          });
+        }
+
+        // Persist to Supabase inventory table
+        try {
+          await Supabase.instance.client
+              .from('inventory')
+              .update({'stock_qty': newStock})
+              .eq('item_code', code);
+        } catch (dbErr) {
+          print("Failed to deduct stock_qty for $code in Supabase: $dbErr");
+        }
+      }
+
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      print("Stock deduction error: $e");
     }
   }
 
@@ -5707,19 +5827,19 @@ class _PosScreenState extends State<PosScreen> {
                   Row(
                     children: [
                       Container(
-                        height: 50,
-                        width: 50,
+                        height: 44,
+                        width: 44,
                         decoration: const BoxDecoration(
                           shape: BoxShape.circle,
                           image: DecorationImage(image: AssetImage('assets/logo_bw.jpg'), fit: BoxFit.cover),
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      const Expanded(child: Text('LOVE KUSH SHOPPING CENTER', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5))),
+                      const SizedBox(width: 12),
+                      const Expanded(child: Text('LOVE KUSH SHOPPING CENTER', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2))),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  Text(widget.userName, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 8),
+                  Text(widget.userName, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
                   Text(widget.userEmail, style: const TextStyle(color: Colors.white54, fontSize: 12)),
                 ],
               ),
@@ -5747,6 +5867,32 @@ class _PosScreenState extends State<PosScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: false)));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.celebration_outlined, color: Color(0xFFE11D48)),
+                title: const Text('Upcoming Festivals (Stock)', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFE11D48))),
+                subtitle: const Text('Festive rush calendar, demand surge & stock planner'),
+                trailing: () {
+                  final nextEv = IndianFestiveEvent.getNextEvent(DateTime.now());
+                  if (nextEv == null) return null;
+                  final days = nextEv.nextOccurrence(DateTime.now()).difference(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)).inDays;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF1F2),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFFECDD3)),
+                    ),
+                    child: Text(
+                      days == 0 ? "TODAY" : "In $days d",
+                      style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFFE11D48)),
+                    ),
+                  );
+                }(),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const FestiveStockScreen()));
                 },
               ),
               ListTile(
@@ -5782,6 +5928,32 @@ class _PosScreenState extends State<PosScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: false)));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.celebration_outlined, color: Color(0xFFE11D48)),
+                title: const Text('Upcoming Festivals (Stock)', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFE11D48))),
+                subtitle: const Text('Festive rush calendar & stock planner'),
+                trailing: () {
+                  final nextEv = IndianFestiveEvent.getNextEvent(DateTime.now());
+                  if (nextEv == null) return null;
+                  final days = nextEv.nextOccurrence(DateTime.now()).difference(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)).inDays;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF1F2),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFFECDD3)),
+                    ),
+                    child: Text(
+                      days == 0 ? "TODAY" : "In $days d",
+                      style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFFE11D48)),
+                    ),
+                  );
+                }(),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const FestiveStockScreen()));
                 },
               ),
               ListTile(
@@ -8130,7 +8302,107 @@ class IndianFestiveEvent {
     }
     return candidate;
   }
+
+  static IndianFestiveEvent? getNextEvent(DateTime from) {
+    final sorted = List<IndianFestiveEvent>.from(masterFestiveCalendar)
+      ..sort((a, b) => a.nextOccurrence(from).compareTo(b.nextOccurrence(from)));
+    return sorted.isNotEmpty ? sorted.first : null;
+  }
 }
+
+// Master Indian Retail Festive & Season Calendar
+final List<IndianFestiveEvent> masterFestiveCalendar = const [
+  IndianFestiveEvent(
+    name: "Sharad Navratri & Durga Puja",
+    hindiName: "शारदीय नवरात्रि एवं दुर्गा पूजा",
+    approxMonth: 9,
+    approxDay: 28,
+    demandMultiplier: 2.6,
+    focusCategories: "Festive Makeup, Sindoor, Kajal, Compact Powder, Lipsticks, Nail Enamel",
+    distributorAdvice: "Order stock 2 weeks early (by Sept 14). High footfall for cosmetics.",
+    icon: Icons.celebration,
+  ),
+  IndianFestiveEvent(
+    name: "Karwa Chauth & Ahoi Ashtami",
+    hindiName: "करवा चौथ एवं अहोई अष्टमी",
+    approxMonth: 10,
+    approxDay: 19,
+    demandMultiplier: 3.8,
+    focusCategories: "Bangles, Mehendi Cones, Bridal Lipsticks, Waterproof Kajal, Facial Kits, Bindi",
+    distributorAdvice: "PEAK COSMETICS RUSH! Order stock 3-4 weeks prior (by Sept 25) to prevent shortages.",
+    icon: Icons.favorite,
+  ),
+  IndianFestiveEvent(
+    name: "Dhanteras & Diwali Festival",
+    hindiName: "धनतेरस एवं दीपावली महापर्व",
+    approxMonth: 11,
+    approxDay: 1,
+    demandMultiplier: 4.5,
+    focusCategories: "Gift Baskets, Luxury Perfumes, Skin Care Hampers, Creams, Premium Cosmetics",
+    distributorAdvice: "Year's Biggest Turnover! Distributor orders must arrive and be shelved by Oct 15.",
+    icon: Icons.auto_awesome,
+  ),
+  IndianFestiveEvent(
+    name: "Winter Wedding Season (Lagun)",
+    hindiName: "शीतकालीन विवाह सीजन (शादी-ब्याह)",
+    approxMonth: 11,
+    approxDay: 20,
+    demandMultiplier: 3.2,
+    focusCategories: "Bridal Makeup, Foundations, Concealers, Eyelashes, Hair Sprays, Artificial Jewelry",
+    distributorAdvice: "Heavy continuous demand through mid-December. Keep backup cartons in basement.",
+    icon: Icons.diversity_1,
+  ),
+  IndianFestiveEvent(
+    name: "Winter Skincare Peak & New Year",
+    hindiName: "सर्दियों की स्किनकेयर एवं नव वर्ष",
+    approxMonth: 12,
+    approxDay: 20,
+    demandMultiplier: 2.5,
+    focusCategories: "Pond's Cold Cream, Nivea Body Lotions, Vaseline Petroleum Jelly, Lip Balms, Glycerin",
+    distributorAdvice: "Ensure bulk cases of 100ml & 200ml cold creams and moisturizing lotions are stocked.",
+    icon: Icons.ac_unit,
+  ),
+  IndianFestiveEvent(
+    name: "Spring Wedding Season (Jan-Feb)",
+    hindiName: "वसंत विवाह मुहूर्त सीजन",
+    approxMonth: 1,
+    approxDay: 20,
+    demandMultiplier: 2.8,
+    focusCategories: "Party Makeup, Waterproof Mascara, Highlighters, Bangles, Deodorants, Perfumes",
+    distributorAdvice: "Restock post-Diwali inventory depletion by first week of January.",
+    icon: Icons.loyalty,
+  ),
+  IndianFestiveEvent(
+    name: "Holi & Spring Care Transition",
+    hindiName: "होली महापर्व एवं त्वचा सुरक्षा",
+    approxMonth: 3,
+    approxDay: 15,
+    demandMultiplier: 2.2,
+    focusCategories: "Hair Oils (Coconut/Mustard/Almond), Face Cleansers, Mild Soaps, Post-color Skin Creams",
+    distributorAdvice: "Transition off heavy cold creams to light summer face washes and skin shields.",
+    icon: Icons.color_lens,
+  ),
+  IndianFestiveEvent(
+    name: "Summer Rush & Chaitra Navratri",
+    hindiName: "ग्रीष्मकालीन दैनिक उत्पाद एवं चैत्र नवरात्रि",
+    approxMonth: 4,
+    approxDay: 10,
+    demandMultiplier: 2.0,
+    focusCategories: "Prickly Heat Powders (Dermicool/Nycil), Summer Talcs, Deodorants, Sunscreens SPF 30/50",
+    distributorAdvice: "High summer volume. Stock cooling talc and roll-ons in front counter trays.",
+    icon: Icons.wb_sunny,
+  ),
+  IndianFestiveEvent(
+    name: "Hariyali Teej & Raksha Bandhan",
+    hindiName: "हरियाली तीज एवं रक्षाबंधन",
+    approxMonth: 8,
+    approxDay: 10,
+    demandMultiplier: 2.9,
+    focusCategories: "Green Bangles, Mehendi Cones, Festive Lip Colors, Sister Gift Sets, Nail Paints",
+    distributorAdvice: "Place orders by July 20. Huge crowd for mehendi and bangles 2 days prior to Teej.",
+    icon: Icons.card_giftcard,
+  ),
+];
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -8146,99 +8418,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   DateTime? customStart;
   DateTime? customEnd;
 
-  // Master Indian Retail Festive & Season Calendar
-  final List<IndianFestiveEvent> festiveCalendar = const [
-    IndianFestiveEvent(
-      name: "Sharad Navratri & Durga Puja",
-      hindiName: "शारदीय नवरात्रि एवं दुर्गा पूजा",
-      approxMonth: 9,
-      approxDay: 28,
-      demandMultiplier: 2.6,
-      focusCategories: "Festive Makeup, Sindoor, Kajal, Compact Powder, Lipsticks, Nail Enamel",
-      distributorAdvice: "Order stock 2 weeks early (by Sept 14). High footfall for cosmetics.",
-      icon: Icons.celebration,
-    ),
-    IndianFestiveEvent(
-      name: "Karwa Chauth & Ahoi Ashtami",
-      hindiName: "करवा चौथ एवं अहोई अष्टमी",
-      approxMonth: 10,
-      approxDay: 19,
-      demandMultiplier: 3.8,
-      focusCategories: "Bangles, Mehendi Cones, Bridal Lipsticks, Waterproof Kajal, Facial Kits, Bindi",
-      distributorAdvice: "PEAK COSMETICS RUSH! Order stock 3-4 weeks prior (by Sept 25) to prevent shortages.",
-      icon: Icons.favorite,
-    ),
-    IndianFestiveEvent(
-      name: "Dhanteras & Diwali Festival",
-      hindiName: "धनतेरस एवं दीपावली महापर्व",
-      approxMonth: 11,
-      approxDay: 1,
-      demandMultiplier: 4.5,
-      focusCategories: "Gift Baskets, Luxury Perfumes, Skin Care Hampers, Creams, Premium Cosmetics",
-      distributorAdvice: "Year's Biggest Turnover! Distributor orders must arrive and be shelved by Oct 15.",
-      icon: Icons.auto_awesome,
-    ),
-    IndianFestiveEvent(
-      name: "Winter Wedding Season (Lagun)",
-      hindiName: "शीतकालीन विवाह सीजन (शादी-ब्याह)",
-      approxMonth: 11,
-      approxDay: 20,
-      demandMultiplier: 3.2,
-      focusCategories: "Bridal Makeup, Foundations, Concealers, Eyelashes, Hair Sprays, Artificial Jewelry",
-      distributorAdvice: "Heavy continuous demand through mid-December. Keep backup cartons in basement.",
-      icon: Icons.diversity_1,
-    ),
-    IndianFestiveEvent(
-      name: "Winter Skincare Peak & New Year",
-      hindiName: "सर्दियों की स्किनकेयर एवं नव वर्ष",
-      approxMonth: 12,
-      approxDay: 20,
-      demandMultiplier: 2.5,
-      focusCategories: "Pond's Cold Cream, Nivea Body Lotions, Vaseline Petroleum Jelly, Lip Balms, Glycerin",
-      distributorAdvice: "Ensure bulk cases of 100ml & 200ml cold creams and moisturizing lotions are stocked.",
-      icon: Icons.ac_unit,
-    ),
-    IndianFestiveEvent(
-      name: "Spring Wedding Season (Jan-Feb)",
-      hindiName: "वसंत विवाह मुहूर्त सीजन",
-      approxMonth: 1,
-      approxDay: 20,
-      demandMultiplier: 2.8,
-      focusCategories: "Party Makeup, Waterproof Mascara, Highlighters, Bangles, Deodorants, Perfumes",
-      distributorAdvice: "Restock post-Diwali inventory depletion by first week of January.",
-      icon: Icons.loyalty,
-    ),
-    IndianFestiveEvent(
-      name: "Holi & Spring Care Transition",
-      hindiName: "होली महापर्व एवं त्वचा सुरक्षा",
-      approxMonth: 3,
-      approxDay: 15,
-      demandMultiplier: 2.2,
-      focusCategories: "Hair Oils (Coconut/Mustard/Almond), Face Cleansers, Mild Soaps, Post-color Skin Creams",
-      distributorAdvice: "Transition off heavy cold creams to light summer face washes and skin shields.",
-      icon: Icons.color_lens,
-    ),
-    IndianFestiveEvent(
-      name: "Summer Rush & Chaitra Navratri",
-      hindiName: "ग्रीष्मकालीन दैनिक उत्पाद एवं चैत्र नवरात्रि",
-      approxMonth: 4,
-      approxDay: 10,
-      demandMultiplier: 2.0,
-      focusCategories: "Prickly Heat Powders (Dermicool/Nycil), Summer Talcs, Deodorants, Sunscreens SPF 30/50",
-      distributorAdvice: "High summer volume. Stock cooling talc and roll-ons in front counter trays.",
-      icon: Icons.wb_sunny,
-    ),
-    IndianFestiveEvent(
-      name: "Hariyali Teej & Raksha Bandhan",
-      hindiName: "हरियाली तीज एवं रक्षाबंधन",
-      approxMonth: 8,
-      approxDay: 10,
-      demandMultiplier: 2.9,
-      focusCategories: "Green Bangles, Mehendi Cones, Festive Lip Colors, Sister Gift Sets, Nail Paints",
-      distributorAdvice: "Place orders by July 20. Huge crowd for mehendi and bangles 2 days prior to Teej.",
-      icon: Icons.card_giftcard,
-    ),
-  ];
+  final List<IndianFestiveEvent> festiveCalendar = masterFestiveCalendar;
 
   @override
   void initState() {
@@ -8603,162 +8783,278 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
           ),
 
           // TAB 2: FESTIVE INTELLIGENCE & 2026/2027 FORECASTS
-          ListView(
+          FestiveIntelligenceView(
+            sortedFestivals: sortedFestivals,
+            nextEvent: nextEvent,
+            daysToNextEvent: daysToNextEvent,
+            now: now,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ==========================================
+// UPCOMING FESTIVALS & STOCK SCREEN
+// ==========================================
+class FestiveStockScreen extends StatelessWidget {
+  const FestiveStockScreen({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final sortedFestivals = List<IndianFestiveEvent>.from(masterFestiveCalendar)
+      ..sort((a, b) => a.nextOccurrence(now).compareTo(b.nextOccurrence(now)));
+    final nextEvent = sortedFestivals.isNotEmpty ? sortedFestivals.first : null;
+    final int daysToNextEvent = nextEvent != null
+        ? nextEvent.nextOccurrence(now).difference(DateTime(now.year, now.month, now.day)).inDays
+        : 0;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF9FAFB),
+      appBar: AppBar(
+        title: const Text("Upcoming Festivals & Stock", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+        backgroundColor: const Color(0xFF111827),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          TextButton.icon(
+            style: TextButton.styleFrom(foregroundColor: Colors.amberAccent),
+            icon: const Icon(Icons.inventory_2_outlined, size: 18),
+            label: const Text("Inventory Stock", style: TextStyle(fontWeight: FontWeight.bold)),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: false))),
+          ),
+          const SizedBox(width: 4),
+        ],
+      ),
+      body: FestiveIntelligenceView(
+        sortedFestivals: sortedFestivals,
+        nextEvent: nextEvent,
+        daysToNextEvent: daysToNextEvent,
+        now: now,
+      ),
+    );
+  }
+}
+
+// ==========================================
+// REUSABLE FESTIVE INTELLIGENCE & STOCK VIEW
+// ==========================================
+class FestiveIntelligenceView extends StatelessWidget {
+  final List<IndianFestiveEvent> sortedFestivals;
+  final IndianFestiveEvent? nextEvent;
+  final int daysToNextEvent;
+  final DateTime now;
+
+  const FestiveIntelligenceView({
+    Key? key,
+    required this.sortedFestivals,
+    required this.nextEvent,
+    required this.daysToNextEvent,
+    required this.now,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // Next upcoming festival spotlight banner
+        if (nextEvent != null) ...[
+          Container(
             padding: const EdgeInsets.all(16),
-            children: [
-              // Next upcoming festival spotlight banner
-              if (nextEvent != null)
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF831843), Color(0xFFBE185D)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 3))],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF831843), Color(0xFFBE185D)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 3))],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(nextEvent!.icon, color: Colors.amberAccent, size: 30),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(nextEvent.icon, color: Colors.amberAccent, size: 28),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "UPCOMING FESTIVAL SPIKE • IN $daysToNextEvent DAYS",
-                                  style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.1),
-                                ),
-                                Text(
-                                  nextEvent.name,
-                                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                                ),
-                                Text(
-                                  nextEvent.hindiName,
-                                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                ),
-                              ],
-                            ),
+                          Text(
+                            "UPCOMING FESTIVAL SPIKE • IN $daysToNextEvent DAYS",
+                            style: const TextStyle(color: Colors.amberAccent, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.1),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)),
-                            child: Column(
-                              children: [
-                                Text("${nextEvent.demandMultiplier}x", style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.w900, fontSize: 18)),
-                                const Text("Surge", style: TextStyle(color: Colors.white70, fontSize: 10)),
-                              ],
-                            ),
+                          Text(
+                            nextEvent!.name,
+                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            nextEvent!.hindiName,
+                            style: const TextStyle(color: Colors.white70, fontSize: 13),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      const Divider(color: Colors.white24),
-                      const SizedBox(height: 6),
-                      Text("🎯 Key Focus Stock: ${nextEvent.focusCategories}", style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 4),
-                      Text("📦 Distributor Action: ${nextEvent.distributorAdvice}", style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                    ],
-                  ),
-                ),
-
-              const SizedBox(height: 20),
-              Row(
-                children: const [
-                  Icon(Icons.calendar_month, color: Colors.blueAccent, size: 20),
-                  SizedBox(width: 8),
-                  Text("Indian Retail Festive Season Roadmap", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                "Seasonal multipliers calibrated for Indian cosmetics, bangles & personal care cycles:",
-                style: TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-              const SizedBox(height: 12),
-
-              ...sortedFestivals.map((ev) {
-                final days = ev.nextOccurrence(now).difference(DateTime(now.year, now.month, now.day)).inDays;
-                return Card(
-                  elevation: 1.5,
-                  margin: const EdgeInsets.only(bottom: 10),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            CircleAvatar(
-                              backgroundColor: Colors.pink.shade50,
-                              child: Icon(ev.icon, color: Colors.pink, size: 20),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(ev.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                                  Text(ev.hindiName, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                                ],
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: days <= 30 ? Colors.amber.shade100 : Colors.blue.shade50,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Text(
-                                days == 0 ? "TODAY" : "In $days Days",
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 11,
-                                  color: days <= 30 ? Colors.amber.shade900 : Colors.blue.shade800,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text("Expected Demand: ~${ev.demandMultiplier}x Standard Turnover", style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.green)),
-                        const SizedBox(height: 2),
-                        Text("Top Products: ${ev.focusCategories}", style: const TextStyle(fontSize: 12, color: Colors.black87)),
-                        const SizedBox(height: 2),
-                        Text("Advice: ${ev.distributorAdvice}", style: const TextStyle(fontSize: 11, color: Colors.black54)),
-                      ],
                     ),
-                  ),
-                );
-              }).toList(),
-
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.amber.shade300)),
-                child: Row(
-                  children: const [
-                    Icon(Icons.lightbulb, color: Color(0xFFD97706)),
-                    SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        "Pro-Tip: Use the stock updater in Item Codes to restock cartons before the festive rush hits. Shelf tags can be printed in seconds using the 1D Barcode thermal printer.",
-                        style: TextStyle(fontSize: 12, color: Color(0xFF92400E)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(10)),
+                      child: Column(
+                        children: [
+                          Text("${nextEvent!.demandMultiplier}x", style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.w900, fontSize: 20)),
+                          const Text("Surge", style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
+                        ],
                       ),
                     ),
                   ],
                 ),
+                const SizedBox(height: 12),
+                const Divider(color: Colors.white24),
+                const SizedBox(height: 6),
+                Text("🎯 Key Focus Stock: ${nextEvent!.focusCategories}", style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Text("📦 Distributor Action: ${nextEvent!.distributorAdvice}", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amberAccent,
+                    foregroundColor: Colors.black87,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.inventory_2, size: 16, color: Colors.black87),
+                  label: const Text("Open Inventory & Update Stock", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: false))),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+
+        Row(
+          children: const [
+            Icon(Icons.calendar_month, color: Colors.blueAccent, size: 20),
+            SizedBox(width: 8),
+            Text("Indian Retail Festive Season Roadmap", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          "Seasonal multipliers calibrated for Indian cosmetics, bangles & personal care cycles:",
+          style: TextStyle(fontSize: 12, color: Colors.black54),
+        ),
+        const SizedBox(height: 12),
+
+        ...sortedFestivals.map((ev) {
+          final days = ev.nextOccurrence(now).difference(DateTime(now.year, now.month, now.day)).inDays;
+          final categories = ev.focusCategories.split(',').map((s) => s.trim()).take(4).toList();
+
+          return Card(
+            elevation: 1.5,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: Colors.pink.shade50,
+                        radius: 20,
+                        child: Icon(ev.icon, color: Colors.pink.shade700, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(ev.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            Text(ev.hindiName, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: days <= 30 ? Colors.amber.shade100 : Colors.blue.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: days <= 30 ? Colors.amber.shade300 : Colors.blue.shade200),
+                        ),
+                        child: Text(
+                          days == 0 ? "TODAY" : "In $days Days",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                            color: days <= 30 ? Colors.amber.shade900 : Colors.blue.shade800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(6)),
+                    child: Text(
+                      "Expected Demand: ~${ev.demandMultiplier}x Standard Turnover",
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.green.shade800),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text("📦 Distributor Action: ${ev.distributorAdvice}", style: const TextStyle(fontSize: 11.5, color: Colors.black87)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      const Text("Focus Items:", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black54)),
+                      ...categories.map((cat) => ActionChip(
+                        label: Text(cat, style: const TextStyle(fontSize: 11, color: Color(0xFF1E3A8A))),
+                        backgroundColor: const Color(0xFFEFF6FF),
+                        padding: EdgeInsets.zero,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => ItemCatalogScreen(selectMode: false, initialSearchQuery: cat)),
+                          );
+                        },
+                      )),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(height: 40),
+            ),
+          );
+        }).toList(),
+
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(color: Colors.amber.shade50, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.amber.shade300)),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Icon(Icons.lightbulb, color: Color(0xFFD97706)),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  "Pro-Tip for Shopkeepers: Order inventory 3-4 weeks prior to peak festival dates before distributor shortages and rate hikes occur. Tap any category chip above to instantly filter and verify your shelf stock.",
+                  style: TextStyle(fontSize: 12, color: Color(0xFF92400E), height: 1.3),
+                ),
+              ),
             ],
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 32),
+      ],
     );
   }
 }
