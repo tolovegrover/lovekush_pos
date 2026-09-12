@@ -5741,11 +5741,29 @@ class _PosScreenState extends State<PosScreen> {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.inventory_2_outlined, color: Color(0xFF2563EB)),
+                title: const Text('Inventory & Stock (Add Items)', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                subtitle: const Text('Search items, add products, auto-fetch & rates'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: false)));
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.manage_accounts, color: Colors.black87),
                 title: const Text('Manage Staff Access', style: TextStyle(fontWeight: FontWeight.bold)),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const StaffManagementScreen()));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.qr_code_2, color: Colors.black87),
+                title: const Text('Barcode Labels Printer', style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text('Print shelf stickers & commercial barcode labels'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const BarcodeLabelPrinterScreen()));
                 },
               ),
               const Divider(),
@@ -5756,7 +5774,16 @@ class _PosScreenState extends State<PosScreen> {
               title: const Text('New Bill (POS)', style: TextStyle(fontWeight: FontWeight.bold)),
               onTap: () => Navigator.pop(context), 
             ),
-            if (!widget.isAdmin)
+            if (!widget.isAdmin) ...[
+              ListTile(
+                leading: const Icon(Icons.inventory_2_outlined, color: Color(0xFF2563EB)),
+                title: const Text('Inventory Lookup & Rates', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                subtitle: const Text('Search shelf codes & prices'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: false)));
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.history, color: Colors.black87),
                 title: const Text('Past Bills & Reprint', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -5766,6 +5793,7 @@ class _PosScreenState extends State<PosScreen> {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
                 },
               ),
+            ],
             ListTile(
               leading: Icon(Icons.print, color: _printerConnected ? Colors.green : Colors.black87),
               title: Text(
@@ -5823,6 +5851,11 @@ class _PosScreenState extends State<PosScreen> {
         iconTheme: const IconThemeData(color: Colors.black), 
         actions: [
           IconButton(
+            tooltip: "Inventory & Add Items",
+            icon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF2563EB)),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: false))),
+          ),
+          IconButton(
             tooltip: "Reprint Last Bill (Preview First)",
             icon: const Icon(Icons.print_outlined, color: Colors.black87),
             onPressed: _openReprintLastBillPreview,
@@ -5838,7 +5871,26 @@ class _PosScreenState extends State<PosScreen> {
             child: Material(
               color: Colors.transparent,
               child: cart.isEmpty 
-                ? Center(child: Text("Welcome, ${widget.userName}!\nReady for next customer", textAlign: TextAlign.center, style: const TextStyle(color: Colors.black38, fontSize: 18, fontWeight: FontWeight.w500)))
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text("Welcome, ${widget.userName}!\nReady for next customer", textAlign: TextAlign.center, style: const TextStyle(color: Colors.black38, fontSize: 18, fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 14),
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF2563EB),
+                            side: const BorderSide(color: Color(0xFF2563EB)),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          icon: const Icon(Icons.inventory_2_outlined, size: 18),
+                          label: const Text("Open Inventory & Add Items", style: TextStyle(fontWeight: FontWeight.bold)),
+                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: false))),
+                        ),
+                      ],
+                    ),
+                  )
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
                     itemCount: cart.length,
@@ -8305,6 +8357,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         title: const Text("Admin & Festive Analytics", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF111827),
         iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            tooltip: "Inventory & Stock (Add Items)",
+            icon: const Icon(Icons.inventory_2_outlined, color: Colors.amberAccent),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: false))),
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: "Refresh Data",
+            onPressed: _fetchDashboardData,
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           indicatorColor: Colors.amberAccent,
