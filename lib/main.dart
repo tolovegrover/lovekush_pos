@@ -5663,7 +5663,7 @@ class _PosScreenState extends State<PosScreen> {
 
   int get cartTotal {
     int total = 0;
-    for (var item in cart) total += int.tryParse(item["price"]) ?? 0;
+    for (var item in cart) total += int.tryParse(item["price"]?.toString() ?? "0") ?? 0;
     return total;
   }
 
@@ -6017,17 +6017,74 @@ class _PosScreenState extends State<PosScreen> {
   }
 
 
+  void _switchBill(int index) {
+    if (index == currentBillIndex) return;
+    setState(() {
+      currentBillIndex = index;
+      rawItemCode = "";
+      qty = "1";
+      rate = "";
+      focusedField = 0;
+      _syncItemCodeController();
+      _updateLiveItemPreview('');
+    });
+  }
+
+  void _addNewBill() {
+    setState(() {
+      activeBills.add([]);
+      currentBillIndex = activeBills.length - 1;
+      rawItemCode = "";
+      qty = "1";
+      rate = "";
+      focusedField = 0;
+      _syncItemCodeController();
+      _updateLiveItemPreview('');
+    });
+    _showPosNotification("Started Bill ${activeBills.length}", color: const Color(0xFF16A34A), icon: Icons.receipt_long);
+  }
+
   void _deleteTab(int index) {
     if (activeBills.length <= 1) {
-      setState(() => activeBills[0].clear());
-      _showPosNotification("Cleared active bill", color: Colors.grey.shade800, icon: Icons.delete_sweep_outlined);
+      if (activeBills[0].isEmpty) return;
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text("Clear Active Bill?"),
+          content: const Text("Are you sure you want to clear all items in this bill?"),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.black54))),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () {
+                setState(() => activeBills[0].clear());
+                Navigator.pop(context);
+                _showPosNotification("Cleared active bill", color: Colors.grey.shade800, icon: Icons.delete_sweep_outlined);
+              },
+              child: const Text("CLEAR", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            )
+          ]
+        )
+      );
+      return;
+    }
+    if (activeBills[index].isEmpty) {
+      setState(() {
+        activeBills.removeAt(index);
+        if (currentBillIndex >= activeBills.length) {
+          currentBillIndex = activeBills.length - 1;
+        } else if (currentBillIndex > index) {
+          currentBillIndex--;
+        }
+      });
+      _showPosNotification("Closed Bill ${index + 1}", color: Colors.grey.shade800, icon: Icons.close);
       return;
     }
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("Delete Customer Bill?"),
-        content: Text("Are you sure you want to permanently delete Bill ${index + 1}?"),
+        content: Text("Are you sure you want to permanently delete Bill ${index + 1} (${activeBills[index].length} items)?"),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL", style: TextStyle(color: Colors.black54))),
           ElevatedButton(
@@ -6047,6 +6104,84 @@ class _PosScreenState extends State<PosScreen> {
           )
         ]
       )
+    );
+  }
+
+  Widget _buildMultiBillTabBar() {
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        itemCount: activeBills.length + 1,
+        itemBuilder: (context, index) {
+          if (index == activeBills.length) {
+            return Padding(
+              padding: const EdgeInsets.only(left: 4.0),
+              child: ActionChip(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                avatar: const Icon(Icons.add_circle_outline, size: 16, color: Color(0xFF16A34A)),
+                backgroundColor: const Color(0xFFF0FDF4),
+                side: const BorderSide(color: Color(0xFF86EFAC)),
+                label: const Text(
+                  "+ Add More Bills",
+                  style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF15803D), fontSize: 12),
+                ),
+                tooltip: "Start another customer's bill in parallel",
+                onPressed: _addNewBill,
+              ),
+            );
+          }
+
+          final isSelected = index == currentBillIndex;
+          final billItems = activeBills[index];
+          final itemCount = billItems.length;
+          final billTotal = billItems.fold(0.0, (sum, it) => sum + (double.tryParse(it['price']?.toString() ?? it['total']?.toString() ?? '0') ?? 0.0));
+
+          String labelText = "Bill ${index + 1}";
+          if (itemCount > 0) {
+            labelText = "Bill ${index + 1} ($itemCount • ₹${billTotal.toStringAsFixed(0)})";
+          }
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 6.0),
+            child: GestureDetector(
+              onLongPress: () => _deleteTab(index),
+              child: InputChip(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                label: Text(
+                  labelText,
+                  style: TextStyle(
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                    fontSize: 12,
+                    color: isSelected ? Colors.white : Colors.black87,
+                  ),
+                ),
+                selected: isSelected,
+                showCheckmark: false,
+                selectedColor: const Color(0xFF1F2937),
+                backgroundColor: Colors.grey.shade100,
+                side: BorderSide(
+                  color: isSelected ? const Color(0xFF1F2937) : Colors.grey.shade300,
+                ),
+                onSelected: (val) {
+                  if (val) _switchBill(index);
+                },
+                onDeleted: activeBills.length > 1 ? () => _deleteTab(index) : null,
+                deleteIconColor: isSelected ? Colors.white70 : Colors.black45,
+                deleteIcon: const Icon(Icons.close, size: 14),
+                deleteButtonTooltipMessage: "Close Bill ${index + 1}",
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -6893,6 +7028,7 @@ class _PosScreenState extends State<PosScreen> {
         children: [
           if (_buildTopNotificationBanner() != null)
             _buildTopNotificationBanner()!,
+          _buildMultiBillTabBar(),
           Expanded(
             flex: 4,
             child: Material(

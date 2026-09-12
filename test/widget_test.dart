@@ -1005,6 +1005,80 @@ void main() {
       // Verify cart tile has dedicated "Name" edit button
       expect(find.text("Name"), findsOneWidget);
     });
+
+    testWidgets('PosScreen multi-bill tab bar allows starting, switching, and managing multiple customer bills', (WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1200));
+      await tester.pumpWidget(const MaterialApp(
+        home: PosScreen(userName: "Cashier", userEmail: "cashier@lovekush.com", isAdmin: true),
+      ));
+      await tester.pumpAndSettle();
+
+      final state = tester.state(find.byType(PosScreen)) as dynamic;
+
+      // Initially 1 bill exists and "+ Add More Bills" button is displayed
+      expect(state.activeBills.length, 1);
+      expect(find.text("Bill 1"), findsOneWidget);
+      expect(find.text("+ Add More Bills"), findsOneWidget);
+
+      // Add an item to Bill 1
+      state.setState(() {
+        state.cart.add({
+          "item": "Parle-G Biscuit 100g",
+          "itemName": "Parle-G Biscuit 100g",
+          "rawItemCode": "8901719101037",
+          "item_code": "8901719101037",
+          "qty": "2",
+          "rate": "10",
+          "price": "20",
+          "total": 20.0,
+        });
+      });
+      await tester.pumpAndSettle();
+
+      // Bill 1 tab should display count and total
+      expect(find.text("Bill 1 (1 • ₹20)"), findsOneWidget);
+
+      // Tap "+ Add More Bills" to start a second bill
+      await tester.tap(find.text("+ Add More Bills"));
+      await tester.pumpAndSettle();
+
+      // Now 2 bills exist, active index is 1 (Bill 2), and Bill 2's cart is empty
+      expect(state.activeBills.length, 2);
+      expect(state.currentBillIndex, 1);
+      expect(state.cart.isEmpty, isTrue);
+      expect(find.text("Bill 2"), findsOneWidget);
+
+      // Add item to Bill 2
+      state.setState(() {
+        state.cart.add({
+          "item": "Lakme Eyeconic Kajal",
+          "itemName": "Lakme Eyeconic Kajal",
+          "rawItemCode": "8901030732585",
+          "item_code": "8901030732585",
+          "qty": "1",
+          "rate": "190",
+          "price": "190",
+          "total": 190.0,
+        });
+      });
+      await tester.pumpAndSettle();
+
+      expect(find.text("Bill 2 (1 • ₹190)"), findsOneWidget);
+
+      // Switch back to Bill 1
+      await tester.tap(find.text("Bill 1 (1 • ₹20)"));
+      await tester.pumpAndSettle();
+
+      expect(state.currentBillIndex, 0);
+      expect(state.cart.first['itemName'], "Parle-G Biscuit 100g");
+
+      // Switch back to Bill 2
+      await tester.tap(find.text("Bill 2 (1 • ₹190)"));
+      await tester.pumpAndSettle();
+
+      expect(state.currentBillIndex, 1);
+      expect(state.cart.first['itemName'], "Lakme Eyeconic Kajal");
+    });
   });
 }
 
