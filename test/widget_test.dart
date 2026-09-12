@@ -774,6 +774,111 @@ void main() {
       // Verify stock was subtracted from 10 to 7
       expect(state.cloudInventory["01-03-C-134"]!['stock_qty'], 7);
     });
+
+    test('unbarcodedShopCategories contains exactly the 7 specified retail categories', () {
+      expect(unbarcodedShopCategories, [
+        "Bangles",
+        "Stationary",
+        "Tailoring",
+        "Cosmetics",
+        "Jewellary",
+        "Undergarments",
+        "Toys and gifts",
+      ]);
+    });
+
+    testWidgets('PosScreen opens 7-category sheet when "+ Other (No Barcode)" is clicked and adds item to cart', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: PosScreen(userName: "Admin", userEmail: "admin@lovekush.com", isAdmin: true),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final state = tester.state(find.byType(PosScreen)) as dynamic;
+      // Set rate to 150
+      state.setState(() {
+        state.rate = "150";
+        state.qty = "2";
+      });
+      await tester.pump();
+
+      // Find and tap "+ Other (No Barcode)"
+      expect(find.text("+ Other (No Barcode)"), findsOneWidget);
+      await tester.tap(find.text("+ Other (No Barcode)"));
+      await tester.pumpAndSettle();
+
+      // Verify category picker opened
+      expect(find.text("Add Unbarcoded Item as Other"), findsOneWidget);
+      expect(find.text("Bangles"), findsOneWidget);
+      expect(find.text("Stationary"), findsOneWidget);
+      expect(find.text("Tailoring"), findsOneWidget);
+      expect(find.text("Cosmetics"), findsOneWidget);
+      expect(find.text("Jewellary"), findsOneWidget);
+      expect(find.text("Undergarments"), findsOneWidget);
+      expect(find.text("Toys and gifts"), findsOneWidget);
+
+      // Tap "Cosmetics"
+      await tester.tap(find.text("Cosmetics"));
+      await tester.pumpAndSettle();
+
+      // Verify item was added into cart
+      expect(state.cart.isNotEmpty, isTrue);
+      expect(state.cart.last['itemName'], "Other (Cosmetics)");
+      expect(state.cart.last['price'].toString(), "300");
+      expect(state.cart.last['qty'].toString(), "2");
+      expect(state.cart.last['rate'].toString(), "150");
+    });
+
+    testWidgets('ItemCatalogScreen renders Add to Cart button and prints label options', (WidgetTester tester) async {
+      bool addedToCartCalled = false;
+      Map<String, dynamic>? receivedItem;
+
+      posGlobalAddToCart = (item, {overrideRate, qty = 1}) {
+        addedToCartCalled = true;
+        receivedItem = item;
+      };
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: ItemCatalogScreen(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Check for Barcode & Label Printer button / FAB
+      expect(find.byIcon(Icons.qr_code_2), findsWidgets);
+      expect(find.text("Print Labels"), findsWidgets);
+
+      // Verify posGlobalAddToCart callback exists and is callable
+      expect(posGlobalAddToCart, isNotNull);
+      posGlobalAddToCart!({
+        'item_code': 'TEST-01',
+        'item_name': 'Test Item',
+        'price': 99.0,
+      });
+      expect(addedToCartCalled, isTrue);
+      expect(receivedItem?['item_code'], 'TEST-01');
+    });
+
+    testWidgets('Drawer no longer has standalone Barcode Labels Printer item', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: PosScreen(userName: "Admin", userEmail: "admin@lovekush.com", isAdmin: true),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final ScaffoldState state = tester.firstState(find.byType(Scaffold));
+      state.openDrawer();
+      await tester.pumpAndSettle();
+
+      // "Barcode Labels Printer" should NOT be directly in root drawer
+      expect(find.text('Barcode Labels Printer'), findsNothing);
+      // But "Inventory & Stock (Add Items)" and "Upcoming Festivals (Stock)" are present
+      expect(find.text('Inventory & Stock (Add Items)'), findsOneWidget);
+      expect(find.text('Upcoming Festivals (Stock)'), findsOneWidget);
+    });
   });
 }
 

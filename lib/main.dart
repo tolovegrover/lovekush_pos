@@ -1394,6 +1394,22 @@ class PendingRateChangesManager {
 }
 
 // ==========================================
+// 7 SHOP CATEGORIES (FOR UNBARCODED ITEMS & INVENTORY)
+// ==========================================
+const List<String> unbarcodedShopCategories = [
+  "Bangles",
+  "Stationary",
+  "Tailoring",
+  "Cosmetics",
+  "Jewellary",
+  "Undergarments",
+  "Toys and gifts",
+];
+
+// Global bridge to add inventory items directly to active POS cart
+void Function(Map<String, dynamic> item, {double? overrideRate, int qty})? posGlobalAddToCart;
+
+// ==========================================
 // ITEM CODES & RATES (INVENTORY MAPPING)
 // ==========================================
 class ItemCatalogScreen extends StatefulWidget {
@@ -2471,6 +2487,159 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     }
   }
 
+  void _executeAddToCart(BuildContext context, Map<String, dynamic> item, [double? chosenRate]) {
+    if (widget.selectMode) {
+      Navigator.pop(context, item);
+      return;
+    }
+    if (posGlobalAddToCart != null) {
+      posGlobalAddToCart!(item, overrideRate: chosenRate);
+      final p = chosenRate ?? (item['price'] as num?)?.toDouble() ?? 0.0;
+      final priceStr = p > 0 ? (p % 1 == 0 ? p.toInt().toString() : p.toStringAsFixed(2)) : '0';
+      final name = (item['item_name'] ?? item['item_code'] ?? 'Item').toString();
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("🛒 Added '$name' (₹$priceStr) to POS Cart!"),
+          backgroundColor: const Color(0xFF10B981),
+          duration: const Duration(seconds: 2),
+          action: SnackBarAction(
+            label: "VIEW CART",
+            textColor: Colors.white,
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+      );
+    } else {
+      Navigator.pop(context, item);
+    }
+  }
+
+  void _showAddToCartDualRateSheet(BuildContext context, Map<String, dynamic> item, List<double> duals) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (bCtx) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.style, color: Colors.purple, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    "Select Rate for ${item['item_name']}",
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...duals.map((r) => ListTile(
+              leading: const Icon(Icons.currency_rupee, color: Colors.green),
+              title: Text("Rate: ₹${r % 1 == 0 ? r.toInt() : r.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              subtitle: Text(r == (item['price'] as num?)?.toDouble() ? "Current Active Shelf Rate" : "Alternate / Old Batch Rate"),
+              trailing: ElevatedButton(
+                child: const Text("Add"),
+                onPressed: () {
+                  Navigator.pop(bCtx);
+                  _executeAddToCart(context, item, r);
+                },
+              ),
+              onTap: () {
+                Navigator.pop(bCtx);
+                _executeAddToCart(context, item, r);
+              },
+            )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKeypadRowInDialog(
+    List<String> keys,
+    TextEditingController controller,
+    StateSetter setDialogState,
+    Future<void> Function(String, {bool userTriggered}) onAutoFetch,
+  ) {
+    return Row(
+      children: keys.map((key) {
+        final isAction = key == "⌫" || key == "C" || key.contains("Fetch") || key.contains("Done");
+        Color bgColor = Colors.white.withOpacity(0.08);
+        Color textColor = Colors.white;
+        if (key == "⌫") {
+          bgColor = const Color(0xFFDC2626).withOpacity(0.85);
+        } else if (key == "C") {
+          bgColor = const Color(0xFFD97706).withOpacity(0.85);
+        } else if (key.contains("Fetch")) {
+          bgColor = const Color(0xFF059669);
+        } else if (key.contains("Done")) {
+          bgColor = const Color(0xFF2563EB);
+        }
+
+        return Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: InkWell(
+              onTap: () {
+                setDialogState(() {
+                  final text = controller.text;
+                  final sel = controller.selection;
+                  int start = (sel.isValid && sel.start >= 0 && sel.start <= text.length) ? sel.start : text.length;
+                  int end = (sel.isValid && sel.end >= 0 && sel.end <= text.length) ? sel.end : text.length;
+
+                  if (key == "⌫") {
+                    if (start != end) {
+                      controller.text = text.replaceRange(start, end, '');
+                      controller.selection = TextSelection.collapsed(offset: start);
+                    } else if (start > 0) {
+                      controller.text = text.replaceRange(start - 1, start, '');
+                      controller.selection = TextSelection.collapsed(offset: start - 1);
+                    }
+                  } else if (key == "C") {
+                    controller.clear();
+                  } else if (key.contains("Fetch")) {
+                    onAutoFetch(controller.text.trim(), userTriggered: true);
+                  } else if (key.contains("Done")) {
+                    FocusScope.of(context).unfocus();
+                  } else {
+                    final newText = text.replaceRange(start, end, key);
+                    controller.text = newText;
+                    controller.selection = TextSelection.collapsed(offset: start + key.length);
+                    final cleanDigits = newText.replaceAll(' ', '').trim();
+                    if (cleanDigits.length >= 8 && RegExp(r'^[0-9]+$').hasMatch(cleanDigits)) {
+                      onAutoFetch(cleanDigits, userTriggered: false);
+                    }
+                  }
+                });
+              },
+              child: Container(
+                height: 36,
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  key,
+                  style: TextStyle(
+                    color: textColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: isAction ? 11 : 16,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   void _showAddEditDialog([
     Map<String, dynamic>? existing,
     String? prefilledCode,
@@ -2538,6 +2707,7 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
     Timer? barcodeDebounce;
     String lastFetchedBarcode = "";
     bool initialFetchTriggered = false;
+    bool useOurKeypad = true;
 
     List<Map<String, dynamic>> suggestions = [];
 
@@ -2761,13 +2931,16 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                   TextField(
                     controller: companyBarcodeCtrl,
                     textInputAction: TextInputAction.next,
-                    keyboardType: TextInputType.text,
+                    keyboardType: useOurKeypad ? TextInputType.none : TextInputType.text,
+                    showCursor: true,
                     decoration: InputDecoration(
                       labelText: "Company Barcode (Optional)",
                       hintText: "e.g. 8901030732585 (from box)",
                       helperText: isFetchingObf
                           ? "Fetching product details automatically..."
-                          : "Type or scan box barcode — details auto-fetch automatically!",
+                          : (useOurKeypad
+                              ? "Using Love Kush keypad. Tap ⌨️ to use system keyboard."
+                              : "Type or scan box barcode — details auto-fetch automatically!"),
                       helperStyle: TextStyle(
                         color: isFetchingObf ? Colors.teal : Colors.grey.shade600,
                         fontWeight: isFetchingObf ? FontWeight.bold : FontWeight.normal,
@@ -2777,6 +2950,11 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                       suffixIcon: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          IconButton(
+                            icon: Icon(useOurKeypad ? Icons.keyboard : Icons.dialpad, color: Colors.indigo, size: 20),
+                            tooltip: useOurKeypad ? "Switch to Full Keyboard" : "Switch to Our Keypad",
+                            onPressed: () => setDialogState(() => useOurKeypad = !useOurKeypad),
+                          ),
                           if (isFetchingObf)
                             const Padding(
                               padding: EdgeInsets.all(12.0),
@@ -2829,6 +3007,52 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                       autoFetchBarcodeDetails(val.trim(), userTriggered: true);
                     },
                   ),
+                  if (useOurKeypad) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F172A),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: const [
+                                  Icon(Icons.dialpad, color: Colors.amberAccent, size: 12),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    "OUR BARCODE KEYPAD",
+                                    style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 0.5),
+                                  ),
+                                ],
+                              ),
+                              InkWell(
+                                onTap: () => setDialogState(() => useOurKeypad = false),
+                                child: const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                  child: Text("Full Keyboard", style: TextStyle(color: Colors.white70, fontSize: 9, decoration: TextDecoration.underline)),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          _buildKeypadRowInDialog(["1", "2", "3", "⌫"], companyBarcodeCtrl, setDialogState, autoFetchBarcodeDetails),
+                          const SizedBox(height: 4),
+                          _buildKeypadRowInDialog(["4", "5", "6", "C"], companyBarcodeCtrl, setDialogState, autoFetchBarcodeDetails),
+                          const SizedBox(height: 4),
+                          _buildKeypadRowInDialog(["7", "8", "9", "⚡ Fetch"], companyBarcodeCtrl, setDialogState, autoFetchBarcodeDetails),
+                          const SizedBox(height: 4),
+                          _buildKeypadRowInDialog(["-", "0", ".", "✓ Done"], companyBarcodeCtrl, setDialogState, autoFetchBarcodeDetails),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
 
                   // 2. UNIFIED SHELF LOCATION & ITEM CODE (Automatic dashes!)
@@ -3014,12 +3238,46 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                             Expanded(
                               flex: 3,
                               child: DropdownButtonFormField<String>(
-                                value: const ["Cosmetics", "Eyes", "Lips", "Face", "Nails", "Skincare", "Hair", "Bangles", "Jewelry", "Accessories", "General"].contains(selectedCategory)
+                                value: const [
+                                  "Bangles",
+                                  "Stationary",
+                                  "Tailoring",
+                                  "Cosmetics",
+                                  "Jewellary",
+                                  "Undergarments",
+                                  "Toys and gifts",
+                                  "Eyes",
+                                  "Lips",
+                                  "Face",
+                                  "Nails",
+                                  "Skincare",
+                                  "Hair",
+                                  "Jewelry",
+                                  "Accessories",
+                                  "General"
+                                ].contains(selectedCategory)
                                     ? selectedCategory
                                     : normalizeCosmeticCategory(selectedCategory),
                                 isDense: true,
                                 decoration: const InputDecoration(labelText: "Category", border: OutlineInputBorder(), isDense: true),
-                                items: ["Cosmetics", "Eyes", "Lips", "Face", "Nails", "Skincare", "Hair", "Bangles", "Jewelry", "Accessories", "General"]
+                                items: const [
+                                  "Bangles",
+                                  "Stationary",
+                                  "Tailoring",
+                                  "Cosmetics",
+                                  "Jewellary",
+                                  "Undergarments",
+                                  "Toys and gifts",
+                                  "Eyes",
+                                  "Lips",
+                                  "Face",
+                                  "Nails",
+                                  "Skincare",
+                                  "Hair",
+                                  "Jewelry",
+                                  "Accessories",
+                                  "General"
+                                ]
                                     .map((c) => DropdownMenuItem(value: c, child: Text(c, style: const TextStyle(fontSize: 13))))
                                     .toList(),
                                 onChanged: (v) {
@@ -3091,7 +3349,8 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                   } else if (bd.shelfLocation.isNotEmpty) {
                     primaryCode = bd.shelfLocation;
                   } else {
-                    primaryCode = "${_lastRack}-${_lastCol}-${_lastRow}-${_lastItemNum + 1}";
+                    final catCode = selectedCategory.toUpperCase().replaceAll(' ', '_');
+                    primaryCode = "OTHER-$catCode-${DateTime.now().millisecondsSinceEpoch % 10000}";
                   }
 
                   Navigator.pop(dialogCtx);
@@ -3163,6 +3422,13 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
+            icon: const Icon(Icons.qr_code_2, color: Colors.amberAccent, size: 28),
+            tooltip: "Barcode & Label Printer",
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const BarcodeLabelPrinterScreen()));
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.qr_code_scanner),
             tooltip: "Scan Barcode to Edit/Add",
             onPressed: _scanBarcodeToEditOrAdd,
@@ -3183,13 +3449,21 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
           FloatingActionButton.extended(
+            heroTag: "fab_barcode_printer",
+            backgroundColor: const Color(0xFF4F46E5),
+            icon: const Icon(Icons.qr_code_2, color: Colors.white),
+            label: const Text("Print Labels", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BarcodeLabelPrinterScreen())),
+          ),
+          const SizedBox(width: 8),
+          FloatingActionButton.extended(
             heroTag: "fab_cosmetics",
             backgroundColor: Colors.pinkAccent,
             icon: const Icon(Icons.auto_awesome, color: Colors.white),
             label: const Text("Cosmetics", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
             onPressed: _showCosmeticsCatalogDialog,
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           FloatingActionButton.extended(
             heroTag: "fab_add_item",
             backgroundColor: const Color(0xFF3B82F6),
@@ -3241,6 +3515,14 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
+                  ActionChip(
+                    avatar: const Icon(Icons.qr_code_2, size: 16, color: Color(0xFF4F46E5)),
+                    label: const Text("Barcode & Label Printer", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF4F46E5))),
+                    backgroundColor: const Color(0xFFEEF2FF),
+                    side: const BorderSide(color: Color(0xFFC7D2FE)),
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BarcodeLabelPrinterScreen())),
+                  ),
+                  const SizedBox(width: 8),
                   ChoiceChip(
                     label: Text("All (${items.length})"),
                     selected: stockFilter == "all",
@@ -3460,124 +3742,152 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                           return Card(
                             elevation: 1.5,
                             margin: const EdgeInsets.only(bottom: 8),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                        decoration: BoxDecoration(
-                                          color: isPending ? Colors.amber.shade100 : Colors.blueAccent.withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(8),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: widget.selectMode ? () => Navigator.pop(context, item) : null,
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: isPending ? Colors.amber.shade100 : Colors.blueAccent.withOpacity(0.1),
+                                            borderRadius: BorderRadius.circular(8),
+                                          ),
+                                          child: Text(
+                                            isPending ? "⏳" : (displayLoc.length >= 2 ? displayLoc.substring(0, 2) : "##"),
+                                            style: TextStyle(fontWeight: FontWeight.w900, color: isPending ? Colors.deepOrange : Colors.blueAccent, fontSize: 16),
+                                          ),
                                         ),
-                                        child: Text(
-                                          isPending ? "⏳" : (displayLoc.length >= 2 ? displayLoc.substring(0, 2) : "##"),
-                                          style: TextStyle(fontWeight: FontWeight.w900, color: isPending ? Colors.deepOrange : Colors.blueAccent, fontSize: 16),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    name.isNotEmpty ? name : "Unnamed Item",
-                                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                                                  ),
-                                                ),
-                                                if (isOnline)
-                                                  Container(
-                                                    margin: const EdgeInsets.only(left: 4),
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                                    decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.green.shade300)),
-                                                    child: const Text("ONLINE", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.green)),
-                                                  ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              isPending ? "⏳ Status: Pending Shelf Assignment" : "📍 Shelf: $displayLoc",
-                                              style: TextStyle(fontWeight: FontWeight.w600, color: isPending ? Colors.deepOrange.shade800 : Colors.indigo, fontSize: 12),
-                                            ),
-                                            if (isPending)
-                                              Container(
-                                                margin: const EdgeInsets.only(top: 4, bottom: 2),
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.amber.shade50,
-                                                  borderRadius: BorderRadius.circular(4),
-                                                  border: Border.all(color: Colors.amber.shade400),
-                                                ),
-                                                child: Row(
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  children: const [
-                                                    Icon(Icons.hourglass_top, size: 12, color: Color(0xFFD97706)),
-                                                    SizedBox(width: 4),
-                                                    Text("Tap edit (✏️) to assign shelf code & finalize", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
-                                                  ],
-                                                ),
-                                              ),
-                                            if (companyBar.isNotEmpty)
-                                              Text("🏭 Barcode: $companyBar", style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade700, fontSize: 11)),
-                                            if (category.isNotEmpty && category != "General")
-                                              Text("🏷️ Category: $category", style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade600, fontSize: 11)),
-                                          ],
-                                        ),
-                                      ),
-                                      Column(
-                                        crossAxisAlignment: CrossAxisAlignment.end,
-                                        children: [
-                                          Text("₹${price.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.green)),
-                                          if (mrp > price)
-                                            Text("MRP ₹${mrp.toStringAsFixed(0)}", style: const TextStyle(decoration: TextDecoration.lineThrough, color: Colors.grey, fontSize: 10)),
-                                          Row(
-                                            mainAxisSize: MainAxisSize.min,
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
-                                              IconButton(
-                                                icon: const Icon(Icons.print, size: 18, color: Colors.green),
-                                                padding: EdgeInsets.zero,
-                                                constraints: const BoxConstraints(),
-                                                tooltip: "Print Label",
-                                                onPressed: () {
-                                                  Navigator.push(
-                                                    context,
-                                                    MaterialPageRoute(
-                                                      builder: (_) => BarcodeLabelPrinterScreen(
-                                                        initialCode: code,
-                                                        initialName: name,
-                                                        initialPrice: price,
-                                                      ),
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      name.isNotEmpty ? name : "Unnamed Item",
+                                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                                                     ),
-                                                  );
-                                                },
+                                                  ),
+                                                  if (isOnline)
+                                                    Container(
+                                                      margin: const EdgeInsets.only(left: 4),
+                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                                      decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(4), border: Border.all(color: Colors.green.shade300)),
+                                                      child: const Text("ONLINE", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.green)),
+                                                    ),
+                                                ],
                                               ),
-                                              const SizedBox(width: 8),
-                                              IconButton(
-                                                icon: const Icon(Icons.edit, size: 18, color: Colors.blueAccent),
-                                                padding: EdgeInsets.zero,
-                                                constraints: const BoxConstraints(),
-                                                onPressed: () => _showAddEditDialog(item),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                isPending ? "⏳ Status: Pending Shelf Assignment" : "📍 Shelf: $displayLoc",
+                                                style: TextStyle(fontWeight: FontWeight.w600, color: isPending ? Colors.deepOrange.shade800 : Colors.indigo, fontSize: 12),
                                               ),
-                                              const SizedBox(width: 8),
-                                              IconButton(
-                                                icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
-                                                padding: EdgeInsets.zero,
-                                                constraints: const BoxConstraints(),
-                                                onPressed: () => _deleteItem(code),
-                                              ),
+                                              if (isPending)
+                                                Container(
+                                                  margin: const EdgeInsets.only(top: 4, bottom: 2),
+                                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.amber.shade50,
+                                                    borderRadius: BorderRadius.circular(4),
+                                                    border: Border.all(color: Colors.amber.shade400),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: const [
+                                                      Icon(Icons.hourglass_top, size: 12, color: Color(0xFFD97706)),
+                                                      SizedBox(width: 4),
+                                                      Text("Tap edit (✏️) to assign shelf code & finalize", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+                                                    ],
+                                                  ),
+                                                ),
+                                              if (companyBar.isNotEmpty)
+                                                Text("🏭 Barcode: $companyBar", style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade700, fontSize: 11)),
+                                              if (category.isNotEmpty && category != "General")
+                                                Text("🏷️ Category: $category", style: TextStyle(fontWeight: FontWeight.w500, color: Colors.grey.shade600, fontSize: 11)),
                                             ],
                                           ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
+                                        ),
+                                        Column(
+                                          crossAxisAlignment: CrossAxisAlignment.end,
+                                          children: [
+                                            Text("₹${price.toStringAsFixed(2)}", style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.green)),
+                                            if (mrp > price)
+                                              Text("MRP ₹${mrp.toStringAsFixed(0)}", style: const TextStyle(decoration: TextDecoration.lineThrough, color: Colors.grey, fontSize: 10)),
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                IconButton(
+                                                  icon: const Icon(Icons.print, size: 18, color: Colors.green),
+                                                  padding: EdgeInsets.zero,
+                                                  constraints: const BoxConstraints(),
+                                                  tooltip: "Print Label",
+                                                  onPressed: () {
+                                                    Navigator.push(
+                                                      context,
+                                                      MaterialPageRoute(
+                                                        builder: (_) => BarcodeLabelPrinterScreen(
+                                                          initialCode: code,
+                                                          initialName: name,
+                                                          initialPrice: price,
+                                                        ),
+                                                      ),
+                                                    );
+                                                  },
+                                                ),
+                                                const SizedBox(width: 8),
+                                                IconButton(
+                                                  icon: const Icon(Icons.edit, size: 18, color: Colors.blueAccent),
+                                                  padding: EdgeInsets.zero,
+                                                  constraints: const BoxConstraints(),
+                                                  onPressed: () => _showAddEditDialog(item),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                IconButton(
+                                                  icon: const Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                                                  padding: EdgeInsets.zero,
+                                                  constraints: const BoxConstraints(),
+                                                  onPressed: () => _deleteItem(code),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 6),
+                                            ElevatedButton.icon(
+                                              icon: const Icon(Icons.add_shopping_cart, size: 14),
+                                              label: Text(widget.selectMode ? "Add to Bill" : "Add to Cart", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(0xFF2563EB),
+                                                foregroundColor: Colors.white,
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                minimumSize: const Size(0, 30),
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                                                elevation: 0,
+                                              ),
+                                              onPressed: () {
+                                                if (widget.selectMode) {
+                                                  Navigator.pop(context, item);
+                                                  return;
+                                                }
+                                                final duals = extractDualRates(item);
+                                                if (duals.length > 1) {
+                                                  _showAddToCartDualRateSheet(context, item, duals);
+                                                } else {
+                                                  _executeAddToCart(context, item);
+                                                }
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
 
                                   // Dual-Rate Batch Banner & Retirement Actions
                                   if (extractDualRates(item).length > 1) ...[
@@ -3715,9 +4025,10 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                                 ],
                               ),
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                        );
+                      },
+                    ),
           ),
         ],
       ),
@@ -4574,6 +4885,7 @@ class _PosScreenState extends State<PosScreen> {
       setState(() {
         String code = selected['item_code']?.toString() ?? '';
         rawItemCode = _parseToRaw(code);
+        _syncItemCodeController();
         double p = (selected['price'] as num?)?.toDouble() ?? 0.0;
         rate = p > 0 ? (p % 1 == 0 ? p.toInt().toString() : p.toString()) : '';
         focusedField = 1; // Jump to QTY
@@ -4597,6 +4909,359 @@ class _PosScreenState extends State<PosScreen> {
       }
     }
     return clean;
+  }
+
+  final TextEditingController _itemCodeController = TextEditingController();
+  final FocusNode _itemCodeFocusNode = FocusNode();
+
+  void _syncItemCodeController() {
+    final text = formattedItemCode;
+    if (_itemCodeController.text != text) {
+      _itemCodeController.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    }
+  }
+
+  void addItemDirectlyToCart(Map<String, dynamic> item, {double? overrideRate, int quantity = 1}) {
+    final name = (item['item_name'] ?? item['name'] ?? 'Item').toString();
+    final code = (item['item_code'] ?? item['code'] ?? '').toString();
+    final barcode = (item['company_barcode'] ?? code).toString();
+    final p = overrideRate ?? (item['price'] as num?)?.toDouble() ?? 0.0;
+    final rStr = p > 0 ? (p % 1 == 0 ? p.toInt().toString() : p.toStringAsFixed(2)) : '0';
+    final qStr = quantity.toString();
+    final total = (quantity * p).round().toString();
+    final displayTitle = code.isNotEmpty && code != name ? "$name\n$code" : name;
+
+    setState(() {
+      cart.insert(0, {
+        "qty": qStr,
+        "item": displayTitle,
+        "itemName": name,
+        "rawItemCode": barcode.isNotEmpty ? barcode : code,
+        "item_code": code,
+        "rate": rStr,
+        "price": total,
+      });
+    });
+  }
+
+  void _showUnbarcodedCategoryPicker({double? initialRate}) {
+    double currentRate = initialRate ?? (double.tryParse(rate) ?? 0.0);
+    final rateCtrl = TextEditingController(
+      text: currentRate > 0 ? (currentRate % 1 == 0 ? currentRate.toInt().toString() : currentRate.toString()) : "",
+    );
+    final qtyVal = qty.isEmpty ? "1" : qty;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          return Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 20,
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: const [
+                        Icon(Icons.category, color: Color(0xFF2563EB), size: 24),
+                        SizedBox(width: 8),
+                        Text(
+                          "Add Unbarcoded Item as Other",
+                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.pop(sheetCtx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  "No barcode was entered. Select which category this item belongs to:",
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 4,
+                      child: TextField(
+                        controller: rateCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration: const InputDecoration(
+                          labelText: "Rate / Price (₹)",
+                          prefixText: "₹ ",
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.grey.shade400),
+                        ),
+                        child: Text(
+                          "Qty: $qtyVal",
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Select Category:",
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: unbarcodedShopCategories.map((cat) {
+                    IconData iconData;
+                    Color color;
+                    switch (cat) {
+                      case "Bangles":
+                        iconData = Icons.radio_button_checked;
+                        color = Colors.amber.shade800;
+                        break;
+                      case "Stationary":
+                        iconData = Icons.edit_note;
+                        color = Colors.blue.shade700;
+                        break;
+                      case "Tailoring":
+                        iconData = Icons.content_cut;
+                        color = Colors.purple.shade700;
+                        break;
+                      case "Cosmetics":
+                        iconData = Icons.auto_awesome;
+                        color = Colors.pinkAccent;
+                        break;
+                      case "Jewellary":
+                        iconData = Icons.diamond;
+                        color = Colors.deepOrange;
+                        break;
+                      case "Undergarments":
+                        iconData = Icons.checkroom;
+                        color = Colors.teal;
+                        break;
+                      case "Toys and gifts":
+                      default:
+                        iconData = Icons.card_giftcard;
+                        color = Colors.indigo;
+                        break;
+                    }
+                    return ElevatedButton.icon(
+                      icon: Icon(iconData, size: 16, color: Colors.white),
+                      label: Text(cat, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.white)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: color,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () {
+                        final enteredRate = double.tryParse(rateCtrl.text.trim()) ?? 0.0;
+                        if (enteredRate <= 0) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text("Please enter a valid price/rate")),
+                          );
+                          return;
+                        }
+                        Navigator.pop(sheetCtx);
+                        _addUnbarcodedItemToCart(cat, enteredRate, qtyVal);
+                      },
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _addUnbarcodedItemToCart(String category, double itemRate, String itemQty) {
+    final name = "Other ($category)";
+    final code = "OTHER-${category.toUpperCase().replaceAll(' ', '_')}";
+    final qNum = double.tryParse(itemQty) ?? 1.0;
+    final total = (qNum * itemRate).round().toString();
+    final rateStr = itemRate % 1 == 0 ? itemRate.toInt().toString() : itemRate.toStringAsFixed(2);
+
+    setState(() {
+      cart.insert(0, {
+        "qty": itemQty.isEmpty ? "1" : itemQty,
+        "item": "$name\n$code",
+        "itemName": name,
+        "rawItemCode": code,
+        "item_code": code,
+        "rate": rateStr,
+        "price": total,
+      });
+      rawItemCode = "";
+      _syncItemCodeController();
+      qty = "1";
+      rate = "";
+      activeItemName = "";
+      activeItemSub = "";
+      activeConflicts = [];
+      activeOnlineSuggestions = [];
+      focusedField = 0;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("Added '$name' (₹$rateStr) to cart"),
+        backgroundColor: const Color(0xFF10B981),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _showItemCodeLongPressMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (mCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Colors.black12)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.qr_code, color: Colors.blueAccent),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Barcode Entry Actions (${_itemCodeController.text.isEmpty ? 'Empty' : _itemCodeController.text})",
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.select_all, color: Colors.blueAccent),
+              title: const Text("Select All", style: TextStyle(fontWeight: FontWeight.bold)),
+              onTap: () {
+                Navigator.pop(mCtx);
+                _itemCodeFocusNode.requestFocus();
+                _itemCodeController.selection = TextSelection(baseOffset: 0, extentOffset: _itemCodeController.text.length);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.copy, color: Colors.black87),
+              title: const Text("Copy"),
+              onTap: () {
+                Navigator.pop(mCtx);
+                final sel = _itemCodeController.selection;
+                final text = (sel.isValid && !sel.isCollapsed)
+                    ? _itemCodeController.text.substring(sel.start, sel.end)
+                    : _itemCodeController.text;
+                if (text.isNotEmpty) {
+                  Clipboard.setData(ClipboardData(text: text));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Copied barcode to clipboard"), duration: Duration(seconds: 1)));
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.content_cut, color: Colors.orange),
+              title: const Text("Cut"),
+              onTap: () {
+                Navigator.pop(mCtx);
+                final sel = _itemCodeController.selection;
+                final text = _itemCodeController.text;
+                if (text.isNotEmpty) {
+                  if (sel.isValid && !sel.isCollapsed) {
+                    final cutText = text.substring(sel.start, sel.end);
+                    Clipboard.setData(ClipboardData(text: cutText));
+                    final newText = text.replaceRange(sel.start, sel.end, '');
+                    setState(() {
+                      rawItemCode = _parseToRaw(newText);
+                      _syncItemCodeController();
+                      _updateLiveItemPreview(rawItemCode);
+                    });
+                  } else {
+                    Clipboard.setData(ClipboardData(text: text));
+                    setState(() {
+                      rawItemCode = '';
+                      _syncItemCodeController();
+                      _updateLiveItemPreview('');
+                    });
+                  }
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.paste, color: Colors.green),
+              title: const Text("Paste"),
+              onTap: () async {
+                Navigator.pop(mCtx);
+                final data = await Clipboard.getData('text/plain');
+                if (data != null && data.text != null && data.text!.isNotEmpty) {
+                  final pasteText = data.text!.trim();
+                  final clean = _parseToRaw(pasteText);
+                  setState(() {
+                    rawItemCode = clean;
+                    _syncItemCodeController();
+                    _updateLiveItemPreview(rawItemCode);
+                  });
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
+              title: const Text("Delete / Clear", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+              onTap: () {
+                Navigator.pop(mCtx);
+                final sel = _itemCodeController.selection;
+                final text = _itemCodeController.text;
+                if (sel.isValid && !sel.isCollapsed && text.isNotEmpty) {
+                  final newText = text.replaceRange(sel.start, sel.end, '');
+                  setState(() {
+                    rawItemCode = _parseToRaw(newText);
+                    _syncItemCodeController();
+                    _updateLiveItemPreview(rawItemCode);
+                  });
+                } else {
+                  setState(() {
+                    rawItemCode = '';
+                    _syncItemCodeController();
+                    _updateLiveItemPreview('');
+                  });
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   List<List<Map<String, dynamic>>> activeBills = [[]];
@@ -4629,6 +5294,9 @@ class _PosScreenState extends State<PosScreen> {
   @override
   void initState() {
     super.initState();
+    posGlobalAddToCart = (Map<String, dynamic> item, {double? overrideRate, int qty = 1}) {
+      addItemDirectlyToCart(item, overrideRate: overrideRate, quantity: qty);
+    };
     _loadCounterName();
     _initBluetooth();
     _syncInventoryFromCloud();
@@ -4642,6 +5310,11 @@ class _PosScreenState extends State<PosScreen> {
 
   @override
   void dispose() {
+    if (posGlobalAddToCart != null) {
+      posGlobalAddToCart = null;
+    }
+    _itemCodeController.dispose();
+    _itemCodeFocusNode.dispose();
     posTopNotificationTimer?.cancel();
     _cashTenderedController.dispose();
     _hybridCashController.dispose();
@@ -4974,7 +5647,11 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   void addToCart() {
-    if (rawItemCode.isEmpty || rate.isEmpty) return;
+    if (rawItemCode.trim().isEmpty) {
+      _showUnbarcodedCategoryPicker(initialRate: double.tryParse(rate));
+      return;
+    }
+    if (rate.isEmpty) return;
     String itemName = activeItemName;
     if (itemName.isEmpty ||
         itemName == rawItemCode ||
@@ -5071,6 +5748,7 @@ class _PosScreenState extends State<PosScreen> {
         "price": totalPrice, 
       });
       rawItemCode = "";
+      _syncItemCodeController();
       qty = "1"; 
       rate = "";
       activeItemName = "";
@@ -5084,7 +5762,8 @@ class _PosScreenState extends State<PosScreen> {
   void editCartItem(int index) {
     setState(() {
       final item = cart[index];
-      rawItemCode = item["rawItemCode"];
+      rawItemCode = item["rawItemCode"] ?? "";
+      _syncItemCodeController();
       qty = item["qty"];
       rate = item["rate"];
       activeItemName = item["itemName"] ?? "";
@@ -5111,7 +5790,13 @@ class _PosScreenState extends State<PosScreen> {
           }
         }
         else if (focusedField == 1) focusedField = 2;
-        else if (focusedField == 2) addToCart();
+        else if (focusedField == 2) {
+          if (rawItemCode.trim().isEmpty) {
+            _showUnbarcodedCategoryPicker(initialRate: double.tryParse(rate));
+          } else {
+            addToCart();
+          }
+        }
       } 
       else if (value == "BACK") {
         if (focusedField == 2) focusedField = 1;
@@ -5127,8 +5812,16 @@ class _PosScreenState extends State<PosScreen> {
           else focusedField = 0; 
         } 
         else if (focusedField == 0) {
-          if (rawItemCode.isNotEmpty) {
+          final sel = _itemCodeController.selection;
+          final currentText = _itemCodeController.text;
+          if (sel.isValid && !sel.isCollapsed && currentText.isNotEmpty) {
+            final newText = currentText.replaceRange(sel.start, sel.end, '');
+            rawItemCode = _parseToRaw(newText);
+            _syncItemCodeController();
+            _updateLiveItemPreview(rawItemCode);
+          } else if (rawItemCode.isNotEmpty) {
             rawItemCode = rawItemCode.substring(0, rawItemCode.length - 1);
+            _syncItemCodeController();
             _updateLiveItemPreview(rawItemCode);
           }
         }
@@ -5145,8 +5838,18 @@ class _PosScreenState extends State<PosScreen> {
       else {
         if (focusedField == 0) {
           if (value != ".") {
-            rawItemCode += value;
-            _updateLiveItemPreview(rawItemCode);
+            final sel = _itemCodeController.selection;
+            final currentText = _itemCodeController.text;
+            if (sel.isValid && !sel.isCollapsed) {
+              final newText = currentText.replaceRange(sel.start, sel.end, value);
+              rawItemCode = _parseToRaw(newText);
+              _syncItemCodeController();
+              _updateLiveItemPreview(rawItemCode);
+            } else {
+              rawItemCode += value;
+              _syncItemCodeController();
+              _updateLiveItemPreview(rawItemCode);
+            }
           }
         }
         if (focusedField == 1) {
@@ -5903,15 +6606,6 @@ class _PosScreenState extends State<PosScreen> {
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const StaffManagementScreen()));
                 },
               ),
-              ListTile(
-                leading: const Icon(Icons.qr_code_2, color: Colors.black87),
-                title: const Text('Barcode Labels Printer', style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text('Print shelf stickers & commercial barcode labels'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const BarcodeLabelPrinterScreen()));
-                },
-              ),
               const Divider(),
             ],
             
@@ -6275,6 +6969,41 @@ class _PosScreenState extends State<PosScreen> {
                     ),
                   ),
                 ],
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      InkWell(
+                        onTap: () => _showUnbarcodedCategoryPicker(initialRate: double.tryParse(rate)),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFF59E0B)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: const [
+                              Icon(Icons.category, size: 13, color: Color(0xFFB45309)),
+                              SizedBox(width: 4),
+                              Text("+ Other (No Barcode)", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (formattedItemCode.isNotEmpty)
+                        InkWell(
+                          onTap: () => _showItemCodeLongPressMenu(context),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 4),
+                            child: Text("Barcode Actions ⚙️", style: TextStyle(fontSize: 11, color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
                 Row(
                   children: [
                     _buildInputBox(
@@ -6814,8 +7543,12 @@ class _PosScreenState extends State<PosScreen> {
             onCustomTap();
           } else {
             setState(() => focusedField = fieldIndex);
+            if (isCode) {
+              _itemCodeFocusNode.requestFocus();
+            }
           }
         },
+        onLongPress: isCode ? () => _showItemCodeLongPressMenu(context) : null,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
@@ -6830,7 +7563,123 @@ class _PosScreenState extends State<PosScreen> {
             children: [
               Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: isFocused ? Colors.white70 : Colors.black45)),
               const SizedBox(height: 4),
-              Text(value.isEmpty ? (isCode ? "—" : "") : value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: isFocused ? Colors.white : Colors.black), textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (isCode)
+                SizedBox(
+                  height: 28,
+                  child: TextField(
+                    controller: _itemCodeController,
+                    focusNode: _itemCodeFocusNode,
+                    keyboardType: TextInputType.none,
+                    showCursor: true,
+                    cursorColor: isFocused ? Colors.amberAccent : Colors.blueAccent,
+                    cursorWidth: 2.5,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: isFocused ? Colors.white : Colors.black,
+                    ),
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                      hintText: isFocused ? "" : "—",
+                      hintStyle: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: isFocused ? Colors.white54 : Colors.black38,
+                      ),
+                    ),
+                    onTap: () {
+                      setState(() => focusedField = 0);
+                    },
+                    onChanged: (val) {
+                      final clean = _parseToRaw(val);
+                      if (clean != rawItemCode) {
+                        setState(() {
+                          rawItemCode = clean;
+                          _updateLiveItemPreview(rawItemCode);
+                        });
+                      }
+                    },
+                    contextMenuBuilder: (context, editableTextState) {
+                      return AdaptiveTextSelectionToolbar.buttonItems(
+                        anchors: editableTextState.contextMenuAnchors,
+                        buttonItems: [
+                          ContextMenuButtonItem(
+                            type: ContextMenuButtonType.selectAll,
+                            onPressed: () {
+                              editableTextState.selectAll(SelectionChangedCause.toolbar);
+                            },
+                          ),
+                          ContextMenuButtonItem(
+                            type: ContextMenuButtonType.copy,
+                            onPressed: () {
+                              editableTextState.copySelection(SelectionChangedCause.toolbar);
+                            },
+                          ),
+                          ContextMenuButtonItem(
+                            type: ContextMenuButtonType.cut,
+                            onPressed: () {
+                              editableTextState.cutSelection(SelectionChangedCause.toolbar);
+                              final clean = _parseToRaw(_itemCodeController.text);
+                              setState(() {
+                                rawItemCode = clean;
+                                _updateLiveItemPreview(rawItemCode);
+                              });
+                            },
+                          ),
+                          ContextMenuButtonItem(
+                            type: ContextMenuButtonType.paste,
+                            onPressed: () async {
+                              await editableTextState.pasteText(SelectionChangedCause.toolbar);
+                              final clean = _parseToRaw(_itemCodeController.text);
+                              setState(() {
+                                rawItemCode = clean;
+                                _updateLiveItemPreview(rawItemCode);
+                              });
+                            },
+                          ),
+                          ContextMenuButtonItem(
+                            label: "Delete",
+                            onPressed: () {
+                              final sel = _itemCodeController.selection;
+                              final text = _itemCodeController.text;
+                              if (sel.isValid && !sel.isCollapsed && text.isNotEmpty) {
+                                final newText = text.replaceRange(sel.start, sel.end, '');
+                                final clean = _parseToRaw(newText);
+                                setState(() {
+                                  rawItemCode = clean;
+                                  _syncItemCodeController();
+                                  _updateLiveItemPreview(rawItemCode);
+                                });
+                              } else {
+                                setState(() {
+                                  rawItemCode = "";
+                                  _syncItemCodeController();
+                                  _updateLiveItemPreview("");
+                                });
+                              }
+                              editableTextState.hideToolbar();
+                            },
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                )
+              else
+                Text(
+                  value.isEmpty ? "" : value,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: isFocused ? Colors.white : Colors.black,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               if (subtext != null && subtext.isNotEmpty) ...[
                 const SizedBox(height: 2),
                 Text(
