@@ -223,5 +223,44 @@ void main() {
       expect(pdfBytes[2], 0x44); // D
       expect(pdfBytes[3], 0x46); // F
     });
+
+    test('PdfReceiptService handles String-typed amounts, rates, qty without type cast error', () async {
+      // Replicate the exact bug where cart items or database rows store numbers as Strings
+      final stringTypedBill = {
+        'bill_number': 'LK-STR-999',
+        'counter_name': 'Basement Counter',
+        'staff_name': 'Love Kush',
+        'total_amount': '450.50', // String instead of double!
+        'payment_method': 'Cash',
+        'amount_tendered': '500.00', // String!
+        'change_due': '49.50', // String!
+        'items_json': [
+          {
+            'itemName': 'Pond\'s White Beauty Cream',
+            'qty': '2', // String instead of int!
+            'rate': '150.00', // String instead of double!
+            'price': '300.00', // String instead of num!
+          },
+          {
+            'itemName': 'Lakme Absolute Kajal',
+            'qty': '1',
+            'rate': '150.50',
+            'total': '150.50',
+          },
+        ],
+      };
+
+      // 1. WhatsApp summary formatting must never throw type cast exception
+      final waMsg = PdfReceiptService.formatWhatsAppBillMessage(stringTypedBill);
+      expect(waMsg, contains("Pond's White Beauty Cream"));
+      expect(waMsg, contains("GRAND TOTAL: ₹450.50"));
+
+      // 2. PDF generation must never throw 'String is not subtype of num?'
+      final bytes = await PdfReceiptService.generateReceiptPdf(stringTypedBill);
+      expect(bytes, isNotNull);
+      expect(bytes.length, greaterThan(1000));
+      expect(bytes[0], 0x25); // %
+      expect(bytes[1], 0x50); // P
+    });
   });
 }

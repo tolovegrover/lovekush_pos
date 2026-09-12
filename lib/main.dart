@@ -4811,6 +4811,15 @@ class _PosScreenState extends State<PosScreen> {
                   const Text("Bill Saved & Printed!"),
                   const Spacer(),
                   TextButton.icon(
+                    icon: const Icon(Icons.picture_as_pdf, color: Colors.amberAccent, size: 16),
+                    label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                      PdfReceiptService.openPdfPreviewDialog(context: context, bill: savedBillRecord);
+                    },
+                  ),
+                  const SizedBox(width: 4),
+                  TextButton.icon(
                     icon: const Icon(Icons.share, color: Color(0xFF25D366), size: 16),
                     label: const Text("WHATSAPP", style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
                     onPressed: () {
@@ -4822,8 +4831,8 @@ class _PosScreenState extends State<PosScreen> {
               ),
               duration: const Duration(seconds: 8),
               action: SnackBarAction(
-                label: "PREVIEW",
-                textColor: Colors.amberAccent,
+                label: "THERMAL",
+                textColor: Colors.white,
                 onPressed: () => _openReprintPreview(savedBillRecord),
               ),
             ),
@@ -4842,8 +4851,17 @@ class _PosScreenState extends State<PosScreen> {
               const Text("Bill Saved!"),
               const Spacer(),
               TextButton.icon(
+                icon: const Icon(Icons.picture_as_pdf, color: Colors.amberAccent, size: 16),
+                label: const Text("PDF", style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 13)),
+                onPressed: () {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  PdfReceiptService.openPdfPreviewDialog(context: context, bill: savedBillRecord);
+                },
+              ),
+              const SizedBox(width: 4),
+              TextButton.icon(
                 icon: const Icon(Icons.share, color: Color(0xFF25D366), size: 16),
-                label: const Text("WHATSAPP PDF", style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
+                label: const Text("WHATSAPP", style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
                 onPressed: () {
                   ScaffoldMessenger.of(context).hideCurrentSnackBar();
                   PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: savedBillRecord);
@@ -4853,8 +4871,8 @@ class _PosScreenState extends State<PosScreen> {
           ),
           duration: const Duration(seconds: 8),
           action: SnackBarAction(
-            label: "PREVIEW",
-            textColor: Colors.amberAccent,
+            label: "THERMAL",
+            textColor: Colors.white,
             onPressed: () => _openReprintPreview(savedBillRecord),
           ),
         ),
@@ -6490,10 +6508,13 @@ Future<void> executeReprintThermalBill({
   }
 
   try {
-    final items = (bill['items_json'] as List<dynamic>?) ?? [];
+    final items = bill['items_json'] is List
+        ? (bill['items_json'] as List<dynamic>)
+        : (bill['items_json'] is String ? (json.decode(bill['items_json']) as List<dynamic>) : []);
     String bNo = (bill['bill_number'] ?? "N/A").toString();
     String counterName = (bill['counter_name'] ?? "Basement Counter").toString();
-    double total = (bill['total_amount'] as num?)?.toDouble() ?? 0.0;
+    final rawTotal = bill['total_amount'];
+    double total = rawTotal is num ? rawTotal.toDouble() : (double.tryParse(rawTotal?.toString() ?? '0') ?? 0.0);
 
     try {
       ByteData bytesAsset = await rootBundle.load("assets/logo_bw.jpg");
@@ -6574,10 +6595,13 @@ void showReceiptPreviewDialog({
   required Map<String, dynamic> bill,
   required VoidCallback onPrint,
 }) {
-  final items = (bill['items_json'] as List<dynamic>?) ?? [];
+  final items = bill['items_json'] is List
+      ? (bill['items_json'] as List<dynamic>)
+      : (bill['items_json'] is String ? (json.decode(bill['items_json']) as List<dynamic>) : []);
   final String bNo = (bill['bill_number'] ?? "N/A").toString();
   final String counterName = (bill['counter_name'] ?? "Basement Counter").toString();
-  final double total = (bill['total_amount'] as num?)?.toDouble() ?? 0.0;
+  final rawTotal = bill['total_amount'];
+  final double total = rawTotal is num ? rawTotal.toDouble() : (double.tryParse(rawTotal?.toString() ?? '0') ?? 0.0);
   final String pMethod = (bill['payment_method'] ?? "Cash").toString();
   final double pTendered = double.tryParse(bill['amount_tendered']?.toString() ?? "0") ?? total;
   final double pChange = double.tryParse(bill['change_due']?.toString() ?? "0") ?? (pTendered > total ? (pTendered - total) : 0.0);
@@ -6823,18 +6847,28 @@ void showReceiptPreviewDialog({
                 ),
                 child: Row(
                   children: [
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.black54),
+                      tooltip: "Close",
+                      onPressed: () => Navigator.pop(dialogContext),
+                    ),
+                    const SizedBox(width: 4),
                     Expanded(
-                      child: OutlinedButton(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.picture_as_pdf, color: Color(0xFF2563EB), size: 16),
+                        label: const Text("📄 PDF", style: TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 12)),
                         style: OutlinedButton.styleFrom(
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: const BorderSide(color: Colors.black45),
+                          side: const BorderSide(color: Color(0xFF2563EB)),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
-                        onPressed: () => Navigator.pop(dialogContext),
-                        child: const Text("CLOSE", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          PdfReceiptService.openPdfPreviewDialog(context: context, bill: bill);
+                        },
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: ElevatedButton.icon(
                         icon: const Icon(Icons.share, color: Colors.white, size: 16),
@@ -6850,7 +6884,7 @@ void showReceiptPreviewDialog({
                         },
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: ElevatedButton.icon(
                         icon: const Icon(Icons.print, color: Colors.white, size: 16),
@@ -7063,7 +7097,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       double cash = 0;
       double upi = 0;
       for (var row in data) {
-        double amt = (row['total_amount'] as num).toDouble();
+        final rawAmt = row['total_amount'];
+        double amt = rawAmt is num ? rawAmt.toDouble() : (double.tryParse(rawAmt?.toString() ?? '0') ?? 0.0);
         total += amt;
         String method = (row['payment_method'] ?? 'Cash').toString().toLowerCase();
         if (method.contains('upi') || method.contains('online') || method.contains('scanner')) {
@@ -7318,6 +7353,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                IconButton(
+                                  icon: const Icon(Icons.picture_as_pdf, size: 20, color: Color(0xFF2563EB)),
+                                  tooltip: "Preview PDF",
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                  onPressed: () => PdfReceiptService.openPdfPreviewDialog(context: context, bill: bill),
+                                ),
+                                const SizedBox(width: 2),
                                 IconButton(
                                   icon: const Icon(Icons.share, size: 20, color: Color(0xFF25D366)),
                                   tooltip: "WhatsApp / PDF",

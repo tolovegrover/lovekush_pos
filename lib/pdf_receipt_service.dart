@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -11,6 +12,43 @@ import 'package:url_launcher/url_launcher.dart';
 // ==========================================
 
 class PdfReceiptService {
+  /// Robust double parser for String, num, double, int, or null
+  static double _toDouble(dynamic val, [double defaultVal = 0.0]) {
+    if (val == null) return defaultVal;
+    if (val is num) return val.toDouble();
+    if (val is String) {
+      if (val.trim().isEmpty) return defaultVal;
+      final cleaned = val.replaceAll(RegExp(r'[^0-9.-]'), '').trim();
+      return double.tryParse(cleaned) ?? defaultVal;
+    }
+    return defaultVal;
+  }
+
+  /// Robust int parser for String, num, int, or null
+  static int _toInt(dynamic val, [int defaultVal = 1]) {
+    if (val == null) return defaultVal;
+    if (val is num) return val.toInt();
+    if (val is String) {
+      if (val.trim().isEmpty) return defaultVal;
+      final cleaned = val.replaceAll(RegExp(r'[^0-9.-]'), '').trim();
+      final d = double.tryParse(cleaned);
+      if (d != null) return d.toInt();
+    }
+    return defaultVal;
+  }
+
+  /// Robust items extractor supporting List or JSON-encoded String
+  static List<dynamic> _extractItems(dynamic raw) {
+    if (raw is List) return raw;
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final decoded = json.decode(raw);
+        if (decoded is List) return decoded;
+      } catch (_) {}
+    }
+    return [];
+  }
+
   /// Generate a clean, high-resolution PDF receipt document for a bill
   static Future<Uint8List> generateReceiptPdf(
     Map<String, dynamic> bill, {
@@ -23,11 +61,11 @@ class PdfReceiptService {
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
     final String counterName = (bill['counter_name'] ?? "Basement Counter").toString();
     final String staffName = (bill['staff_name'] ?? "Staff").toString();
-    final double totalAmount = (bill['total_amount'] as num?)?.toDouble() ?? 0.0;
+    final double totalAmount = _toDouble(bill['total_amount']);
     final String paymentMethod = (bill['payment_method'] ?? "Cash").toString();
-    final double amountTendered = double.tryParse(bill['amount_tendered']?.toString() ?? "0") ?? totalAmount;
-    final double changeDue = double.tryParse(bill['change_due']?.toString() ?? "0") ??
-        (amountTendered > totalAmount ? (amountTendered - totalAmount) : 0.0);
+    final double amountTendered = _toDouble(bill['amount_tendered'], totalAmount);
+    final double changeDue = _toDouble(bill['change_due'], amountTendered > totalAmount ? (amountTendered - totalAmount) : 0.0);
+
 
     DateTime billDate = DateTime.now();
     if (bill['created_at'] != null) {
@@ -49,17 +87,17 @@ class PdfReceiptService {
 
     final pw.ImageProvider? logoImage = effectiveLogo != null ? pw.MemoryImage(effectiveLogo) : null;
 
-    // 3. Extract items
-    final rawItems = (bill['items_json'] as List<dynamic>?) ?? [];
+    // 3. Extract items safely
+    final rawItems = _extractItems(bill['items_json']);
     final List<List<String>> tableData = [];
     int totalQty = 0;
 
     for (int i = 0; i < rawItems.length; i++) {
       final item = rawItems[i] is Map ? rawItems[i] as Map : {};
       String itemName = (item['itemName'] ?? item['item'] ?? 'General Item').toString().split('\n').first.trim();
-      final qty = (item['qty'] as num?)?.toInt() ?? 1;
-      final rate = (item['rate'] as num?)?.toDouble() ?? 0.0;
-      final lineTotal = (item['total'] as num?)?.toDouble() ?? (qty * rate);
+      final qty = _toInt(item['qty'], 1);
+      final rate = _toDouble(item['rate'], 0.0);
+      final lineTotal = _toDouble(item['total'] ?? item['price'], qty * rate);
       totalQty += qty;
 
       tableData.add([
@@ -263,9 +301,9 @@ class PdfReceiptService {
   static String formatWhatsAppBillMessage(Map<String, dynamic> bill) {
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
     final String counterName = (bill['counter_name'] ?? "Basement Counter").toString();
-    final double totalAmount = (bill['total_amount'] as num?)?.toDouble() ?? 0.0;
+    final double totalAmount = _toDouble(bill['total_amount']);
     final String paymentMethod = (bill['payment_method'] ?? "Cash").toString();
-    final rawItems = (bill['items_json'] as List<dynamic>?) ?? [];
+    final rawItems = _extractItems(bill['items_json']);
 
     DateTime billDate = DateTime.now();
     if (bill['created_at'] != null) {
@@ -288,9 +326,9 @@ class PdfReceiptService {
     for (int i = 0; i < rawItems.length; i++) {
       final item = rawItems[i] is Map ? rawItems[i] as Map : {};
       String itemName = (item['itemName'] ?? item['item'] ?? 'Item').toString().split('\n').first.trim();
-      final qty = (item['qty'] as num?)?.toInt() ?? 1;
-      final rate = (item['rate'] as num?)?.toDouble() ?? 0.0;
-      final lineTotal = (item['total'] as num?)?.toDouble() ?? (qty * rate);
+      final qty = _toInt(item['qty'], 1);
+      final rate = _toDouble(item['rate'], 0.0);
+      final lineTotal = _toDouble(item['total'] ?? item['price'], qty * rate);
       buffer.writeln("${i + 1}. $itemName");
       buffer.writeln("    └ ${qty}x @ ₹${rate.toStringAsFixed(2)} = ₹${lineTotal.toStringAsFixed(2)}");
     }
@@ -377,8 +415,8 @@ class PdfReceiptService {
   }) {
     final phoneController = TextEditingController();
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
-    final double totalAmount = (bill['total_amount'] as num?)?.toDouble() ?? 0.0;
-    final rawItems = (bill['items_json'] as List<dynamic>?) ?? [];
+    final double totalAmount = _toDouble(bill['total_amount']);
+    final rawItems = _extractItems(bill['items_json']);
 
     showDialog(
       context: context,
@@ -494,13 +532,9 @@ class PdfReceiptService {
                             side: const BorderSide(color: Color(0xFF2563EB)),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                           ),
-                          onPressed: () async {
+                          onPressed: () {
                             Navigator.pop(ctx);
-                            final pdfBytes = await generateReceiptPdf(bill);
-                            await Printing.layoutPdf(
-                              onLayout: (_) => pdfBytes,
-                              name: "Bill_$billNo.pdf",
-                            );
+                            openPdfPreviewDialog(context: context, bill: bill);
                           },
                         ),
                       ),
@@ -519,6 +553,71 @@ class PdfReceiptService {
                     ],
                   ),
                 ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Open local interactive vector PDF preview screen inside the app
+  static void openPdfPreviewDialog({
+    required BuildContext context,
+    required Map<String, dynamic> bill,
+  }) {
+    final String billNo = (bill['bill_number'] ?? "N/A").toString();
+    final String safeBillNo = billNo.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 680, maxHeight: 820),
+            child: Scaffold(
+              backgroundColor: Colors.white,
+              appBar: AppBar(
+                title: Text("PDF Invoice - Bill #$billNo", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                backgroundColor: const Color(0xFF111827),
+                iconTheme: const IconThemeData(color: Colors.white),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.share, color: Color(0xFF25D366)),
+                    tooltip: "Send on WhatsApp",
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      showWhatsAppPdfDialog(context: context, bill: bill);
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    tooltip: "Close",
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+              body: PdfPreview(
+                build: (format) => generateReceiptPdf(bill, pageFormat: format),
+                allowPrinting: true,
+                allowSharing: true,
+                canChangePageFormat: false,
+                canChangeOrientation: false,
+                initialPageFormat: PdfPageFormat.a5,
+                pdfFileName: "LoveKush_Bill_$safeBillNo.pdf",
+                maxPageWidth: 550,
+                loadingWidget: const Center(
+                  child: CircularProgressIndicator(),
+                ),
+                onError: (context, error) => Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text("Error previewing PDF: $error", style: const TextStyle(color: Colors.red)),
+                  ),
+                ),
               ),
             ),
           ),
