@@ -648,6 +648,79 @@ class PdfReceiptService {
     return toDevanagariDigits(text);
   }
 
+  /// Extract cash and online split components from a hybrid payment method string
+  static Map<String, double>? parseHybridParts(String method) {
+    if (!method.toLowerCase().contains("hybrid") && !method.contains("मिश्र")) {
+      return null;
+    }
+    final cashMatch = RegExp(r'(?:cash|रोकड़(?:ा)?)[^\d]*([\d,]+(?:\.\d+)?)', caseSensitive: false).firstMatch(method);
+    final onlineMatch = RegExp(r'(?:online|ऑनलाइन)[^\d]*([\d,]+(?:\.\d+)?)', caseSensitive: false).firstMatch(method);
+
+    final double? cash = cashMatch != null ? double.tryParse(cashMatch.group(1)!.replaceAll(',', '')) : null;
+    final double? online = onlineMatch != null ? double.tryParse(onlineMatch.group(1)!.replaceAll(',', '')) : null;
+
+    if (cash != null || online != null) {
+      return {
+        'cash': cash ?? 0.0,
+        'online': online ?? 0.0,
+      };
+    }
+    return null;
+  }
+
+  static String _formatAmount(double val) {
+    return val % 1 == 0 ? val.toInt().toString() : val.toStringAsFixed(2);
+  }
+
+  /// Render currency and price text with a proportionally scaled and bold Rupee symbol (₹)
+  /// so it matches the optical weight and height of Arabic numerals in both Hindi & English receipts
+  static pw.Widget priceRichText(
+    String text, {
+    required double fontSize,
+    pw.FontWeight fontWeight = pw.FontWeight.normal,
+    PdfColor color = PdfColors.black,
+    pw.TextAlign textAlign = pw.TextAlign.left,
+  }) {
+    if (!text.contains('₹')) {
+      return pw.Text(
+        text,
+        textAlign: textAlign,
+        style: pw.TextStyle(fontSize: fontSize, fontWeight: fontWeight, color: color),
+      );
+    }
+
+    final spans = <pw.InlineSpan>[];
+    final parts = text.split('₹');
+    for (int i = 0; i < parts.length; i++) {
+      if (parts[i].isNotEmpty) {
+        spans.add(
+          pw.TextSpan(
+            text: parts[i],
+            style: pw.TextStyle(fontSize: fontSize, fontWeight: fontWeight, color: color),
+          ),
+        );
+      }
+      if (i < parts.length - 1) {
+        // Boost Rupee symbol size by ~28% and set bold weight so it visually balances with Arabic numerals
+        spans.add(
+          pw.TextSpan(
+            text: '₹',
+            style: pw.TextStyle(
+              fontSize: fontSize * 1.28,
+              fontWeight: pw.FontWeight.bold,
+              color: color,
+            ),
+          ),
+        );
+      }
+    }
+
+    return pw.RichText(
+      textAlign: textAlign,
+      text: pw.TextSpan(children: spans),
+    );
+  }
+
   /// Format payment method in classical Sanskritized Hindi
   static String _paymentModeSanskrit(String method) {
     final m = method.toLowerCase();
@@ -724,6 +797,8 @@ class PdfReceiptService {
     final String staffName = (bill['staff_name'] ?? "Staff").toString();
     final double totalAmount = _toDouble(bill['total_amount']);
     final String paymentMethod = (bill['payment_method'] ?? "Cash").toString();
+    final hybridParts = parseHybridParts(paymentMethod);
+    final bool isHybrid = hybridParts != null;
     final double amountTendered = _toDouble(bill['amount_tendered'], totalAmount);
     final double changeDue = _toDouble(bill['change_due'], amountTendered > totalAmount ? (amountTendered - totalAmount) : 0.0);
 
@@ -940,11 +1015,30 @@ class PdfReceiptService {
                 style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
               ),
               pw.Text(
-                _fixDevanagari("भुगतान विधि: ${_paymentModeSanskrit(paymentMethod)}"),
+                _fixDevanagari("भुगतान विधि: ${isHybrid ? 'मिश्रित भुगतान' : _paymentModeSanskrit(paymentMethod)}"),
                 style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
               ),
             ],
           ),
+          if (isHybrid) ...[
+            pw.SizedBox(height: 1.5),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  _fixDevanagari("भुगतान विभाजन:"),
+                  style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.grey700),
+                ),
+                priceRichText(
+                  "रोकड़ा ₹${_formatAmount(hybridParts['cash']!)}  •  ऑनलाइन ₹${_formatAmount(hybridParts['online']!)}",
+                  fontSize: 7.0,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.black,
+                  textAlign: pw.TextAlign.right,
+                ),
+              ],
+            ),
+          ],
         ] else ...[
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -960,9 +1054,28 @@ class PdfReceiptService {
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
               pw.Text("Cashier: $staffName", style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black)),
-              pw.Text("Payment: ${paymentMethod.toUpperCase()}", style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+              pw.Text(
+                "Payment: ${isHybrid ? 'HYBRID' : paymentMethod.toUpperCase()}",
+                style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+              ),
             ],
           ),
+          if (isHybrid) ...[
+            pw.SizedBox(height: 1.5),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text("Payment Split:", style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.grey700)),
+                priceRichText(
+                  "Cash ₹${_formatAmount(hybridParts['cash']!)}  •  Online ₹${_formatAmount(hybridParts['online']!)}",
+                  fontSize: 7.0,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.black,
+                  textAlign: pw.TextAlign.right,
+                ),
+              ],
+            ),
+          ],
         ],
 
         // Dashed Tear Line
@@ -1021,18 +1134,26 @@ class PdfReceiptService {
                 ),
                 pw.Expanded(
                   flex: 4,
-                  child: pw.Text(
-                    "${item.qty} × ₹${item.rate.toStringAsFixed(2)}",
-                    textAlign: pw.TextAlign.center,
-                    style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey900),
+                  child: pw.Center(
+                    child: priceRichText(
+                      "${item.qty} × ₹${item.rate.toStringAsFixed(2)}",
+                      fontSize: 7.5,
+                      color: PdfColors.grey900,
+                      textAlign: pw.TextAlign.center,
+                    ),
                   ),
                 ),
                 pw.Expanded(
                   flex: 3,
-                  child: pw.Text(
-                    "₹${item.lineTotal.toStringAsFixed(2)}",
-                    textAlign: pw.TextAlign.right,
-                    style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                  child: pw.Align(
+                    alignment: pw.Alignment.centerRight,
+                    child: priceRichText(
+                      "₹${item.lineTotal.toStringAsFixed(2)}",
+                      fontSize: 7.5,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.black,
+                      textAlign: pw.TextAlign.right,
+                    ),
                   ),
                 ),
               ],
@@ -1065,26 +1186,48 @@ class PdfReceiptService {
                   : "TOTAL AMOUNT:",
               style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
             ),
-            pw.Text(
+            priceRichText(
               "₹${totalAmount.toStringAsFixed(2)}",
-              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+              fontSize: 12,
+              fontWeight: pw.FontWeight.bold,
+              color: PdfColors.black,
+              textAlign: pw.TextAlign.right,
             ),
           ],
         ),
-        if (paymentMethod.toLowerCase().contains("cash") || amountTendered > totalAmount) ...[
+        if (isHybrid) ...[
           pw.SizedBox(height: 2),
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
               pw.Text(
                 language == ReceiptLanguage.hindi
-                    ? _fixDevanagari("प्राप्त राशि:")
-                    : "Paid Money:",
+                    ? _fixDevanagari("रोकड़ा भुगतान:")
+                    : "Cash Paid:",
                 style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
               ),
+              priceRichText(
+                "₹${_formatAmount(hybridParts['cash']!)}",
+                fontSize: 7.5,
+                color: PdfColors.black,
+                textAlign: pw.TextAlign.right,
+              ),
+            ],
+          ),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
               pw.Text(
-                "₹${amountTendered.toStringAsFixed(2)}",
-                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black),
+                language == ReceiptLanguage.hindi
+                    ? _fixDevanagari("ऑनलाइन भुगतान:")
+                    : "Online Paid:",
+                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
+              ),
+              priceRichText(
+                "₹${_formatAmount(hybridParts['online']!)}",
+                fontSize: 7.5,
+                color: PdfColors.black,
+                textAlign: pw.TextAlign.right,
               ),
             ],
           ),
@@ -1098,9 +1241,51 @@ class PdfReceiptService {
                       : "Change Return:",
                   style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
                 ),
-                pw.Text(
+                priceRichText(
                   "₹${changeDue.toStringAsFixed(2)}",
-                  style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                  fontSize: 7.5,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.black,
+                  textAlign: pw.TextAlign.right,
+                ),
+              ],
+            ),
+          ],
+        ] else if (paymentMethod.toLowerCase().contains("cash") || amountTendered > totalAmount) ...[
+          pw.SizedBox(height: 2),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                language == ReceiptLanguage.hindi
+                    ? _fixDevanagari("प्राप्त राशि:")
+                    : "Paid Money:",
+                style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
+              ),
+              priceRichText(
+                "₹${amountTendered.toStringAsFixed(2)}",
+                fontSize: 7.5,
+                color: PdfColors.black,
+                textAlign: pw.TextAlign.right,
+              ),
+            ],
+          ),
+          if (changeDue > 0) ...[
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  language == ReceiptLanguage.hindi
+                      ? _fixDevanagari("अवशिष्ट प्रतिदेय राशि:")
+                      : "Change Return:",
+                  style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
+                ),
+                priceRichText(
+                  "₹${changeDue.toStringAsFixed(2)}",
+                  fontSize: 7.5,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.black,
+                  textAlign: pw.TextAlign.right,
                 ),
               ],
             ),
@@ -1199,6 +1384,8 @@ class PdfReceiptService {
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
     final double totalAmount = _toDouble(bill['total_amount']);
     final String paymentMethod = (bill['payment_method'] ?? "Cash").toString();
+    final hybridParts = parseHybridParts(paymentMethod);
+    final bool isHybrid = hybridParts != null;
     final String staffName = (bill['staff_name'] ?? "स्टाफ").toString();
     final rawItems = _extractItems(bill['items_json']);
 
@@ -1234,7 +1421,12 @@ class PdfReceiptService {
 
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("💰 *सकल देय राशि: ₹${totalAmount.toStringAsFixed(2)}*");
-      buffer.writeln("💳 *भुगतान विधि:* ${_paymentModeSanskrit(paymentMethod)}");
+      if (isHybrid) {
+        buffer.writeln("💳 *भुगतान विधि:* मिश्रित भुगतान");
+        buffer.writeln("    └ *रोकड़ा:* ₹${_formatAmount(hybridParts['cash']!)}  •  *ऑनलाइन:* ₹${_formatAmount(hybridParts['online']!)}");
+      } else {
+        buffer.writeln("💳 *भुगतान विधि:* ${_paymentModeSanskrit(paymentMethod)}");
+      }
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *सधन्यवाद! पुनः पधारें!*");
       buffer.writeln("🌿 _डिजिटल पीडीएफ बीजक संलग्न है।_");
@@ -1262,7 +1454,12 @@ class PdfReceiptService {
 
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("💰 *GRAND TOTAL: ₹${totalAmount.toStringAsFixed(2)}*");
-      buffer.writeln("💳 *Payment Method:* ${paymentMethod.toUpperCase()}");
+      if (isHybrid) {
+        buffer.writeln("💳 *Payment Method:* HYBRID");
+        buffer.writeln("    └ *Cash:* ₹${_formatAmount(hybridParts['cash']!)}  •  *Online:* ₹${_formatAmount(hybridParts['online']!)}");
+      } else {
+        buffer.writeln("💳 *Payment Method:* ${paymentMethod.toUpperCase()}");
+      }
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *THANK YOU FOR SHOPPING! VISIT AGAIN!*");
       buffer.writeln("🌿 _Digital PDF Bill attached._");

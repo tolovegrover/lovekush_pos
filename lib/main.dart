@@ -7107,13 +7107,34 @@ void showReceiptPreviewDialog({
                           ),
                           child: Column(
                             children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  const Text("Payment Method:", style: TextStyle(color: Colors.black54, fontSize: 13, fontWeight: FontWeight.w600)),
-                                  Text(pMethod.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                ],
-                              ),
+                              if (pMethod.toLowerCase().contains("hybrid")) ...[
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: const [
+                                    Text("Payment Method:", style: TextStyle(color: Colors.black54, fontSize: 13, fontWeight: FontWeight.w600)),
+                                    Text("HYBRID", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.deepPurple)),
+                                  ],
+                                ),
+                                const SizedBox(height: 3),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text("Split Details:", style: TextStyle(color: Colors.black54, fontSize: 12)),
+                                    Text(
+                                      pMethod.replaceAll(RegExp(r'hybrid\s*\(?', caseSensitive: false), '').replaceAll(')', '').trim(),
+                                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.black87),
+                                    ),
+                                  ],
+                                ),
+                              ] else ...[
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text("Payment Method:", style: TextStyle(color: Colors.black54, fontSize: 13, fontWeight: FontWeight.w600)),
+                                    Text(pMethod.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                  ],
+                                ),
+                              ],
                               const SizedBox(height: 4),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,

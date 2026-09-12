@@ -389,7 +389,7 @@ void main() {
       expect(engWa, isNot(contains("NO REFUND")));
     });
 
-    test('Authentic Panchang, Prahar, Rokada, and Mishrit Bhugtan translation validation', () {
+    test('Authentic Panchang, Prahar, Rokada, and Mishrit Bhugtan translation validation', () async {
       final sampleBill = {
         'bill_number': 'LK-0912-0099',
         'staff_name': 'Love Kush',
@@ -411,7 +411,14 @@ void main() {
       expect(hindiWa, contains("सितम्बर 12, 2026"));
       expect(hindiWa, contains("तृतीय प्रहर"));
       expect(hindiWa, contains("मिश्रित भुगतान"));
-      expect(hindiWa, contains("रोकड़ा"));
+      expect(hindiWa, contains("रोकड़ा:* ₹500"));
+      expect(hindiWa, contains("ऑनलाइन:* ₹200"));
+
+      // English WhatsApp hybrid split
+      final engWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.english);
+      expect(engWa, contains("Payment Method:* HYBRID"));
+      expect(engWa, contains("Cash:* ₹500"));
+      expect(engWa, contains("Online:* ₹200"));
 
       // Check IST timestamp normalization
       final dt = PdfReceiptService.parseIndianStandardTime('2026-09-12T07:43:00Z'); // 07:43 UTC = 13:13 IST
@@ -420,6 +427,15 @@ void main() {
       expect(PdfReceiptService.getPaharName(dt), "तृतीय प्रहर");
       expect(PdfReceiptService.getVedicVaarName(dt), "शनिवासर");
       expect(PdfReceiptService.formatVedicDateAndTimeString(dt), "शनिवासर, सितम्बर 12, 2026 | 13:13");
+
+      // Check hybrid split parser and PDF generation
+      final parts = PdfReceiptService.parseHybridParts("Hybrid (Cash ₹500, Online ₹250)");
+      expect(parts, isNotNull);
+      expect(parts!['cash'], 500.0);
+      expect(parts['online'], 250.0);
+
+      final pdfBytes = await PdfReceiptService.generateReceiptPdf(sampleBill, language: ReceiptLanguage.hindi);
+      expect(pdfBytes.length, greaterThan(1000));
     });
   });
 }
