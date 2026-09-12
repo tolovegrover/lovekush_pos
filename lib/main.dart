@@ -240,7 +240,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.blueAccent.withOpacity(0.3), blurRadius: 20, spreadRadius: 5)]),
-                    child: ClipOval(child: Image.asset('assets/logo_bw.jpg', width: 100, height: 100, fit: BoxFit.cover)),
+                    child: ClipOval(child: Image.asset('assets/logo_bw.jpg', width: 100, height: 100, fit: BoxFit.contain)),
                   ),
                   const SizedBox(height: 24),
                   const Text("LOVE KUSH SHOPPING CENTER", style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1.2)),
@@ -6118,7 +6118,7 @@ class _PosScreenState extends State<PosScreen> {
       double onlinePart = double.tryParse(onlineAmount) ?? 0.0;
       paidMoney = cashPart + onlinePart;
       finalChangeDue = paidMoney >= cartTotal ? (paidMoney - cartTotal) : 0.0;
-      dbPaymentMethod = "Hybrid (Cash ₹${cashPart % 1 == 0 ? cashPart.toInt() : cashPart}, Online ₹${onlinePart % 1 == 0 ? onlinePart.toInt() : onlinePart})";
+      dbPaymentMethod = "Hybrid (Cash ₹ ${cashPart % 1 == 0 ? cashPart.toInt() : cashPart}, Online ₹ ${onlinePart % 1 == 0 ? onlinePart.toInt() : onlinePart})";
     }
 
     // Ensure every item in cart has its best possible resolved name
@@ -6442,29 +6442,29 @@ class _PosScreenState extends State<PosScreen> {
               barcode: item["rawItemCode"]?.toString(),
             );
             if (name.length > 20) name = name.substring(0, 20);
-            String details = "${item["qty"]} x ₹${item["rate"]}";
+            String details = "${item["qty"]} x ₹ ${item["rate"]}";
             await bluetooth.printLeftRight(name, details, 1);
           }
           
           await bluetooth.printCustom("--------------------------------", 1, 1);
-          await bluetooth.printLeftRight("TOTAL", "₹${cartTotal.toStringAsFixed(2)}", 2); 
+          await bluetooth.printLeftRight("TOTAL", "₹ ${cartTotal.toStringAsFixed(2)}", 2); 
           await bluetooth.printNewLine();
           
           await bluetooth.printLeftRight("PAYMENT", paymentMethod.toUpperCase(), 1);
           if (paymentMethod == "Cash") {
-            await bluetooth.printLeftRight("Paid Cash:", "Rs${paidMoney.toStringAsFixed(2)}", 1);
+            await bluetooth.printLeftRight("Paid Cash:", "Rs. ${paidMoney.toStringAsFixed(2)}", 1);
             if (finalChangeDue > 0) {
-              await bluetooth.printLeftRight("Change Returned:", "Rs${finalChangeDue.toStringAsFixed(2)}", 1);
+              await bluetooth.printLeftRight("Change Returned:", "Rs. ${finalChangeDue.toStringAsFixed(2)}", 1);
             }
           } else if (paymentMethod == "Online") {
-            await bluetooth.printLeftRight("Online Paid:", "Rs${cartTotal.toStringAsFixed(2)}", 1);
+            await bluetooth.printLeftRight("Online Paid:", "Rs. ${cartTotal.toStringAsFixed(2)}", 1);
           } else if (paymentMethod == "Hybrid") {
             double cash = double.tryParse(amountTendered) ?? 0.0;
             double online = double.tryParse(onlineAmount) ?? 0.0;
-            await bluetooth.printLeftRight("Cash Paid:", "Rs${cash.toStringAsFixed(2)}", 1);
-            await bluetooth.printLeftRight("Online Paid:", "Rs${online.toStringAsFixed(2)}", 1);
+            await bluetooth.printLeftRight("Cash Paid:", "Rs. ${cash.toStringAsFixed(2)}", 1);
+            await bluetooth.printLeftRight("Online Paid:", "Rs. ${online.toStringAsFixed(2)}", 1);
             if (finalChangeDue > 0) {
-              await bluetooth.printLeftRight("Change Returned:", "Rs${finalChangeDue.toStringAsFixed(2)}", 1);
+              await bluetooth.printLeftRight("Change Returned:", "Rs. ${finalChangeDue.toStringAsFixed(2)}", 1);
             }
           }
           await bluetooth.printNewLine();
@@ -6687,11 +6687,15 @@ class _PosScreenState extends State<PosScreen> {
                   Row(
                     children: [
                       Container(
-                        height: 44,
-                        width: 44,
+                        height: 48,
+                        width: 48,
+                        padding: const EdgeInsets.all(4),
                         decoration: const BoxDecoration(
                           shape: BoxShape.circle,
-                          image: DecorationImage(image: AssetImage('assets/logo_bw.jpg'), fit: BoxFit.cover),
+                          color: Colors.white,
+                        ),
+                        child: ClipOval(
+                          child: Image.asset('assets/logo_bw.jpg', fit: BoxFit.contain),
                         ),
                       ),
                       const SizedBox(width: 12),

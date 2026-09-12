@@ -305,8 +305,10 @@ class PdfReceiptService {
       "मार्ग": "माग\uF306",
       "पर्ची": "पची\uF306",
       "ङ्ग्ल": "\uF59F\uF5F5",
-      "सङ्ख्या": "स\uF59F\uF6FC\uF58F\u093E",
-      "संख्या": "स\uF59F\uF6FC\uF58F\u093E",
+      "सङ्ख्या": "सं\uF33Bया",
+      "संख्या": "सं\uF33Bया",
+      "ख्या": "\uF33Bया",
+      "ख्य": "\uF33Bय",
     };
 
     for (final entry in phraseLigatures.entries) {
@@ -703,8 +705,8 @@ class PdfReceiptService {
   }
 
   /// Render currency and price text with a natural, harmonious currency indicator:
-  /// - For English receipts: uses 'Rs.' so font, baseline, and stroke weight match Arabic numerals 100% seamlessly
-  /// - For Hindi receipts: uses '₹' at natural 1:1 scale matching the numeric font weight (no distortion)
+  /// - For English receipts: uses 'Rs. ' with clean spacing so stroke weight matches Arabic numerals seamlessly
+  /// - For Hindi receipts: uses '₹ ' with proper typographic breathing distance so symbol and digits never collide
   static pw.Widget priceRichText(
     String text, {
     required double fontSize,
@@ -713,9 +715,14 @@ class PdfReceiptService {
     pw.TextAlign textAlign = pw.TextAlign.left,
     ReceiptLanguage language = ReceiptLanguage.english,
   }) {
+    // Standardize distance between Rupee indicator (₹ / Rs.) and numerical amounts
+    final String sanitized = text
+        .replaceAll(RegExp(r'₹\s*'), '₹ ')
+        .replaceAll(RegExp(r'Rs\.?\s*', caseSensitive: false), 'Rs. ');
+
     final String processedText = language == ReceiptLanguage.english
-        ? text.replaceAll('₹', 'Rs.')
-        : text;
+        ? sanitized.replaceAll(RegExp(r'₹\s*'), 'Rs. ')
+        : sanitized;
 
     if (!processedText.contains('₹')) {
       return pw.Text(
@@ -729,9 +736,17 @@ class PdfReceiptService {
     final parts = processedText.split('₹');
     for (int i = 0; i < parts.length; i++) {
       if (parts[i].isNotEmpty) {
+        String partText = parts[i];
+        // Ensure clean breathing distance after rupee symbol
+        if (i > 0) {
+          partText = partText.trimLeft();
+          if (partText.isNotEmpty) {
+            partText = ' $partText';
+          }
+        }
         spans.add(
           pw.TextSpan(
-            text: parts[i],
+            text: partText,
             style: pw.TextStyle(fontSize: fontSize, fontWeight: fontWeight, color: color),
           ),
         );
@@ -1042,14 +1057,9 @@ class PdfReceiptService {
           ),
         ],
 
-        // Tithi (Panchang & English), Koshapala, Payment Mode
+        // Koshapala, Date & Time, Payment Mode
         pw.SizedBox(height: 4),
         if (language == ReceiptLanguage.hindi) ...[
-          pw.Text(
-            _fixDevanagari("पञ्चाङ्ग: ${_formatPanchangTithi(billDate)} | वैदिक समय: ${toDevanagariDigits(VedicTimeService.normalToVedic(billDate).toNumericString())}"),
-            style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
-          ),
-          pw.SizedBox(height: 1.5),
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
@@ -1083,7 +1093,7 @@ class PdfReceiptService {
                   style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.grey700),
                 ),
                 priceRichText(
-                  "रोकड़ा ₹${_formatAmount(hybridParts['cash']!)}  •  ऑनलाइन ₹${_formatAmount(hybridParts['online']!)}",
+                  "रोकड़ा ₹ ${_formatAmount(hybridParts['cash']!)}  •  ऑनलाइन ₹ ${_formatAmount(hybridParts['online']!)}",
                   fontSize: 7.0,
                   fontWeight: pw.FontWeight.bold,
                   color: PdfColors.black,
@@ -1094,11 +1104,6 @@ class PdfReceiptService {
             ),
           ],
         ] else ...[
-          pw.Text(
-            "Panchang: ${_formatPanchangEnglish(billDate)} | Vedic Time: ${VedicTimeService.normalToVedic(billDate).toNumericString()} (Ghati:Pal)",
-            style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
-          ),
-          pw.SizedBox(height: 1.5),
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
@@ -1126,7 +1131,7 @@ class PdfReceiptService {
               children: [
                 pw.Text("Payment Split:", style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.grey700)),
                 priceRichText(
-                  "Cash ₹${_formatAmount(hybridParts['cash']!)}  •  Online ₹${_formatAmount(hybridParts['online']!)}",
+                  "Cash Rs. ${_formatAmount(hybridParts['cash']!)}  •  Online Rs. ${_formatAmount(hybridParts['online']!)}",
                   fontSize: 7.0,
                   fontWeight: pw.FontWeight.bold,
                   color: PdfColors.black,
@@ -1196,7 +1201,7 @@ class PdfReceiptService {
                   flex: 4,
                   child: pw.Center(
                     child: priceRichText(
-                      "${item.qty} × ₹${item.rate.toStringAsFixed(2)}",
+                      "${item.qty} × ₹ ${item.rate.toStringAsFixed(2)}",
                       fontSize: 7.5,
                       color: PdfColors.grey900,
                       textAlign: pw.TextAlign.center,
@@ -1209,7 +1214,7 @@ class PdfReceiptService {
                   child: pw.Align(
                     alignment: pw.Alignment.centerRight,
                     child: priceRichText(
-                      "₹${item.lineTotal.toStringAsFixed(2)}",
+                      "₹ ${item.lineTotal.toStringAsFixed(2)}",
                       fontSize: 7.5,
                       fontWeight: pw.FontWeight.bold,
                       color: PdfColors.black,
@@ -1249,7 +1254,7 @@ class PdfReceiptService {
               style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
             ),
             priceRichText(
-              "₹${totalAmount.toStringAsFixed(2)}",
+              "₹ ${totalAmount.toStringAsFixed(2)}",
               fontSize: 12,
               fontWeight: pw.FontWeight.bold,
               color: PdfColors.black,
@@ -1270,7 +1275,7 @@ class PdfReceiptService {
                 style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
               ),
               priceRichText(
-                "₹${_formatAmount(hybridParts['cash']!)}",
+                "₹ ${_formatAmount(hybridParts['cash']!)}",
                 fontSize: 7.5,
                 color: PdfColors.black,
                 textAlign: pw.TextAlign.right,
@@ -1288,7 +1293,7 @@ class PdfReceiptService {
                 style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
               ),
               priceRichText(
-                "₹${_formatAmount(hybridParts['online']!)}",
+                "₹ ${_formatAmount(hybridParts['online']!)}",
                 fontSize: 7.5,
                 color: PdfColors.black,
                 textAlign: pw.TextAlign.right,
@@ -1307,7 +1312,7 @@ class PdfReceiptService {
                   style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
                 ),
                 priceRichText(
-                  "₹${changeDue.toStringAsFixed(2)}",
+                  "₹ ${changeDue.toStringAsFixed(2)}",
                   fontSize: 7.5,
                   fontWeight: pw.FontWeight.bold,
                   color: PdfColors.black,
@@ -1329,7 +1334,7 @@ class PdfReceiptService {
                 style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
               ),
               priceRichText(
-                "₹${amountTendered.toStringAsFixed(2)}",
+                "₹ ${amountTendered.toStringAsFixed(2)}",
                 fontSize: 7.5,
                 color: PdfColors.black,
                 textAlign: pw.TextAlign.right,
@@ -1348,7 +1353,7 @@ class PdfReceiptService {
                   style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
                 ),
                 priceRichText(
-                  "₹${changeDue.toStringAsFixed(2)}",
+                  "₹ ${changeDue.toStringAsFixed(2)}",
                   fontSize: 7.5,
                   fontWeight: pw.FontWeight.bold,
                   color: PdfColors.black,
@@ -1368,7 +1373,7 @@ class PdfReceiptService {
         pw.Center(
           child: pw.Text(
             language == ReceiptLanguage.hindi
-                ? _fixDevanagari("बिका हुआ माल वापस या बदला नहीं जाएगा\n(NO RETURN, NO EXCHANGE)")
+                ? _fixDevanagari("बिका हुआ माल वापस या बदला नहीं जाएगा")
                 : "NO RETURN, NO EXCHANGE",
             textAlign: pw.TextAlign.center,
             style: pw.TextStyle(
@@ -1395,6 +1400,29 @@ class PdfReceiptService {
                 ),
               ),
             ],
+          ),
+        ),
+        pw.SizedBox(height: 3),
+
+        // Bottom Fun Fact: Panchang & Vedic Time
+        pw.Container(
+          width: double.infinity,
+          padding: const pw.EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+          decoration: const pw.BoxDecoration(
+            color: PdfColors.grey100,
+            borderRadius: pw.BorderRadius.all(pw.Radius.circular(3)),
+          ),
+          child: pw.Center(
+            child: pw.Text(
+              language == ReceiptLanguage.hindi
+                  ? _fixDevanagari("पञ्चाङ्ग (रोचक तथ्य): आज ${_formatPanchangTithi(billDate)} है। (वैदिक समय: ${toDevanagariDigits(VedicTimeService.normalToVedic(billDate).toNumericString())})")
+                  : "Panchang (Fun Fact): Today is ${_formatPanchangEnglish(billDate)} (Vedic Time: ${VedicTimeService.normalToVedic(billDate).toNumericString()})",
+              textAlign: pw.TextAlign.center,
+              style: const pw.TextStyle(
+                fontSize: 6.2,
+                color: PdfColors.grey800,
+              ),
+            ),
           ),
         ),
       ];
@@ -1488,8 +1516,6 @@ class PdfReceiptService {
       buffer.writeln("📍 *पता:* ए-२/३९२, सुभाष कंसल मार्ग, हर्ष विहार, दिल्ली - ११००९३");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("📋 *बीजक सङ्ख्या:* ${formatBillNumberHindi(billNo)}");
-      buffer.writeln("🗓️ *पञ्चाङ्ग:* ${_formatPanchangTithi(billDate)}");
-      buffer.writeln("⏰ *वैदिक समय:* ${toDevanagariDigits(vedicTime.toNumericString())} (घटी:पल:विपल)");
       buffer.writeln("📅 *दिनाङ्क व समय:* ${formatVedicDateAndTimeString(billDate)}");
       buffer.writeln("👤 *कोषपाल:* $staffName");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
@@ -1503,22 +1529,22 @@ class PdfReceiptService {
         final rate = _toDouble(item['rate'], 0.0);
         final lineTotal = _toDouble(item['total'] ?? item['price'], qty * rate);
         buffer.writeln("${i + 1}. $itemName");
-        buffer.writeln("    └ ${qty}x @ ₹${rate.toStringAsFixed(2)} = ₹${lineTotal.toStringAsFixed(2)}");
+        buffer.writeln("    └ ${qty}x @ ₹ ${rate.toStringAsFixed(2)} = ₹ ${lineTotal.toStringAsFixed(2)}");
       }
 
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("💰 *सकल देय राशि: ₹${totalAmount.toStringAsFixed(2)}*");
+      buffer.writeln("💰 *सकल देय राशि: ₹ ${totalAmount.toStringAsFixed(2)}*");
       if (isHybrid) {
         buffer.writeln("💳 *भुगतान विधि:* मिश्रित भुगतान");
-        buffer.writeln("    └ *रोकड़ा:* ₹${_formatAmount(hybridParts['cash']!)}  •  *ऑनलाइन:* ₹${_formatAmount(hybridParts['online']!)}");
+        buffer.writeln("    └ *रोकड़ा:* ₹ ${_formatAmount(hybridParts['cash']!)}  •  *ऑनलाइन:* ₹ ${_formatAmount(hybridParts['online']!)}");
       } else {
         buffer.writeln("💳 *भुगतान विधि:* ${_paymentModeSanskrit(paymentMethod)}");
       }
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("⚠️ *बिका हुआ माल वापस या बदला नहीं जाएगा*");
-      buffer.writeln("   *(NO RETURN, NO EXCHANGE)*");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *सधन्यवाद! पुनः पधारें!*");
+      buffer.writeln("✨ *पञ्चाङ्ग (रोचक तथ्य):* आज ${_formatPanchangTithi(billDate)} है। (वैदिक समय: ${toDevanagariDigits(vedicTime.toNumericString())})");
       buffer.writeln("🌿 _डिजिटल पीडीएफ बीजक संलग्न है।_");
     } else {
       final vedicTime = VedicTimeService.normalToVedic(billDate);
@@ -1527,8 +1553,6 @@ class PdfReceiptService {
       buffer.writeln("📍 *Address:* A-2/392, Subhash Kansal Marg, Harsh Vihar, Delhi - 110093");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("📋 *Bill No:* $billNo");
-      buffer.writeln("🗓️ *Panchang:* ${_formatPanchangEnglish(billDate)}");
-      buffer.writeln("⏰ *Vedic Time:* ${vedicTime.toNumericString()} (Ghati:Pal)");
       buffer.writeln("📅 *Date & Time:* ${formatEnglishDateAndTimeString(billDate)}");
       buffer.writeln("👤 *Cashier:* $staffName");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
@@ -1557,6 +1581,7 @@ class PdfReceiptService {
       buffer.writeln("⚠️ *NO RETURN, NO EXCHANGE*");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *THANK YOU FOR SHOPPING! VISIT AGAIN!*");
+      buffer.writeln("✨ *Panchang (Fun Fact):* Today is ${_formatPanchangEnglish(billDate)} (Vedic Time: ${vedicTime.toNumericString()})");
       buffer.writeln("🌿 _Digital PDF Bill attached._");
     }
 
@@ -1625,10 +1650,10 @@ class PdfReceiptService {
       }
 
       final filename = "LoveKush_${langTag}_Bill_$safeBillNo.pdf";
-      final subject = "Love Kush Shopping Center ($langTag) - Bill #$billNo (₹${totalAmount.toStringAsFixed(2)})";
+      final subject = "Love Kush Shopping Center ($langTag) - Bill #$billNo (${language == ReceiptLanguage.hindi ? '₹ ' : 'Rs. '}${totalAmount.toStringAsFixed(2)})";
       final caption = language == ReceiptLanguage.hindi
-          ? "🧾 लव कुश शॉपिङ्ग सेण्टर\nबीजक: #$billNo | राशि: ₹${totalAmount.toStringAsFixed(2)}\n🙏 सधन्यवाद! पुनः पधारें!"
-          : "🧾 Love Kush Shopping Center\nBill: #$billNo | Amount: ₹${totalAmount.toStringAsFixed(2)}\n🙏 Thank you! Visit again!";
+          ? "🧾 लव कुश शॉपिङ्ग सेण्टर\nबीजक: #$billNo | राशि: ₹ ${totalAmount.toStringAsFixed(2)}\n🙏 सधन्यवाद! पुनः पधारें!"
+          : "🧾 Love Kush Shopping Center\nBill: #$billNo | Amount: Rs. ${totalAmount.toStringAsFixed(2)}\n🙏 Thank you! Visit again!";
 
       // If on Android and system chooser not explicitly forced, send directly to WhatsApp!
       if (!forceSystemShare && !kIsWeb && Platform.isAndroid) {
@@ -2183,7 +2208,7 @@ class PdfReceiptService {
                               Text("${rawItems.length} items", style: const TextStyle(color: Colors.black54, fontSize: 12)),
                               const SizedBox(width: 8),
                               Text(
-                                "₹${totalAmount.toStringAsFixed(2)}",
+                                "₹ ${totalAmount.toStringAsFixed(2)}",
                                 style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF047857), fontSize: 14),
                               ),
                             ],

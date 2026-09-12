@@ -190,8 +190,9 @@ void main() {
       expect(msg, contains("ल.कु.-२०२६-००४२"));
       expect(msg, contains("Lakme Eyeconic Kajal"));
       expect(msg, contains("Ponds Cold Cream"));
-      expect(msg, contains("सकल देय राशि: ₹410.00"));
-      expect(msg, contains("पञ्चाङ्ग:"));
+      expect(msg, contains("सकल देय राशि: ₹ 410.00"));
+      expect(msg, contains("पञ्चाङ्ग"));
+      expect(msg, contains("रोचक तथ्य"));
       expect(msg, contains("प्रहर"));
       expect(msg, contains("दिनाङ्क व समय:"));
       expect(msg, contains("कोषपाल:"));
@@ -258,7 +259,7 @@ void main() {
       // 1. WhatsApp summary formatting must never throw type cast exception
       final waMsg = PdfReceiptService.formatWhatsAppBillMessage(stringTypedBill);
       expect(waMsg, contains("Pond's White Beauty Cream"));
-      expect(waMsg, contains("सकल देय राशि: ₹450.50"));
+      expect(waMsg, contains("सकल देय राशि: ₹ 450.50"));
 
       // 2. PDF generation must never throw 'String is not subtype of num?'
       final bytes = await PdfReceiptService.generateReceiptPdf(stringTypedBill);
@@ -303,11 +304,12 @@ void main() {
       expect(hindiMsg, contains("*बीजक सङ्ख्या:* ल.कु.-बी.आई.-२०२६"));
       expect(hindiMsg, contains("Lakme Absolute Kajal")); // Item name in English
       expect(hindiMsg, contains("Pond's White Beauty Cream")); // Item name in English
-      expect(hindiMsg, contains("पञ्चाङ्ग:"));
+      expect(hindiMsg, contains("पञ्चाङ्ग"));
+      expect(hindiMsg, contains("रोचक तथ्य"));
       expect(hindiMsg, contains("प्रहर"));
       expect(hindiMsg, contains("दिनाङ्क व समय:"));
       expect(hindiMsg, contains("कोषपाल:"));
-      expect(hindiMsg, contains("सकल देय राशि: ₹550.00"));
+      expect(hindiMsg, contains("सकल देय राशि: ₹ 550.00"));
       expect(hindiMsg, contains("सधन्यवाद! पुनः पधारें!"));
 
       // 3. English PDF Generation
@@ -375,10 +377,11 @@ void main() {
       expect(hindiWa, contains("\u0FD7"));
       expect(hindiWa, contains("ॐ श्री महालक्ष्म्यै नमः"));
       expect(hindiWa, contains("ल.कु.-०९१२-००८८"));
-      expect(hindiWa, contains("₹550.00"));
+      expect(hindiWa, contains("₹ 550.00"));
       expect(hindiWa, contains("रोकड़ा")); // 'रोकड़ा' used instead of 'रोकड़'
       expect(hindiWa, contains("बिका हुआ माल वापस या बदला नहीं जाएगा"));
-      expect(hindiWa, contains("NO RETURN, NO EXCHANGE"));
+      expect(hindiWa, isNot(contains("NO RETURN, NO EXCHANGE")));
+      expect(hindiWa, contains("पञ्चाङ्ग (रोचक तथ्य):"));
 
       // 2. English WhatsApp bill format
       final engWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.english);
@@ -411,8 +414,8 @@ void main() {
       expect(hindiWa, contains("सितम्बर 12, 2026"));
       expect(hindiWa, contains("तृतीय प्रहर"));
       expect(hindiWa, contains("मिश्रित भुगतान"));
-      expect(hindiWa, contains("रोकड़ा:* ₹500"));
-      expect(hindiWa, contains("ऑनलाइन:* ₹200"));
+      expect(hindiWa, contains("रोकड़ा:* ₹ 500"));
+      expect(hindiWa, contains("ऑनलाइन:* ₹ 200"));
 
       // English WhatsApp hybrid split
       final engWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.english);
