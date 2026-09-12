@@ -6123,8 +6123,8 @@ class _PosScreenState extends State<PosScreen> {
     }
   }
 
-  /// Save bill and directly share via WhatsApp (Bypass thermal paper print)
-  void _saveAndShareWhatsApp({ReceiptLanguage initialLanguage = ReceiptLanguage.hindi}) async {
+  /// Save bill and directly show bill preview with full interactive options (Bypass thermal paper print)
+  void _saveAndPreviewBill({ReceiptLanguage initialLanguage = ReceiptLanguage.hindi}) async {
     final savedBillRecord = await _saveBillRecord();
     if (savedBillRecord == null) return;
 
@@ -6135,18 +6135,31 @@ class _PosScreenState extends State<PosScreen> {
 
     _showPosNotification(
       initialLanguage == ReceiptLanguage.hindi 
-          ? "Bill saved! Opening WhatsApp for Hindi bill..." 
-          : "Bill saved! Opening WhatsApp for English bill...",
+          ? "Bill saved! Previewing Hindi bill..." 
+          : "Bill saved! Previewing English bill...",
       color: const Color(0xFF166534),
-      icon: Icons.check_circle,
+      icon: Icons.receipt_long,
     );
 
-    // Open WhatsApp dialog with the chosen language preselected
-    PdfReceiptService.showWhatsAppPdfDialog(
+    // Directly open the interactive bill preview with full options (Print, WhatsApp, Share, Mantra)
+    PdfReceiptService.openPdfPreviewDialog(
       context: context,
       bill: savedBillRecord,
       initialLanguage: initialLanguage,
+      onThermalPrint: (lang) async {
+        await executeReprintThermalBill(
+          context: context,
+          bluetooth: bluetooth,
+          bill: savedBillRecord,
+          language: lang,
+        );
+      },
     );
+  }
+
+  /// Backward compatibility alias
+  void _saveAndShareWhatsApp({ReceiptLanguage initialLanguage = ReceiptLanguage.hindi}) {
+    _saveAndPreviewBill(initialLanguage: initialLanguage);
   }
 
   /// Save bill and print Hindi thermal receipt
@@ -7447,7 +7460,7 @@ class _PosScreenState extends State<PosScreen> {
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                   elevation: 2,
                                 ),
-                                onPressed: () => _saveAndShareWhatsApp(initialLanguage: ReceiptLanguage.hindi),
+                                onPressed: () => _saveAndPreviewBill(initialLanguage: ReceiptLanguage.hindi),
                               ),
                             ),
                             const SizedBox(width: 10),
@@ -7464,7 +7477,7 @@ class _PosScreenState extends State<PosScreen> {
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                   elevation: 2,
                                 ),
-                                onPressed: () => _saveAndShareWhatsApp(initialLanguage: ReceiptLanguage.english),
+                                onPressed: () => _saveAndPreviewBill(initialLanguage: ReceiptLanguage.english),
                               ),
                             ),
                           ],

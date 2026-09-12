@@ -2397,7 +2397,7 @@ class PdfReceiptService {
     );
   }
 
-  /// Open local interactive vector PDF preview screen inside the app with bilingual toggle
+  /// Open local interactive vector PDF preview screen inside the app with bilingual toggle and full options
   static void openPdfPreviewDialog({
     required BuildContext context,
     required Map<String, dynamic> bill,
@@ -2407,6 +2407,7 @@ class PdfReceiptService {
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
     final String safeBillNo = billNo.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
     ReceiptLanguage selectedLanguage = initialLanguage;
+    int previewKeyCounter = 0;
 
     showDialog(
       context: context,
@@ -2414,18 +2415,19 @@ class PdfReceiptService {
         return StatefulBuilder(
           builder: (context, setPreviewState) {
             final isHindi = selectedLanguage == ReceiptLanguage.hindi;
+            final screenHeight = MediaQuery.of(context).size.height;
             return Dialog(
-              insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               clipBehavior: Clip.antiAlias,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 680, maxHeight: 820),
+                constraints: BoxConstraints(maxWidth: 720, maxHeight: screenHeight * 0.94),
                 child: Scaffold(
                   backgroundColor: Colors.white,
                   appBar: AppBar(
                     title: Text(
-                      "PDF Invoice - Bill #$billNo",
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                      "Bill #$billNo Preview",
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                     backgroundColor: const Color(0xFF111827),
                     iconTheme: const IconThemeData(color: Colors.white),
@@ -2494,25 +2496,7 @@ class PdfReceiptService {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      if (onThermalPrint != null)
-                        IconButton(
-                          icon: const Icon(Icons.print, color: Color(0xFF10B981)),
-                          tooltip: "Print to Bluetooth Thermal Printer",
-                          onPressed: () => onThermalPrint(selectedLanguage),
-                        ),
-                      IconButton(
-                        icon: const Icon(Icons.share, color: Color(0xFF25D366)),
-                        tooltip: "Send on WhatsApp",
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          showWhatsAppPdfDialog(
-                            context: context,
-                            bill: bill,
-                            initialLanguage: selectedLanguage,
-                          );
-                        },
-                      ),
+                      const SizedBox(width: 4),
                       IconButton(
                         icon: const Icon(Icons.close, color: Colors.white),
                         tooltip: "Close",
@@ -2521,7 +2505,7 @@ class PdfReceiptService {
                     ],
                   ),
                   body: PdfPreview(
-                    key: ValueKey(selectedLanguage),
+                    key: ValueKey("$selectedLanguage-$previewKeyCounter"),
                     build: (format) => generateReceiptPdf(
                       bill,
                       pageFormat: format,
@@ -2557,6 +2541,115 @@ class PdfReceiptService {
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Text("Error previewing PDF: $error", style: const TextStyle(color: Colors.red)),
+                      ),
+                    ),
+                  ),
+                  bottomNavigationBar: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 4,
+                          offset: const Offset(0, -2),
+                        ),
+                      ],
+                    ),
+                    child: SafeArea(
+                      child: Row(
+                        children: [
+                          if (onThermalPrint != null) ...[
+                            Expanded(
+                              flex: 3,
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.print, size: 16, color: Colors.white),
+                                label: const Text(
+                                  "Print",
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Colors.white),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF047857),
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                onPressed: () => onThermalPrint(selectedLanguage),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Expanded(
+                            flex: 3,
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.chat, size: 16, color: Colors.white),
+                              label: const Text(
+                                "WhatsApp",
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Colors.white),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF25D366),
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () {
+                                showWhatsAppPdfDialog(
+                                  context: context,
+                                  bill: bill,
+                                  initialLanguage: selectedLanguage,
+                                );
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            flex: 3,
+                            child: OutlinedButton.icon(
+                              icon: const Icon(Icons.share, size: 16, color: Color(0xFF2563EB)),
+                              label: const Text(
+                                "Share",
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Color(0xFF2563EB)),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                side: const BorderSide(color: Color(0xFF2563EB)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              onPressed: () {
+                                sharePdfBill(
+                                  context: context,
+                                  bill: bill,
+                                  language: selectedLanguage,
+                                  forceSystemShare: true,
+                                );
+                              },
+                            ),
+                          ),
+                          if (isHindi) ...[
+                            const SizedBox(width: 6),
+                            IconButton(
+                              icon: const Icon(Icons.temple_hindu, color: Color(0xFFEA580C), size: 22),
+                              tooltip: "Change Bhagwan Mantra",
+                              style: IconButton.styleFrom(
+                                backgroundColor: const Color(0xFFFFF7ED),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  side: const BorderSide(color: Color(0xFFFDBA74)),
+                                ),
+                              ),
+                              onPressed: () {
+                                showMantraSelectionDialog(
+                                  context: context,
+                                  currentMantra: currentInvocation,
+                                  onSelected: (newMantra) {
+                                    setPreviewState(() {
+                                      previewKeyCounter++;
+                                    });
+                                  },
+                                );
+                              },
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ),

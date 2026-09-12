@@ -879,6 +879,81 @@ void main() {
       expect(find.text('Inventory & Stock (Add Items)'), findsOneWidget);
       expect(find.text('Upcoming Festivals (Stock)'), findsOneWidget);
     });
+
+    testWidgets('openPdfPreviewDialog directly shows PDF preview with options instead of WhatsApp number entry prompt', (WidgetTester tester) async {
+      final sampleBill = {
+        'bill_number': 'LK-9988',
+        'staff_name': 'Admin',
+        'counter_name': 'Counter 1',
+        'total_amount': 250.0,
+        'payment_method': 'Cash',
+        'amount_tendered': 300.0,
+        'change_due': 50.0,
+        'created_at': DateTime.now().toUtc().toIso8601String(),
+        'items_json': [
+          {
+            'rawItemCode': '8901030732585',
+            'itemName': 'Lakme Eyeconic Kajal',
+            'qty': '1',
+            'rate': '190',
+            'price': '190',
+          },
+          {
+            'rawItemCode': 'OTHER-BANGLES',
+            'itemName': 'Other (Bangles)',
+            'qty': '1',
+            'rate': '60',
+            'price': '60',
+          }
+        ],
+      };
+
+      bool printCallbackCalled = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (ctx) => ElevatedButton(
+                onPressed: () => PdfReceiptService.openPdfPreviewDialog(
+                  context: ctx,
+                  bill: sampleBill,
+                  initialLanguage: ReceiptLanguage.hindi,
+                  onThermalPrint: (lang) async {
+                    printCallbackCalled = true;
+                  },
+                ),
+                child: const Text('OPEN PREVIEW'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('OPEN PREVIEW'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // 1. Verify bill preview dialog is displayed directly
+      expect(find.text("Bill #LK-9988 Preview"), findsOneWidget);
+
+      // 2. Verify WhatsApp number entry prompt is NOT shown!
+      expect(find.text("Customer Mobile (WhatsApp):"), findsNothing);
+      expect(find.text("10-digit mobile (e.g. 9812345678)"), findsNothing);
+
+      // 3. Verify options are directly present: Language switches, Print, WhatsApp, Share, Mantra
+      expect(find.text("🇮🇳 हिन्दी"), findsOneWidget);
+      expect(find.text("🇬🇧 English"), findsOneWidget);
+      expect(find.text("Print"), findsOneWidget);
+      expect(find.text("WhatsApp"), findsOneWidget);
+      expect(find.text("Share"), findsOneWidget);
+      expect(find.byIcon(Icons.temple_hindu), findsOneWidget);
+
+      // 4. Test thermal print option trigger
+      await tester.tap(find.text("Print"));
+      await tester.pump();
+      expect(printCallbackCalled, isTrue);
+    });
   });
 }
 
