@@ -220,7 +220,7 @@ class PdfReceiptService {
         // Store Titles (Hindi & English)
         pw.Center(
           child: pw.Text(
-            _fixDevanagari("लव कुश शॉपिंग सेंटर"),
+            _fixDevanagari("लव कुश शॉपिङ्ग सेण्टर"),
             style: pw.TextStyle(
               fontSize: 13,
               fontWeight: pw.FontWeight.bold,
