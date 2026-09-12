@@ -441,40 +441,31 @@ class PdfReceiptService {
         // Tithi (Panchang & English), Koshapala, Payment Mode
         pw.SizedBox(height: 4),
         if (language == ReceiptLanguage.hindi) ...[
+          pw.Text(
+            _fixDevanagari("पञ्चाङ्ग तिथि: ${_formatPanchangTithi(billDate)}"),
+            style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
+          ),
+          pw.SizedBox(height: 1.5),
           pw.Row(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              pw.Expanded(
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      _fixDevanagari("पञ्चाङ्ग तिथि: ${_formatPanchangTithi(billDate)}"),
-                      style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
-                    ),
-                    pw.SizedBox(height: 1),
-                    pw.Text(
-                      _fixDevanagari("आङ्ग्ल तिथि: $formattedDate"),
-                      style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
-                    ),
-                  ],
-                ),
+              pw.Text(
+                _fixDevanagari("आङ्ग्ल तिथि: $formattedDate"),
+                style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
               ),
-              pw.SizedBox(width: 6),
-              pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.end,
-                children: [
-                  pw.Text(
-                    _fixDevanagari("कोषपाल: $staffName"),
-                    style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
-                  ),
-                  pw.SizedBox(height: 1),
-                  pw.Text(
-                    _fixDevanagari("भुगतान: ${_paymentModeSanskrit(paymentMethod)}"),
-                    style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
-                  ),
-                ],
+              pw.Text(
+                _fixDevanagari("कोषपाल: $staffName"),
+                style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 1.5),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                _fixDevanagari("भुगतान विधि: ${_paymentModeSanskrit(paymentMethod)}"),
+                style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
               ),
             ],
           ),
