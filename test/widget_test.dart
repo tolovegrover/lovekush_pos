@@ -190,9 +190,9 @@ void main() {
       expect(msg, contains("Lakme Eyeconic Kajal"));
       expect(msg, contains("Ponds Cold Cream"));
       expect(msg, contains("सकल देय राशि: ₹410.00"));
-      expect(msg, contains("पञ्चाङ्ग तिथि:"));
+      expect(msg, contains("पञ्चाङ्ग:"));
       expect(msg, contains("प्रहर"));
-      expect(msg, contains("आङ्ग्ल तिथि:"));
+      expect(msg, contains("दिनाङ्क व समय:"));
       expect(msg, contains("कोषपाल:"));
       expect(msg, contains("सधन्यवाद! पुनः पधारें!"));
     });
@@ -302,9 +302,9 @@ void main() {
       expect(hindiMsg, contains("*बीजक सङ्ख्या:* ल.कु.-बी.आई.-२०२६"));
       expect(hindiMsg, contains("Lakme Absolute Kajal")); // Item name in English
       expect(hindiMsg, contains("Pond's White Beauty Cream")); // Item name in English
-      expect(hindiMsg, contains("पञ्चाङ्ग तिथि:"));
+      expect(hindiMsg, contains("पञ्चाङ्ग:"));
       expect(hindiMsg, contains("प्रहर"));
-      expect(hindiMsg, contains("आङ्ग्ल तिथि:"));
+      expect(hindiMsg, contains("दिनाङ्क व समय:"));
       expect(hindiMsg, contains("कोषपाल:"));
       expect(hindiMsg, contains("सकल देय राशि: ₹550.00"));
       expect(hindiMsg, contains("सधन्यवाद! पुनः पधारें!"));
@@ -402,13 +402,14 @@ void main() {
         ],
       };
 
-      // Check WhatsApp formatting for Bhadrapada, Shukla Dwitiya, Samvat 2083, Shanivasar, Tritiya Prahar (Madhyahna)
+      // Check WhatsApp formatting for Bhadrapada, Shukla Pratipada (Udayatithi), Samvat 2083, Shanivasar, Tritiya Prahar
       final hindiWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.hindi);
       expect(hindiWa, contains("भाद्रपद"));
-      expect(hindiWa, contains("शुक्ल द्वितीया"));
-      expect(hindiWa, contains("संवत् २०८३"));
-      expect(hindiWa, contains("शनिवार"));
-      expect(hindiWa, contains("तृतीय प्रहर (मध्याह्न)"));
+      expect(hindiWa, contains("शुक्ल प्रतिपदा"));
+      expect(hindiWa, contains("२०८३ विक्रम संवत्"));
+      expect(hindiWa, contains("शनिवासर"));
+      expect(hindiWa, contains("सितम्बर 12, 2026"));
+      expect(hindiWa, contains("तृतीय प्रहर"));
       expect(hindiWa, contains("मिश्रित भुगतान"));
       expect(hindiWa, contains("रोकड़ा"));
 
@@ -416,7 +417,9 @@ void main() {
       final dt = PdfReceiptService.parseIndianStandardTime('2026-09-12T07:43:00Z'); // 07:43 UTC = 13:13 IST
       expect(dt.hour, 13);
       expect(dt.minute, 13);
-      expect(PdfReceiptService.getPaharName(dt), "तृतीय प्रहर (मध्याह्न)");
+      expect(PdfReceiptService.getPaharName(dt), "तृतीय प्रहर");
+      expect(PdfReceiptService.getVedicVaarName(dt), "शनिवासर");
+      expect(PdfReceiptService.formatVedicDateAndTimeString(dt), "शनिवासर, सितम्बर 12, 2026 | 13:13");
     });
   });
 }

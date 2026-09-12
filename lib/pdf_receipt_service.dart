@@ -479,6 +479,7 @@ class PdfReceiptService {
   }
 
   /// Calculate traditional Hindu Panchang Tithi for any given bill DateTime
+  /// Computes authentic Udayatithi (tithi prevailing at sunrise in New Delhi, ~06:04 IST)
   static String _formatPanchangTithi(DateTime dt) {
     const tithiNames = [
       "प्रतिपदा", "द्वितीया", "तृतीया", "चतुर्थी", "पञ्चमी",
@@ -495,16 +496,17 @@ class PdfReceiptService {
       "मार्गशीर्ष", "पौष", "माघ", "फाल्गुन"
     ];
 
-    const vaarNames = [
-      "सोमवार", "मङ्गलवार", "बुधवार", "गुरुवार", "शुक्रवार", "शनिवार", "रविवार"
-    ];
-
     try {
-      // dt is in Indian Standard Time (IST). Subtract 5:30 to get celestial UTC moment:
-      final utc = dt.subtract(const Duration(hours: 5, minutes: 30));
-      int y = utc.year;
-      int m = utc.month;
-      final double d = utc.day + (utc.hour + utc.minute / 60.0 + utc.second / 3600.0) / 24.0;
+      // In Vedic Jyotish & Panchang (New Delhi), the day's civil tithi is determined by Udayatithi (Sunrise ~06:04 IST = 00:34 UTC)
+      // If time is before sunrise, it belongs to the previous day's sunrise
+      final DateTime sunriseDt = (dt.hour < 6)
+          ? dt.subtract(const Duration(days: 1))
+          : dt;
+
+      int y = sunriseDt.year;
+      int m = sunriseDt.month;
+      // Sunrise at ~06:04 IST = 00:34 UTC
+      final double d = sunriseDt.day + (0.0 + 34.0 / 60.0) / 24.0;
       if (m <= 2) {
         y -= 1;
         m += 12;
@@ -549,34 +551,32 @@ class PdfReceiptService {
       final int masaIndex = (rashi + 1) % 12;
       final String masa = masaNames[masaIndex];
 
-      int samvat = dt.year + 57;
-      if (dt.month < 3 || (dt.month == 3 && dt.day < 20)) {
+      int samvat = sunriseDt.year + 57;
+      if (sunriseDt.month < 3 || (sunriseDt.month == 3 && sunriseDt.day < 20)) {
         samvat -= 1;
       }
 
-      final int weekdayIndex = dt.weekday - 1;
-      final String vaar = vaarNames[weekdayIndex % 7];
       final String pahar = getPaharName(dt);
 
-      return "$masa $paksha $tithi, संवत् ${toDevanagariDigits(samvat)} ($vaar, $pahar)";
+      return "$masa, $paksha $tithi, ${toDevanagariDigits(samvat)} विक्रम संवत् ($pahar)";
     } catch (_) {
       return "तिथि पञ्चाङ्ग";
     }
   }
 
   /// Traditional Indian Pahar (प्रहर) of the day based on 8 prahars of day/night (in IST)
-  static String getPaharName(DateTime dt) {
+  static String getPaharName(DateTime dt, {bool verbose = false}) {
     final hour = dt.hour;
     if (hour >= 6 && hour < 9) {
-      return "प्रथम प्रहर (प्रातः)";
+      return verbose ? "प्रथम प्रहर (प्रातः)" : "प्रथम प्रहर";
     } else if (hour >= 9 && hour < 12) {
-      return "द्वितीय प्रहर (पूर्वाह्न)";
+      return verbose ? "द्वितीय प्रहर (पूर्वाह्न)" : "द्वितीय प्रहर";
     } else if (hour >= 12 && hour < 15) {
-      return "तृतीय प्रहर (मध्याह्न)";
+      return verbose ? "तृतीय प्रहर (मध्याह्न)" : "तृतीय प्रहर";
     } else if (hour >= 15 && hour < 18) {
-      return "चतुर्थ प्रहर (अपराह्न)";
+      return verbose ? "चतुर्थ प्रहर (अपराह्न)" : "चतुर्थ प्रहर";
     } else if (hour >= 18 && hour < 21) {
-      return "सायं प्रहर (प्रदोष)";
+      return verbose ? "सायं प्रहर (प्रदोष)" : "सायं प्रहर";
     } else if (hour >= 21 && hour < 24) {
       return "निशीथ प्रहर";
     } else if (hour >= 0 && hour < 3) {
@@ -584,6 +584,57 @@ class PdfReceiptService {
     } else {
       return "ब्रह्ममुहूर्त प्रहर";
     }
+  }
+
+  /// Format authentic Vedic Vaar based on sunrise-to-sunrise (अहोरात्र) Vedic day cycle
+  /// Classical Sanskrit/Vedic names: शनिवासर, रविवासर, सोमवासर, etc.
+  static String getVedicVaarName(DateTime dt) {
+    // In Vedic Jyotish, the day begins at Sunrise (~06:00 IST in New Delhi)
+    final int effectiveWeekday = dt.hour < 6
+        ? (dt.weekday - 2 + 7) % 7 + 1
+        : dt.weekday;
+
+    const vedicVaars = [
+      "सोमवासर", // Mon (1)
+      "भौमवासर", // Tue (2)
+      "बुधवासर", // Wed (3)
+      "गुरुवासर", // Thu (4)
+      "शुक्रवासर", // Fri (5)
+      "शनिवासर", // Sat (6)
+      "रविवासर", // Sun (7)
+    ];
+    return vedicVaars[(effectiveWeekday - 1) % 7];
+  }
+
+  /// Format Gregorian date and time in Hindi with authentic Vedic Vaar in a single clean line
+  /// Example: "शनिवासर, सितम्बर 12, 2026 | 13:27"
+  static String formatVedicDateAndTimeString(DateTime dt) {
+    const hindiMonths = [
+      "जनवरी", "फरवरी", "मार्च", "अप्रैल", "मई", "जून",
+      "जुलाई", "अगस्त", "सितम्बर", "अक्टूबर", "नवम्बर", "दिसम्बर"
+    ];
+    final String vaar = getVedicVaarName(dt);
+    final String monthName = hindiMonths[dt.month - 1];
+    final String timeStr =
+        "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    return "$vaar, $monthName ${dt.day}, ${dt.year} | $timeStr";
+  }
+
+  /// Format dynamic Gregorian date and time in English in a single clean line
+  /// Example: "Saturday, September 12, 2026 | 13:27"
+  static String formatEnglishDateAndTimeString(DateTime dt) {
+    const englishDays = [
+      "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+    ];
+    const englishMonths = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+    final String dayName = englishDays[(dt.weekday - 1) % 7];
+    final String monthName = englishMonths[dt.month - 1];
+    final String timeStr =
+        "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}";
+    return "$dayName, $monthName ${dt.day}, ${dt.year} | $timeStr";
   }
 
   /// Format bill number string in Devanagari script for Hindi receipts
@@ -867,7 +918,7 @@ class PdfReceiptService {
         pw.SizedBox(height: 4),
         if (language == ReceiptLanguage.hindi) ...[
           pw.Text(
-            _fixDevanagari("पञ्चाङ्ग तिथि: ${_formatPanchangTithi(billDate)}"),
+            _fixDevanagari("पञ्चाङ्ग: ${_formatPanchangTithi(billDate)}"),
             style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
           ),
           pw.SizedBox(height: 1.5),
@@ -875,11 +926,7 @@ class PdfReceiptService {
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
               pw.Text(
-                _fixDevanagari("आङ्ग्ल तिथि: $formattedDate"),
-                style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
-              ),
-              pw.Text(
-                _fixDevanagari("कोषपाल: $staffName"),
+                _fixDevanagari("दिनाङ्क व समय: ${formatVedicDateAndTimeString(billDate)}"),
                 style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
               ),
             ],
@@ -888,6 +935,10 @@ class PdfReceiptService {
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
+              pw.Text(
+                _fixDevanagari("कोषपाल: $staffName"),
+                style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
+              ),
               pw.Text(
                 _fixDevanagari("भुगतान विधि: ${_paymentModeSanskrit(paymentMethod)}"),
                 style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
@@ -898,14 +949,18 @@ class PdfReceiptService {
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              pw.Text("Date: $formattedDate", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black)),
-              pw.Text("Cashier: $staffName", style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black)),
+              pw.Text(
+                "Date & Time: ${formatEnglishDateAndTimeString(billDate)}",
+                style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black),
+              ),
             ],
           ),
+          pw.SizedBox(height: 1.5),
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              pw.Text("Payment: ${paymentMethod.toUpperCase()}", style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
+              pw.Text("Cashier: $staffName", style: const pw.TextStyle(fontSize: 7.2, color: PdfColors.black)),
+              pw.Text("Payment: ${paymentMethod.toUpperCase()}", style: pw.TextStyle(fontSize: 7.2, fontWeight: pw.FontWeight.bold, color: PdfColors.black)),
             ],
           ),
         ],
@@ -1160,8 +1215,8 @@ class PdfReceiptService {
       buffer.writeln("📍 *पता:* ए-२/३९२, सुभाष कंसल मार्ग, हर्ष विहार, दिल्ली - ११००९३");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("📋 *बीजक सङ्ख्या:* ${formatBillNumberHindi(billNo)}");
-      buffer.writeln("🗓️ *पञ्चाङ्ग तिथि:* ${_formatPanchangTithi(billDate)}");
-      buffer.writeln("📅 *आङ्ग्ल तिथि:* $formattedDate");
+      buffer.writeln("🗓️ *पञ्चाङ्ग:* ${_formatPanchangTithi(billDate)}");
+      buffer.writeln("📅 *दिनाङ्क व समय:* ${formatVedicDateAndTimeString(billDate)}");
       buffer.writeln("👤 *कोषपाल:* $staffName");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("*वस्तु सूची:*");
@@ -1189,7 +1244,7 @@ class PdfReceiptService {
       buffer.writeln("📍 *Address:* A-2/392, Subhash Kansal Marg, Harsh Vihar, Delhi - 110093");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("📋 *Bill No:* $billNo");
-      buffer.writeln("📅 *Date:* $formattedDate");
+      buffer.writeln("📅 *Date & Time:* ${formatEnglishDateAndTimeString(billDate)}");
       buffer.writeln("👤 *Cashier:* $staffName");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("*Items Purchased:*");
