@@ -7,6 +7,7 @@ import 'package:flutter/services.dart' show rootBundle, Clipboard, ClipboardData
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ==========================================
@@ -20,6 +21,166 @@ enum ReceiptLanguage {
 }
 
 class PdfReceiptService {
+  static const String defaultInvocation = "࿗ ॐ श्री महालक्ष्म्यै नमः ࿗";
+  static const String prefKeyMantra = 'receipt_invocation_mantra';
+
+  /// Currently configured auspicious invocation mantra
+  static String currentInvocation = defaultInvocation;
+
+  /// Curated authentic Sanskrit Mangalacharan Mantras for shopkeeper selection
+  static const List<Map<String, String>> presetMantras = [
+    {
+      'id': 'mahalakshmi',
+      'deity': 'श्री महालक्ष्मी',
+      'title': 'श्री महालक्ष्मी (धन-वैभव व व्यापार)',
+      'occasion': 'दुकान व व्यापार समृद्धि, नित्य पूजन',
+      'mantra': '࿗ ॐ श्री महालक्ष्म्यै नमः ࿗',
+    },
+    {
+      'id': 'durga',
+      'deity': 'माँ दुर्गा',
+      'title': 'माँ दुर्गा (शक्ति व रक्षा)',
+      'occasion': 'दुर्गा भक्त, नवरात्रि, सर्वबाधा निवारण',
+      'mantra': '࿗ ॐ दुं दुर्गायै नमः ࿗',
+    },
+    {
+      'id': 'krishna',
+      'deity': 'श्री कृष्ण',
+      'title': 'श्री कृष्ण (प्रेम व भक्ति)',
+      'occasion': 'जन्माष्टमी, कृष्ण भक्त, आनन्द',
+      'mantra': '࿗ ॐ श्रीकृष्णाय नमः ࿗',
+    },
+    {
+      'id': 'vasudeva',
+      'deity': 'भगवान विष्णु',
+      'title': 'भगवान विष्णु (वासुदेव)',
+      'occasion': 'एकादशी, सत्यनारायण पूजन, शान्ति',
+      'mantra': '࿗ ॐ नमो भगवते वासुदेवाय ࿗',
+    },
+    {
+      'id': 'ganesha',
+      'deity': 'श्री गणेश',
+      'title': 'श्री गणेश (विघ्नहर्ता व शुभ-लाभ)',
+      'occasion': 'गणेशोत्सव, कार्य सिद्धि, शुभ मुहूर्त',
+      'mantra': '࿗ ॐ श्री गणेशाय नमः ࿗',
+    },
+    {
+      'id': 'ram',
+      'deity': 'श्री राम',
+      'title': 'श्री राम (मर्यादा व धर्म)',
+      'occasion': 'रामनवमी, दीपोत्सव, विजय',
+      'mantra': '࿗ जय श्री राम ࿗',
+    },
+    {
+      'id': 'hanuman',
+      'deity': 'श्री हनुमान',
+      'title': 'श्री हनुमान (संकटमोचन व बल)',
+      'occasion': 'हनुमान जयन्ती, मंगलवार/शनिवार, निर्भयता',
+      'mantra': '࿗ ॐ श्री हनुमते नमः ࿗',
+    },
+    {
+      'id': 'shiva',
+      'deity': 'भगवान शिव',
+      'title': 'भगवान शिव (महादेव व कल्याण)',
+      'occasion': 'महाशिवरात्रि, सावन मास, कल्याण',
+      'mantra': '࿗ ॐ नमः शिवाय ࿗',
+    },
+    {
+      'id': 'radheshyam',
+      'deity': 'राधे-श्याम',
+      'title': 'राधे-श्याम (युगल सरकार)',
+      'occasion': 'राधाष्टमी, ब्रज भक्ति, मधुरता',
+      'mantra': '࿗ ॐ श्री राधेश्यामाय नमः ࿗',
+    },
+    {
+      'id': 'saraswati',
+      'deity': 'माँ सरस्वती',
+      'title': 'माँ सरस्वती (विद्या व ज्ञान)',
+      'occasion': 'वसन्त पञ्चमी, कला व विद्या वृद्धि',
+      'mantra': '࿗ ॐ ऐं सरस्वत्यै नमः ࿗',
+    },
+    {
+      'id': 'surya',
+      'deity': 'भगवान सूर्य',
+      'title': 'भगवान सूर्य (आरोग्य व तेज)',
+      'occasion': 'रविवार, छठ पर्व, आरोग्यता व यश',
+      'mantra': '࿗ ॐ सूर्याय नमः ࿗',
+    },
+    {
+      'id': 'gayatri',
+      'deity': 'गायत्री मन्त्र',
+      'title': 'गायत्री मन्त्र (सद्बुद्धि व तेज)',
+      'occasion': 'नित्य सन्ध्या वंदन, आत्मशुद्धि',
+      'mantra': '࿗ ॐ भूर्भुवः स्वः ࿗',
+    },
+  ];
+
+  static const String randomMantraKey = '__RANDOM_MANTRA__';
+
+  /// Ensure text is enclosed in authentic 4-dotted Sathiya (࿗)
+  static String ensureSathiya(String text) {
+    String clean = text.trim();
+    if (clean.isEmpty) return defaultInvocation;
+    clean = clean.replaceAll("卐", "\u0FD7");
+    if (!clean.startsWith("\u0FD7")) {
+      clean = "\u0FD7 $clean";
+    }
+    if (!clean.endsWith("\u0FD7")) {
+      clean = "$clean \u0FD7";
+    }
+    return clean;
+  }
+
+  /// Returns a freshly selected random mantra from the authentic Vedic/Pauranic collection
+  static String getRandomMantra() {
+    final rand = math.Random();
+    final item = presetMantras[rand.nextInt(presetMantras.length)];
+    return ensureSathiya(item['mantra']!);
+  }
+
+  /// Resolve the active invocation for bill generation (evaluates random mode dynamically)
+  static String resolveActiveInvocation([String? explicitInvocation]) {
+    final candidate = explicitInvocation ?? currentInvocation;
+    if (candidate == randomMantraKey) {
+      return getRandomMantra();
+    }
+    return ensureSathiya(candidate);
+  }
+
+  /// Load the persistent invocation mantra from storage
+  static Future<String> loadSavedInvocation() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(prefKeyMantra);
+      if (saved != null && saved.trim().isNotEmpty) {
+        if (saved == randomMantraKey) {
+          currentInvocation = randomMantraKey;
+        } else {
+          currentInvocation = ensureSathiya(saved);
+        }
+      }
+    } catch (_) {}
+    return currentInvocation;
+  }
+
+  /// Save selected invocation mantra
+  static Future<void> saveInvocation(String mantra) async {
+    if (mantra == randomMantraKey) {
+      currentInvocation = randomMantraKey;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(prefKeyMantra, randomMantraKey);
+      } catch (_) {}
+      return;
+    }
+    final sanitized = ensureSathiya(mantra);
+    currentInvocation = sanitized;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(prefKeyMantra, sanitized);
+    } catch (_) {}
+  }
+
   static pw.Font? _cachedSiddhantaCalcutta;
   static pw.Font? _cachedHindiRegular;
   static pw.Font? _cachedHindiBold;
@@ -31,8 +192,8 @@ class PdfReceiptService {
       if (_cachedHindiRegular != null) fallbacks.add(_cachedHindiRegular!);
       if (_cachedHindiBold != null) fallbacks.add(_cachedHindiBold!);
       return pw.ThemeData.withFont(
-        base: pw.Font.helvetica(),
-        bold: pw.Font.helveticaBold(),
+        base: _cachedSiddhantaCalcutta ?? pw.Font.helvetica(),
+        bold: _cachedSiddhantaCalcutta ?? pw.Font.helveticaBold(),
         fontFallback: fallbacks,
       );
     }
@@ -91,24 +252,178 @@ class PdfReceiptService {
 
     if (fallbacks.isNotEmpty) {
       return pw.ThemeData.withFont(
-        base: pw.Font.helvetica(),
-        bold: pw.Font.helveticaBold(),
+        base: _cachedSiddhantaCalcutta ?? pw.Font.helvetica(),
+        bold: _cachedSiddhantaCalcutta ?? pw.Font.helveticaBold(),
         fontFallback: fallbacks,
       );
     }
     return pw.ThemeData.base();
   }
 
-  /// Format Devanagari text for dart_pdf rendering by reordering Chhoti-Ee (U+093F)
-  /// before preceding consonant clusters so it displays in the visually correct order.
+  /// Format Devanagari text for authentic Calcutta-style ligatures and compound letters
+  /// in Siddhanta Calcutta font. Substitutes conjuncts (e.g. ङ्ग, ण्ट, क्त, प्त, द्ध, त्र, श्र,
+  /// ष्ट, ष्ठ, ञ्च, श्व, श्च, स्त, etc.), half-consonants without halants, repha (र्), and
+  /// reorders Chhoti-Ee (U+093F) to produce authentic classical typography without uncompounded letters.
   static String _fixDevanagari(String text) {
     if (text.isEmpty) return text;
-    // Map standard Swastika / Satiya to Unicode U+0FD7 (Right-facing Svasti with 4 dots)
-    String result = text.replaceAll("卐", "\u0FD7");
-    // Pre-composed classical conjunct for Shri in Siddhanta Calcutta font (\uF37D = श्र)
-    result = result.replaceAll("श्री", "\uF37D\u0940");
-    final exp = RegExp(r'((?:[\u0915-\u0939\u0958-\u095F][\u094D])*[\u0915-\u0939\u0958-\u095F])[\u093F]');
-    return result.replaceAllMapped(exp, (m) => '\u093F${m.group(1)}');
+
+    // 1. Map Vedic 4-dot Sathiya
+    String res = text.replaceAll("卐", "\u0FD7");
+
+    // 2. High-priority whole-phrase and complex conjunct replacements
+    const Map<String, String> phraseLigatures = {
+      // Shri
+      "श्री": "\uF37D\u0940",
+      "श्र": "\uF37D",
+      // Mahalakshmi & Lakshmi
+      "महालक्ष्म्यै": "महाल\uF35E\uF350यै",
+      "लक्ष्म्यै": "ल\uF35E\uF350यै",
+      "लक्ष्मीः": "ल\uF35Eमीः",
+      "लक्ष्मी": "ल\uF35Eमी",
+      // Krishna & Vishnu
+      "कृष्णाय": "क\u0943\uF35Aणाय",
+      "कृष्ण": "क\u0943\uF35Aण",
+      "विष्णुपत्नी": "वि\uF35Aणुप\uF4B1नी",
+      "विष्णु": "वि\uF35Aणु",
+      "विद्महे": "वि\uF48Cहे",
+      "प्रचोदयात्": "\uF374चोदया\uF346",
+      "तत्सवितुर्वरेण्यं": "\uF444सवितुव\u093E\uF306रेण्यं",
+      "भगवते": "भगवते",
+      "वासुदेवाय": "वासुदेवाय",
+      "दुर्गायै": "दुगा\uF306यै",
+      "दुर्गा": "दुगा\uF306",
+      "सूर्याय": "सूया\uF306य",
+      "सूर्य": "सूय\uF306",
+      "सरस्वत्यै": "सर\uF35Bव\uF346यै",
+      "सरस्वती": "सर\uF35Bवती",
+      "स्वः": "\uF35Bवः",
+      "स्व": "\uF35Bव",
+      "स्म": "\uF35Bम",
+      "हर्ष": "हष\uF306",
+      "मार्ग": "माग\uF306",
+      "पर्ची": "पची\uF306",
+      "ङ्ग्ल": "\uF59F\uF5F5",
+    };
+
+    for (final entry in phraseLigatures.entries) {
+      res = res.replaceAll(entry.key, entry.value);
+    }
+
+    // 3. Calcutta-style stacked conjuncts & authentic classical 2-consonant ligatures
+    const Map<String, String> conjunctMap = {
+      // Stacked Calcutta conjuncts for Nga (ङ् + consonant)
+      "ङ्ग": "\uF59F\uF5EB",
+      "ङ्क": "\uF59F\uF5BA",
+      "ङ्ख": "\uF59F\uF5E6",
+      "ङ्घ": "\uF59F\uF5F7",
+      // Authentic Calcutta conjuncts for Na (ण् + consonant)
+      "ण्ट": "\uF345\u091F",
+      "ण्ठ": "\uF345\u0920",
+      "ण्ड": "\uF345\u0921",
+      "ण्ढ": "\uF345\u0922",
+      "ण्ण": "\uF442",
+      // Classical fused 2-consonant ligatures
+      "क्त": "\uF3FF",
+      "प्त": "\uF4B1",
+      "त्त": "\uF444",
+      "द्ध": "\uF469",
+      "द्य": "\uF48E",
+      "द्व": "\uF493",
+      "द्म": "\uF48C",
+      "द्ब": "\uF47C",
+      "द्भ": "\uF480",
+      "ष्ट": "\uF4E7",
+      "ष्ठ": "\uF4E8",
+      "ञ्च": "\uF433",
+      "ञ्ज": "\uF437",
+      "श्च": "\uF4DD",
+      "श्व": "\uF4E5",
+      "श्न": "\uF4E0",
+      "श्ल": "\uF4E1",
+      "न्त": "\uF4A4",
+      "न्त्र": "\uF4A7",
+      "न्न": "\uF4AB",
+      "क्ष": "\uF106",
+      "ज्ञ": "\uF339",
+      "त्र": "\uF36E",
+      "प्र": "\uF374",
+      "क्र": "\uF363",
+      "ग्र": "\uF365",
+      "घ्र": "\uF366",
+      "द्र": "\uF370",
+      "ध्र": "\uF371",
+      "ब्र": "\uF376",
+      "भ्र": "\uF377",
+      "म्र": "\uF379",
+      "व्र": "\uF37C",
+      "स्र": "\uF37F",
+      "ह्र": "\uF380",
+      "ल्ल": "\uF4D5",
+      "ग्ध": "\uF5ED",
+      "ग्न": "\uF414",
+      "त्न": "\uF449",
+      "त्व": "\uF44A",
+      "स्न": "\uF4F5",
+      "क्न": "\uF407",
+      "क्म": "\uF409",
+      "क्ल": "\uF40D",
+      "क्व": "\uF411",
+      "ज्ज": "\uF429",
+      "च्च": "\uF41A",
+      "म्ब": "\uF4CE",
+      "म्ल": "\uF4CF",
+      "ह्ल": "\uF500",
+      "ह्न": "\uF4F8",
+      "ह्म": "\uF4FB",
+      "ह्य": "\uF4FD",
+      "ह्व": "\uF6D1",
+    };
+
+    for (final entry in conjunctMap.entries) {
+      res = res.replaceAll(entry.key, entry.value);
+    }
+
+    // 4. Half consonants without halants (seamless ligature appearance)
+    const Map<String, String> halfConsonants = {
+      "क्": "\uF33A",
+      "ख्": "\uF33B",
+      "ग्": "\uF33C",
+      "घ्": "\uF33D",
+      "च्": "\uF33E",
+      "ज्": "\uF33F",
+      "झ्": "\uF340",
+      "ञ्": "\uF343",
+      "ण्": "\uF345",
+      "त्": "\uF346",
+      "थ्": "\uF347",
+      "ध्": "\uF348",
+      "न्": "\uF34A",
+      "प्": "\uF34B",
+      "फ्": "\uF34C",
+      "ब्": "\uF34D",
+      "भ्": "\uF34E",
+      "म्": "\uF350",
+      "य्": "\uF351",
+      "ल्": "\uF353",
+      "व्": "\uF356",
+      "श्": "\uF358",
+      "ष्": "\uF35A",
+      "स्": "\uF35B",
+    };
+
+    for (final entry in halfConsonants.entries) {
+      res = res.replaceAll(entry.key, entry.value);
+    }
+
+    // 5. Repha: र् followed by consonant (+ matras) -> moves repha glyph \uF306 after the consonant and vowel matras
+    final rephaExp = RegExp(r'र्([\u0915-\u0939\uF100-\uF8FF][\u093E\u0940-\u094C\u0902]*)');
+    res = res.replaceAllMapped(rephaExp, (m) => '${m.group(1)}\uF306');
+
+    // 6. Chhoti-Ee (\u093F) visual reordering before preceding consonant cluster/ligature
+    final eeExp = RegExp(r'((?:[\uF33A-\uF35F]|[\uF100-\uF8FF])*[\u0915-\u0939\uF100-\uF8FF])[\u093F]');
+    res = res.replaceAllMapped(eeExp, (m) => '\u093F${m.group(1)}');
+
+    return res;
   }
 
   /// Convert standard Arabic numerals into authentic Devanagari digits (e.g. 2083 -> २०८३)
@@ -258,7 +573,14 @@ class PdfReceiptService {
     Uint8List? logoBytes,
     PdfPageFormat? pageFormat,
     ReceiptLanguage language = ReceiptLanguage.hindi,
+    String? invocation,
   }) async {
+    final String candidateInvocation = invocation ??
+        (bill['invocation_mantra']?.toString().trim().isNotEmpty == true
+            ? bill['invocation_mantra'].toString().trim()
+            : currentInvocation);
+    final String effectiveInvocation = resolveActiveInvocation(candidateInvocation);
+
     final theme = await _loadTheme();
     final doc = pw.Document(theme: theme);
 
@@ -337,7 +659,7 @@ class PdfReceiptService {
         if (language == ReceiptLanguage.hindi) ...[
           pw.Center(
             child: pw.Text(
-              _fixDevanagari("࿗ ॐ श्री महालक्ष्म्यै नमः ࿗"),
+              _fixDevanagari(effectiveInvocation),
               style: pw.TextStyle(
                 fontSize: 9.5,
                 fontWeight: pw.FontWeight.bold,
@@ -366,7 +688,18 @@ class PdfReceiptService {
               ),
             ),
           ),
-          pw.SizedBox(height: 1),
+          pw.SizedBox(height: 2),
+          pw.Center(
+            child: pw.Text(
+              _fixDevanagari("ए-२/३९२, सुभाष कंसल मार्ग, हर्ष विहार, दिल्ली - ११००९३"),
+              style: pw.TextStyle(
+                fontSize: 6.8,
+                fontWeight: pw.FontWeight.normal,
+                color: PdfColors.grey800,
+              ),
+            ),
+          ),
+          pw.SizedBox(height: 2),
           pw.Center(
             child: pw.Text(
               _fixDevanagari("*** खुदरा रोकड़ पर्ची ***"),
@@ -398,7 +731,18 @@ class PdfReceiptService {
               ),
             ),
           ),
-          pw.SizedBox(height: 1),
+          pw.SizedBox(height: 2),
+          pw.Center(
+            child: pw.Text(
+              "A-2/392, Subhash Kansal Marg, Harsh Vihar, Delhi - 110093",
+              style: pw.TextStyle(
+                fontSize: 6.8,
+                fontWeight: pw.FontWeight.normal,
+                color: PdfColors.grey800,
+              ),
+            ),
+          ),
+          pw.SizedBox(height: 2),
           pw.Center(
             child: pw.Text(
               "*** RETAIL CASH MEMO ***",
@@ -754,7 +1098,14 @@ class PdfReceiptService {
   static String formatWhatsAppBillMessage(
     Map<String, dynamic> bill, {
     ReceiptLanguage language = ReceiptLanguage.hindi,
+    String? invocation,
   }) {
+    final String candidateInvocation = invocation ??
+        (bill['invocation_mantra']?.toString().trim().isNotEmpty == true
+            ? bill['invocation_mantra'].toString().trim()
+            : currentInvocation);
+    final String effectiveInvocation = resolveActiveInvocation(candidateInvocation);
+
     final String billNo = (bill['bill_number'] ?? "N/A").toString();
     final double totalAmount = _toDouble(bill['total_amount']);
     final String paymentMethod = (bill['payment_method'] ?? "Cash").toString();
@@ -773,9 +1124,10 @@ class PdfReceiptService {
     final StringBuffer buffer = StringBuffer();
 
     if (language == ReceiptLanguage.hindi) {
-      buffer.writeln("࿗ ॐ श्री महालक्ष्म्यै नमः ࿗");
+      buffer.writeln(effectiveInvocation);
       buffer.writeln("🧾 *लव कुश शॉपिङ्ग सेण्टर*");
       buffer.writeln("   *LOVE KUSH SHOPPING CENTER*");
+      buffer.writeln("📍 *पता:* ए-२/३९२, सुभाष कंसल मार्ग, हर्ष विहार, दिल्ली - ११००९३");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("📋 *बीजक सं. (Bill No):* $billNo");
       buffer.writeln("🗓️ *पञ्चाङ्ग तिथि:* ${_formatPanchangTithi(billDate)}");
@@ -808,6 +1160,7 @@ class PdfReceiptService {
       buffer.writeln("🌿 _डिजिटल पीडीएफ बीजक संलग्न है (Digital PDF Bill attached)._");
     } else {
       buffer.writeln("🧾 *LOVE KUSH SHOPPING CENTER*");
+      buffer.writeln("📍 *Address:* A-2/392, Subhash Kansal Marg, Harsh Vihar, Delhi - 110093");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("📋 *Bill No:* $billNo");
       buffer.writeln("📅 *Date:* $formattedDate");
@@ -860,11 +1213,12 @@ class PdfReceiptService {
     required Map<String, dynamic> bill,
     String? phone,
     ReceiptLanguage language = ReceiptLanguage.hindi,
+    String? invocation,
   }) async {
     try {
       final String billNo = (bill['bill_number'] ?? "N/A").toString();
       final String safeBillNo = billNo.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-      final pdfBytes = await generateReceiptPdf(bill, language: language);
+      final pdfBytes = await generateReceiptPdf(bill, language: language, invocation: invocation);
       final double totalAmount = _toDouble(bill['total_amount']);
       final langTag = language == ReceiptLanguage.hindi ? "Hindi" : "English";
 
@@ -902,19 +1256,20 @@ class PdfReceiptService {
     required Map<String, dynamic> bill,
     String? phone,
     ReceiptLanguage language = ReceiptLanguage.hindi,
+    String? invocation,
   }) async {
     try {
-      final String messageText = formatWhatsAppBillMessage(bill, language: language);
+      final String messageText = formatWhatsAppBillMessage(bill, language: language, invocation: invocation);
       final cleanPhone = phone != null ? sanitizeIndianPhoneNumber(phone) : null;
 
       if (cleanPhone != null) {
         final waUri = Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encodeComponent(messageText)}");
         final launched = await launchUrl(waUri, mode: LaunchMode.externalApplication);
         if (!launched) {
-          await sharePdfBill(context: context, bill: bill, phone: phone, language: language);
+          await sharePdfBill(context: context, bill: bill, phone: phone, language: language, invocation: invocation);
         }
       } else {
-        await sharePdfBill(context: context, bill: bill, language: language);
+        await sharePdfBill(context: context, bill: bill, language: language, invocation: invocation);
       }
     } catch (e) {
       if (context.mounted) {
@@ -932,6 +1287,301 @@ class PdfReceiptService {
     String? phone,
     ReceiptLanguage language = ReceiptLanguage.hindi,
   }) => sharePdfBill(context: context, bill: bill, phone: phone, language: language);
+
+  /// Show dialog to select from 10+ preset auspicious Sanskrit mantras or enter a custom one
+  static void showMantraSelectionDialog({
+    required BuildContext context,
+    String? currentMantra,
+    Function(String selectedMantra)? onSelected,
+  }) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        String activeMantra = currentMantra ?? currentInvocation;
+        final TextEditingController customCtrl = TextEditingController();
+
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              titlePadding: const EdgeInsets.fromLTRB(20, 18, 16, 8),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              title: Row(
+                children: [
+                  const Icon(Icons.auto_awesome, color: Color(0xFFEA580C), size: 24),
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "मंगलाचरण मन्त्र चुनें",
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                        ),
+                        Text(
+                          "Select Auspicious Invocation Mantra for Receipts",
+                          style: TextStyle(fontSize: 11, color: Colors.black54),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.black54, size: 20),
+                    onPressed: () => Navigator.pop(dialogCtx),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 520,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Random Mantra Option (Automatic shuffle on every bill)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFEF3C7), Color(0xFFFDE68A)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: activeMantra == randomMantraKey ? const Color(0xFFD97706) : Colors.amber.shade400,
+                            width: activeMantra == randomMantraKey ? 2 : 1,
+                          ),
+                        ),
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          leading: Radio<String>(
+                            value: randomMantraKey,
+                            groupValue: activeMantra,
+                            activeColor: const Color(0xFFB45309),
+                            onChanged: (val) async {
+                              if (val != null) {
+                                await saveInvocation(val);
+                                setDialogState(() => activeMantra = val);
+                                onSelected?.call(val);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("🎲 यादृच्छिक मन्त्र सक्रिय! प्रत्येक बिल पर नया पावन मन्त्र मुद्रित होगा।"),
+                                      backgroundColor: Color(0xFF047857),
+                                      duration: Duration(seconds: 2),
+                                    ),
+                                  );
+                                  Navigator.pop(dialogCtx);
+                                }
+                              }
+                            },
+                          ),
+                          title: const Row(
+                            children: [
+                              Icon(Icons.shuffle_rounded, size: 18, color: Color(0xFF92400E)),
+                              SizedBox(width: 6),
+                              Text(
+                                "दैनिक / यादृच्छिक मन्त्र (Random Mantra)",
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: Color(0xFF78350F)),
+                              ),
+                            ],
+                          ),
+                          subtitle: const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Text(
+                              "प्रत्येक बिल पर स्वतः नया पावन मन्त्र (श्री कृष्ण, दुर्गा माँ, महालक्ष्मी, शिव, गणेश, राम आदि)",
+                              style: TextStyle(fontSize: 11, color: Color(0xFF92400E)),
+                            ),
+                          ),
+                          onTap: () async {
+                            await saveInvocation(randomMantraKey);
+                            setDialogState(() => activeMantra = randomMantraKey);
+                            onSelected?.call(randomMantraKey);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text("🎲 यादृच्छिक मन्त्र सक्रिय! प्रत्येक बिल पर नया पावन मन्त्र मुद्रित होगा।"),
+                                  backgroundColor: Color(0xFF047857),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                              Navigator.pop(dialogCtx);
+                            }
+                          },
+                        ),
+                      ),
+
+                      // Preset Mantras List
+                      ...presetMantras.map((m) {
+                        final mantraText = m['mantra']!;
+                        final isSelected = activeMantra == mantraText;
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected ? const Color(0xFFFFF7ED) : Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isSelected ? const Color(0xFFF97316) : Colors.grey.shade300,
+                              width: isSelected ? 1.8 : 1,
+                            ),
+                          ),
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            leading: Radio<String>(
+                              value: mantraText,
+                              groupValue: activeMantra,
+                              activeColor: const Color(0xFFEA580C),
+                              onChanged: (val) async {
+                                if (val != null) {
+                                  await saveInvocation(val);
+                                  setDialogState(() => activeMantra = val);
+                                  onSelected?.call(val);
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text("मन्त्र अद्यतन: $val"),
+                                        backgroundColor: const Color(0xFF047857),
+                                        duration: const Duration(seconds: 2),
+                                      ),
+                                    );
+                                    Navigator.pop(dialogCtx);
+                                  }
+                                }
+                              },
+                            ),
+                            title: Text(
+                              mantraText,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: isSelected ? const Color(0xFF9A3412) : Colors.black87,
+                              ),
+                            ),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                "${m['title']} • ${m['occasion']}",
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isSelected ? const Color(0xFFC2410C) : Colors.black54,
+                                ),
+                              ),
+                            ),
+                            onTap: () async {
+                              await saveInvocation(mantraText);
+                              setDialogState(() => activeMantra = mantraText);
+                              onSelected?.call(mantraText);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text("मन्त्र अद्यतन: $mantraText"),
+                                    backgroundColor: const Color(0xFF047857),
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                                Navigator.pop(dialogCtx);
+                              }
+                            },
+                          ),
+                        );
+                      }).toList(),
+
+                      const Divider(height: 20),
+
+                      // Custom Mantra Section
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.blueGrey.shade200),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.edit_note, color: Colors.blueAccent, size: 20),
+                                SizedBox(width: 6),
+                                Text(
+                                  "अपनी पसंद का मन्त्र लिखें (Custom Mantra):",
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              "साँथिया (࿗) स्वतः आगे व पीछे जोड़ दिया जाएगा। (e.g. ॐ दुं दुर्गायै नमः)",
+                              style: TextStyle(fontSize: 11, color: Colors.black54),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: customCtrl,
+                                    decoration: InputDecoration(
+                                      hintText: "उदा. ॐ दुं दुर्गायै नमः",
+                                      isDense: true,
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFEA580C),
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  onPressed: () async {
+                                    final text = customCtrl.text.trim();
+                                    if (text.isNotEmpty) {
+                                      final customMantra = ensureSathiya(text);
+                                      await saveInvocation(customMantra);
+                                      setDialogState(() => activeMantra = customMantra);
+                                      onSelected?.call(customMantra);
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(
+                                            content: Text("कस्टम मन्त्र सेट किया: $customMantra"),
+                                            backgroundColor: const Color(0xFF047857),
+                                            duration: const Duration(seconds: 2),
+                                          ),
+                                        );
+                                        Navigator.pop(dialogCtx);
+                                      }
+                                    }
+                                  },
+                                  child: const Text("लागू करें", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text("रद्द करें (Cancel)", style: TextStyle(color: Colors.black54)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 
   /// Show interactive WhatsApp & PDF options dialog with bilingual switcher
   static void showWhatsAppPdfDialog({
@@ -1103,7 +1753,56 @@ class PdfReceiptService {
                           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                         ),
                       ),
-                      const SizedBox(height: 16),
+                      // Mangalacharan Mantra Selector Bar (Shows active mantra / random badge)
+                      if (isHindi) ...[
+                        InkWell(
+                          onTap: () {
+                            showMantraSelectionDialog(
+                              context: context,
+                              currentMantra: currentInvocation,
+                              onSelected: (newMantra) {
+                                setDialogState(() {});
+                              },
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF7ED),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFFFDBA74)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.temple_hindu, size: 16, color: Color(0xFFEA580C)),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    currentInvocation == randomMantraKey
+                                        ? "🎲 यादृच्छिक मन्त्र (Random Mantra on Every Bill)"
+                                        : currentInvocation,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF9A3412),
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                const Text(
+                                  "बदलें",
+                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFEA580C)),
+                                ),
+                                const Icon(Icons.chevron_right, size: 16, color: Color(0xFFEA580C)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
 
                       // Action Button 1: Send PDF Bill on WhatsApp (Primary)
                       ElevatedButton.icon(

@@ -6527,6 +6527,8 @@ Future<void> executeReprintThermalBill({
     await bluetooth.printNewLine();
     await bluetooth.printCustom("LOVE KUSH", 3, 1);
     await bluetooth.printCustom("SHOPPING CENTER", 2, 1);
+    await bluetooth.printCustom("A-2/392, Subhash Kansal Marg,", 1, 1);
+    await bluetooth.printCustom("Harsh Vihar, Delhi - 110093", 1, 1);
     if (counterName.isNotEmpty && !counterName.toLowerCase().contains("basement")) {
       await bluetooth.printCustom(counterName.toUpperCase(), 1, 1);
     }
@@ -6688,6 +6690,12 @@ void showReceiptPreviewDialog({
                         const Text(
                           "LOVE KUSH SHOPPING CENTER",
                           style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87, letterSpacing: 0.8),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 3),
+                        const Text(
+                          "A-2/392, Subhash Kansal Marg, Harsh Vihar, Delhi - 110093",
+                          style: TextStyle(fontSize: 11, color: Colors.black54),
                           textAlign: TextAlign.center,
                         ),
                         if (counterName.isNotEmpty && !counterName.toLowerCase().contains("basement")) ...[

@@ -323,5 +323,35 @@ void main() {
       expect(hindiPdfBytes[0], 0x25); // %
       expect(hindiPdfBytes[1], 0x50); // P
     });
+
+    test('PdfReceiptService supports Random Mantra mode and authentic store address', () async {
+      final sampleBill = {
+        'bill_number': 'LK-RND-108',
+        'staff_name': 'Love Kush',
+        'total_amount': 250.0,
+        'payment_method': 'UPI',
+        'items_json': [
+          {'itemName': 'Lakme Absolute Lip Color', 'qty': 1, 'rate': 250.0, 'total': 250.0},
+        ],
+      };
+
+      // 1. Address is present in Hindi WhatsApp bill
+      final hindiWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.hindi);
+      expect(hindiWa, contains("ए-२/३९२, सुभाष कंसल मार्ग, हर्ष विहार, दिल्ली - ११००९३"));
+
+      // 2. Address is present in English WhatsApp bill
+      final engWa = PdfReceiptService.formatWhatsAppBillMessage(sampleBill, language: ReceiptLanguage.english);
+      expect(engWa, contains("A-2/392, Subhash Kansal Marg, Harsh Vihar, Delhi - 110093"));
+
+      // 3. Random Mantra mode resolves dynamically
+      final resolvedMantra = PdfReceiptService.resolveActiveInvocation(PdfReceiptService.randomMantraKey);
+      expect(resolvedMantra, startsWith("\u0FD7"));
+      expect(resolvedMantra, endsWith("\u0FD7"));
+      expect(resolvedMantra.length, greaterThan(5));
+
+      // 4. Multiple invocations return authentic preset mantras
+      final sampleMantras = List.generate(10, (_) => PdfReceiptService.resolveActiveInvocation(PdfReceiptService.randomMantraKey));
+      expect(sampleMantras.every((m) => m.contains("\u0FD7")), isTrue);
+    });
   });
 }
