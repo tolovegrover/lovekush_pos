@@ -954,6 +954,56 @@ void main() {
       await tester.pump();
       expect(printCallbackCalled, isTrue);
     });
+
+    testWidgets('PosScreen unbarcoded item allows instant naming via SET NAME button and in-cart Name button without slowing down process', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: PosScreen(userName: "Admin", userEmail: "admin@lovekush.com", isAdmin: true),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final state = tester.state(find.byType(PosScreen)) as dynamic;
+      state.setState(() {
+        state.rate = "200";
+        state.qty = "1";
+      });
+      await tester.pump();
+
+      // Open unbarcoded sheet
+      await tester.tap(find.text("+ Other (No Barcode)"));
+      await tester.pumpAndSettle();
+
+      // Tap Bangles to add instantly
+      await tester.tap(find.text("Bangles"));
+      await tester.pumpAndSettle();
+
+      // Verify item was added immediately
+      expect(state.cart.isNotEmpty, isTrue);
+      expect(state.cart.first['itemName'], "Other (Bangles)");
+
+      // Verify top notification banner displays "SET NAME" action
+      expect(find.text("SET NAME"), findsOneWidget);
+
+      // Tap "SET NAME"
+      await tester.tap(find.text("SET NAME"));
+      await tester.pumpAndSettle();
+
+      // Dialog opens
+      expect(find.text("Set Name for Bangles"), findsOneWidget);
+      await tester.enterText(find.byType(TextField).last, "Red Glass Bangles 2.4");
+      await tester.pump();
+
+      // Tap "Save Name"
+      await tester.tap(find.text("Save Name"));
+      await tester.pumpAndSettle();
+
+      // Verify cart item name is updated
+      expect(state.cart.first['itemName'], "Red Glass Bangles 2.4");
+
+      // Verify cart tile has dedicated "Name" edit button
+      expect(find.text("Name"), findsOneWidget);
+    });
   });
 }
 

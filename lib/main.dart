@@ -4952,6 +4952,7 @@ class _PosScreenState extends State<PosScreen> {
     final rateCtrl = TextEditingController(
       text: currentRate > 0 ? (currentRate % 1 == 0 ? currentRate.toInt().toString() : currentRate.toString()) : "",
     );
+    final nameCtrl = TextEditingController();
     final qtyVal = qty.isEmpty ? "1" : qty;
 
     showModalBottomSheet(
@@ -5031,7 +5032,20 @@ class _PosScreenState extends State<PosScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
+                // Optional Name Entry (Does not decrease speed: can be left empty!)
+                TextField(
+                  controller: nameCtrl,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: "Item Name (Optional - or tap category below to add instantly)",
+                    hintText: "e.g. Glass Bangles 2.4, Register 200pg...",
+                    prefixIcon: Icon(Icons.edit_note, size: 20),
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 14),
                 const Text(
                   "Select Category:",
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
@@ -5090,8 +5104,14 @@ class _PosScreenState extends State<PosScreen> {
                           );
                           return;
                         }
+                        final customName = nameCtrl.text.trim();
                         Navigator.pop(sheetCtx);
-                        _addUnbarcodedItemToCart(cat, enteredRate, qtyVal);
+                        _addUnbarcodedItemToCart(
+                          cat,
+                          enteredRate,
+                          qtyVal,
+                          customName: customName.isNotEmpty ? customName : null,
+                        );
                       },
                     );
                   }).toList(),
@@ -5105,8 +5125,10 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
-  void _addUnbarcodedItemToCart(String category, double itemRate, String itemQty) {
-    final name = "Other ($category)";
+  void _addUnbarcodedItemToCart(String category, double itemRate, String itemQty, {String? customName}) {
+    final name = (customName != null && customName.trim().isNotEmpty)
+        ? customName.trim()
+        : "Other ($category)";
     final code = "OTHER-${category.toUpperCase().replaceAll(' ', '_')}";
     final qNum = double.tryParse(itemQty) ?? 1.0;
     final total = (qNum * itemRate).round().toString();
@@ -5133,12 +5155,134 @@ class _PosScreenState extends State<PosScreen> {
       focusedField = 0;
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("Added '$name' (₹$rateStr) to cart"),
-        backgroundColor: const Color(0xFF10B981),
-        duration: const Duration(seconds: 2),
+    // Non-blocking top notification with instant option to set/edit item name
+    _showPosNotification(
+      "Added '$name' (₹$rateStr)",
+      color: const Color(0xFF10B981),
+      icon: Icons.add_shopping_cart,
+      duration: const Duration(seconds: 6),
+      action: TextButton.icon(
+        icon: const Icon(Icons.edit, color: Colors.amberAccent, size: 14),
+        label: const Text(
+          "SET NAME",
+          style: TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 11),
+        ),
+        style: TextButton.styleFrom(
+          backgroundColor: Colors.white12,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        onPressed: () {
+          posTopNotificationTimer?.cancel();
+          setState(() => posTopNotification = null);
+          _showRenameCartItemDialog(0);
+        },
       ),
+    );
+  }
+
+  void _showRenameCartItemDialog(int index) {
+    if (index < 0 || index >= cart.length) return;
+    final item = cart[index];
+    final currentName = (item["itemName"] ?? item["item"] ?? "").toString().split("\n").first;
+    final nameCtrl = TextEditingController(
+      text: currentName.startsWith("Other (") ? "" : currentName,
+    );
+    final rawCode = (item["rawItemCode"] ?? "").toString();
+
+    String? category;
+    if (rawCode.startsWith("OTHER-")) {
+      final catPart = rawCode.replaceFirst("OTHER-", "").replaceAll("_", " ");
+      for (var c in unbarcodedShopCategories) {
+        if (c.toUpperCase() == catPart.toUpperCase()) {
+          category = c;
+          break;
+        }
+      }
+    }
+
+    showDialog(
+      context: context,
+      builder: (dCtx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.edit_note, color: Color(0xFF2563EB)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  category != null ? "Set Name for $category" : "Rename Item",
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "Current: $currentName",
+                style: const TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameCtrl,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                decoration: InputDecoration(
+                  labelText: "Specific Item Name",
+                  hintText: category != null ? "e.g. Red $category 2.4" : "Enter item name",
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Icons.label_outline),
+                ),
+                onSubmitted: (val) {
+                  _applyItemName(index, val, rawCode);
+                  Navigator.pop(dCtx);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dCtx),
+              child: const Text("Skip / Keep Current"),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2563EB),
+              ),
+              onPressed: () {
+                _applyItemName(index, nameCtrl.text.trim(), rawCode);
+                Navigator.pop(dCtx);
+              },
+              child: const Text("Save Name", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _applyItemName(int index, String newName, String rawCode) {
+    if (index < 0 || index >= cart.length) return;
+    if (newName.trim().isEmpty) return;
+
+    final trimmed = newName.trim();
+    setState(() {
+      cart[index]["itemName"] = trimmed;
+      cart[index]["item"] = rawCode.isNotEmpty && !rawCode.startsWith("OTHER-")
+          ? "$trimmed\n$rawCode"
+          : trimmed;
+    });
+
+    _showPosNotification(
+      "Item name set to '$trimmed'",
+      color: const Color(0xFF2563EB),
+      icon: Icons.check_circle,
+      duration: const Duration(seconds: 3),
     );
   }
 
@@ -6797,7 +6941,43 @@ class _PosScreenState extends State<PosScreen> {
                               ),
                               child: Text("${item["qty"]}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
                             ),
-                            title: Text(item["item"], style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: 1.1)),
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    item["item"],
+                                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, letterSpacing: 0.5),
+                                  ),
+                                ),
+                                if ((item["rawItemCode"] ?? "").toString().startsWith("OTHER-") ||
+                                    (item["itemName"] ?? "").toString().startsWith("Other (")) ...[
+                                  const SizedBox(width: 6),
+                                  InkWell(
+                                    onTap: () => _showRenameCartItemDialog(index),
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFEFF6FF),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: const Color(0xFF93C5FD)),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: const [
+                                          Icon(Icons.edit, size: 12, color: Color(0xFF2563EB)),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            "Name",
+                                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                             subtitle: Text("@ ₹${item["rate"]} (Tap to edit)", style: const TextStyle(fontSize: 13, color: Colors.black38, fontWeight: FontWeight.w500)),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
