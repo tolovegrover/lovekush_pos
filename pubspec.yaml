@@ -44,6 +44,10 @@ dependencies:
   mobile_scanner: ^7.4.0
   blue_thermal_printer: ^1.2.3
   supabase_flutter: ^2.17.2
+  pdf: ^3.13.0
+  printing: ^5.15.0
+  share_plus: ^13.3.0
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

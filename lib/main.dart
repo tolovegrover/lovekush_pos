@@ -16,6 +16,7 @@ import 'dart:convert';
 import 'dart:ui' as ui;
 import 'firebase_options.dart';
 import 'cosmetics_catalog.dart';
+import 'pdf_receipt_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -4879,10 +4880,23 @@ class _PosScreenState extends State<PosScreen> {
           await bluetooth.paperCut();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: const Text("Bill Saved & Printed!"),
-              duration: const Duration(seconds: 6),
+              content: Row(
+                children: [
+                  const Text("Bill Saved & Printed!"),
+                  const Spacer(),
+                  TextButton.icon(
+                    icon: const Icon(Icons.share, color: Color(0xFF25D366), size: 16),
+                    label: const Text("WHATSAPP", style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                      PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: savedBillRecord);
+                    },
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 8),
               action: SnackBarAction(
-                label: "REPRINT",
+                label: "PREVIEW",
                 textColor: Colors.amberAccent,
                 onPressed: () => _openReprintPreview(savedBillRecord),
               ),
@@ -4897,10 +4911,23 @@ class _PosScreenState extends State<PosScreen> {
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text("Bill Saved to Cloud Only"),
-          duration: const Duration(seconds: 6),
+          content: Row(
+            children: [
+              const Text("Bill Saved!"),
+              const Spacer(),
+              TextButton.icon(
+                icon: const Icon(Icons.share, color: Color(0xFF25D366), size: 16),
+                label: const Text("WHATSAPP PDF", style: TextStyle(color: Color(0xFF25D366), fontWeight: FontWeight.bold, fontSize: 13)),
+                onPressed: () {
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: savedBillRecord);
+                },
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 8),
           action: SnackBarAction(
-            label: "REPRINT",
+            label: "PREVIEW",
             textColor: Colors.amberAccent,
             onPressed: () => _openReprintPreview(savedBillRecord),
           ),
@@ -6881,12 +6908,27 @@ void showReceiptPreviewDialog({
                         child: const Text("CLOSE", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 8),
                     Expanded(
-                      flex: 2,
                       child: ElevatedButton.icon(
-                        icon: const Icon(Icons.print, color: Colors.white, size: 20),
-                        label: const Text("🖨️ PRINT COPY", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
+                        icon: const Icon(Icons.share, color: Colors.white, size: 16),
+                        label: const Text("📲 WHATSAPP", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF25D366),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(dialogContext);
+                          PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: bill);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.print, color: Colors.white, size: 16),
+                        label: const Text("🖨️ PRINT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF2563EB),
                           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -7347,16 +7389,29 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                               style: const TextStyle(color: Colors.black54, fontSize: 12),
                             ),
                             const SizedBox(height: 4),
-                            ElevatedButton.icon(
-                              icon: const Icon(Icons.print, size: 14, color: Colors.white),
-                              label: const Text("Reprint", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2563EB),
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                              onPressed: () => _showBillPreview(bill),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.share, size: 20, color: Color(0xFF25D366)),
+                                  tooltip: "WhatsApp / PDF",
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                  onPressed: () => PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: bill),
+                                ),
+                                const SizedBox(width: 4),
+                                ElevatedButton.icon(
+                                  icon: const Icon(Icons.print, size: 14, color: Colors.white),
+                                  label: const Text("Reprint", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2563EB),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () => _showBillPreview(bill),
+                                ),
+                              ],
                             ),
                           ],
                         ),
