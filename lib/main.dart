@@ -1252,8 +1252,6 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
   String searchQuery = "";
   String stockFilter = "all"; // 'all', 'low', 'out'
 
-  // Scanned items waiting for shelf assignment (never lost!)
-  List<Map<String, dynamic>> get pendingScannedItems => PendingItemsManager.items;
 
   // Last used code components for rapid sequential shelf entry
   static String _lastRack = "01";
@@ -2830,78 +2828,6 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
               ),
             ),
           ),
-          if (pendingScannedItems.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.fromLTRB(12, 6, 12, 10),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFFBEB),
-                border: Border.all(color: const Color(0xFFF59E0B)),
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.amber.withOpacity(0.12),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  )
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.pending_actions, color: Color(0xFFD97706), size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          "${pendingScannedItems.length} Scanned Item${pendingScannedItems.length > 1 ? 's' : ''} Ready to Assign Shelf",
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF92400E)),
-                        ),
-                      ),
-                      TextButton(
-                        style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero),
-                        onPressed: () => setState(() => PendingItemsManager.clear()),
-                        child: const Text("Clear All", style: TextStyle(color: Colors.grey, fontSize: 11)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    "Tap any item to assign its shelf number and save to shop stock:",
-                    style: TextStyle(fontSize: 11, color: Color(0xFFB45309)),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: pendingScannedItems.map((p) {
-                      final pBar = (p['barcode'] ?? '').toString();
-                      String displayName = cleanItemName(p['name']?.toString(), barcode: pBar);
-                      if (displayName.isEmpty) displayName = pBar;
-                      return ActionChip(
-                        backgroundColor: Colors.white,
-                        side: const BorderSide(color: Color(0xFFF59E0B)),
-                        avatar: const Icon(Icons.add_location_alt, size: 14, color: Color(0xFFD97706)),
-                        label: Text(
-                          "$displayName (₹${(p['price'] as num?)?.toInt() ?? 0})",
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF92400E)),
-                        ),
-                        onPressed: () {
-                          _showAddEditDialog(
-                            null,
-                            null,
-                            displayName == pBar ? "" : displayName,
-                            (p['price'] as num?)?.toDouble() ?? 0.0,
-                            pBar,
-                          );
-                        },
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            ),
           if (PendingRateChangesManager.items.isNotEmpty)
             Container(
               margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
