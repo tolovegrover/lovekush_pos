@@ -17,6 +17,9 @@ import 'dart:ui' as ui;
 import 'firebase_options.dart';
 import 'cosmetics_catalog.dart';
 import 'pdf_receipt_service.dart';
+import 'vedic_time_service.dart';
+import 'vedic_clock_screen.dart';
+import 'settings_screen.dart';
 import 'package:printing/printing.dart';
 
 void main() async {
@@ -5191,6 +5194,26 @@ class _PosScreenState extends State<PosScreen> {
 
             const Divider(),
             ListTile(
+              leading: const Icon(Icons.wb_sunny_rounded, color: Color(0xFFD97706)),
+              title: const Text('वैदिक समय (Vedic Clock)', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFB45309))),
+              subtitle: const Text('घटी • पल • विपल एवं पञ्चाङ्ग (Live & Converter)'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const VedicClockScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_outlined, color: Colors.black87),
+              title: const Text('सेटिंग्स (Settings)', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Store, receipt language & Vedic preferences'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+              },
+            ),
+
+            const Divider(),
+            ListTile(
               leading: const Icon(Icons.logout, color: Colors.redAccent),
               title: const Text('Logout', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
               onTap: () async {
@@ -5216,6 +5239,11 @@ class _PosScreenState extends State<PosScreen> {
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.black), 
         actions: [
+          IconButton(
+            tooltip: "वैदिक समय एवं पञ्चाङ्ग (Vedic Clock)",
+            icon: const Icon(Icons.wb_sunny_outlined, color: Color(0xFFD97706)),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VedicClockScreen())),
+          ),
           if (PendingItemsManager.items.isNotEmpty || PendingRateChangesManager.items.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(right: 6.0),
