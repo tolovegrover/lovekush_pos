@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart' show rootBundle, Clipboard, ClipboardData;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -356,8 +356,8 @@ class PdfReceiptService {
     return null;
   }
 
-  /// Launch WhatsApp chat directly or trigger native share sheet with PDF
-  static Future<void> shareBill({
+  /// Send PDF bill file directly via WhatsApp / system share sheet
+  static Future<void> sharePdfBill({
     required BuildContext context,
     required Map<String, dynamic> bill,
     String? phone,
@@ -366,47 +366,70 @@ class PdfReceiptService {
       final String billNo = (bill['bill_number'] ?? "N/A").toString();
       final String safeBillNo = billNo.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
       final pdfBytes = await generateReceiptPdf(bill);
-      final String messageText = formatWhatsAppBillMessage(bill);
+      final double totalAmount = _toDouble(bill['total_amount']);
 
       final cleanPhone = phone != null ? sanitizeIndianPhoneNumber(phone) : null;
-
       if (cleanPhone != null) {
-        // Open direct WhatsApp chat with customer
-        final waUri = Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encodeComponent(messageText)}");
-        final launched = await launchUrl(waUri, mode: LaunchMode.externalApplication);
-        if (!launched) {
-          // Fallback to general sharing
-          await Printing.sharePdf(
-            bytes: pdfBytes,
-            filename: "LoveKush_Bill_$safeBillNo.pdf",
-            subject: "Love Kush Shopping Center - Bill #$billNo",
+        await Clipboard.setData(ClipboardData(text: cleanPhone));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Phone +$cleanPhone copied! Select contact in WhatsApp to send PDF."),
+              duration: const Duration(seconds: 4),
+              backgroundColor: const Color(0xFF047857),
+            ),
           );
-        } else {
-          // In addition, prompt sharing PDF document directly
-          Future.delayed(const Duration(milliseconds: 700), () {
-            Printing.sharePdf(
-              bytes: pdfBytes,
-              filename: "LoveKush_Bill_$safeBillNo.pdf",
-              subject: "Love Kush Shopping Center - Bill #$billNo",
-            );
-          });
         }
-      } else {
-        // No phone provided: invoke native share sheet (user picks WhatsApp or any app)
-        await Printing.sharePdf(
-          bytes: pdfBytes,
-          filename: "LoveKush_Bill_$safeBillNo.pdf",
-          subject: "Love Kush Shopping Center - Bill #$billNo",
-        );
       }
+
+      await Printing.sharePdf(
+        bytes: pdfBytes,
+        filename: "LoveKush_Bill_$safeBillNo.pdf",
+        subject: "Love Kush Shopping Center - Bill #$billNo (₹${totalAmount.toStringAsFixed(2)})",
+      );
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Sharing error: $e"), backgroundColor: Colors.redAccent),
+          SnackBar(content: Text("PDF Share Error: $e"), backgroundColor: Colors.redAccent),
         );
       }
     }
   }
+
+  /// Send formatted text summary directly to customer's WhatsApp chat
+  static Future<void> sendWhatsAppTextMessage({
+    required BuildContext context,
+    required Map<String, dynamic> bill,
+    String? phone,
+  }) async {
+    try {
+      final String messageText = formatWhatsAppBillMessage(bill);
+      final cleanPhone = phone != null ? sanitizeIndianPhoneNumber(phone) : null;
+
+      if (cleanPhone != null) {
+        final waUri = Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encodeComponent(messageText)}");
+        final launched = await launchUrl(waUri, mode: LaunchMode.externalApplication);
+        if (!launched) {
+          await sharePdfBill(context: context, bill: bill, phone: phone);
+        }
+      } else {
+        await sharePdfBill(context: context, bill: bill);
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("WhatsApp Error: $e"), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
+  /// Default shareBill now defaults to sending the PDF document directly!
+  static Future<void> shareBill({
+    required BuildContext context,
+    required Map<String, dynamic> bill,
+    String? phone,
+  }) => sharePdfBill(context: context, bill: bill, phone: phone);
 
   /// Show interactive WhatsApp & PDF options dialog
   static void showWhatsAppPdfDialog({
@@ -497,12 +520,12 @@ class PdfReceiptService {
                   ),
                   const SizedBox(height: 18),
 
-                  // Action Button 1: Send on WhatsApp
+                  // Action Button 1: Send PDF Bill on WhatsApp (Primary)
                   ElevatedButton.icon(
-                    icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                    icon: const Icon(Icons.picture_as_pdf, color: Colors.white, size: 20),
                     label: const Text(
-                      "SEND VIA WHATSAPP",
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                      "SEND PDF BILL ON WHATSAPP",
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF25D366),
@@ -512,17 +535,37 @@ class PdfReceiptService {
                     onPressed: () {
                       final phone = phoneController.text.trim();
                       Navigator.pop(ctx);
-                      shareBill(context: context, bill: bill, phone: phone.isNotEmpty ? phone : null);
+                      sharePdfBill(context: context, bill: bill, phone: phone.isNotEmpty ? phone : null);
                     },
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
 
-                  // Action Button 2: Print or View PDF Directly
+                  // Action Button 2: Send Text Summary (Optional alternative)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.chat_bubble_outline, color: Color(0xFF047857), size: 17),
+                    label: const Text(
+                      "Send Text Summary Instead",
+                      style: TextStyle(color: Color(0xFF047857), fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      side: const BorderSide(color: Color(0xFF10B981)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: () {
+                      final phone = phoneController.text.trim();
+                      Navigator.pop(ctx);
+                      sendWhatsAppTextMessage(context: context, bill: bill, phone: phone.isNotEmpty ? phone : null);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Action Button 3: Print or View PDF Directly
                   Row(
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          icon: const Icon(Icons.picture_as_pdf, color: Color(0xFF2563EB), size: 18),
+                          icon: const Icon(Icons.visibility, color: Color(0xFF2563EB), size: 18),
                           label: const Text(
                             "PREVIEW PDF",
                             style: TextStyle(color: Color(0xFF2563EB), fontWeight: FontWeight.bold, fontSize: 13),
