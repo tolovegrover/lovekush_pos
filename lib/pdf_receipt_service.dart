@@ -303,6 +303,8 @@ class PdfReceiptService {
       "मार्ग": "माग\uF306",
       "पर्ची": "पची\uF306",
       "ङ्ग्ल": "\uF59F\uF5F5",
+      "सङ्ख्या": "स\uF59F\uF6FC\uF58F\u093E",
+      "संख्या": "स\uF59F\uF6FC\uF58F\u093E",
     };
 
     for (final entry in phraseLigatures.entries) {
@@ -412,7 +414,10 @@ class PdfReceiptService {
     };
 
     for (final entry in halfConsonants.entries) {
-      res = res.replaceAll(entry.key, entry.value);
+      // Lookahead: only replace with half-consonant if immediately followed by another consonant or PUA ligature.
+      // If at end of word or before whitespace/punctuation (e.g. संवत्, जगत्), it preserves full letter with halant!
+      final exp = RegExp("${RegExp.escape(entry.key)}(?=[\\u0915-\\u0939\\uF100-\\uF8FF])");
+      res = res.replaceAll(exp, entry.value);
     }
 
     // 5. Repha: र् followed by consonant (+ matras) -> moves repha glyph \uF306 after the consonant and vowel matras
@@ -453,7 +458,7 @@ class PdfReceiptService {
     ];
 
     const vaarNames = [
-      "सोमवासर", "मङ्गलवासर", "बुधवासर", "गुरुवासर", "शुक्रवासर", "शनिवासर", "रविवासर"
+      "सोमवार", "मङ्गलवार", "बुधवार", "गुरुवार", "शुक्रवार", "शनिवार", "रविवार"
     ];
 
     try {
@@ -522,9 +527,9 @@ class PdfReceiptService {
   /// Format payment method in classical Sanskritized Hindi
   static String _paymentModeSanskrit(String method) {
     final m = method.toLowerCase();
-    if (m.contains("cash")) return "नकद (रोका)";
-    if (m.contains("online") || m.contains("upi") || m.contains("gpay") || m.contains("paytm")) return "ऑनलाइन / UPI";
-    if (m.contains("card")) return "पत्रक (कार्ड)";
+    if (m.contains("cash")) return "रोकड़";
+    if (m.contains("online") || m.contains("upi") || m.contains("gpay") || m.contains("paytm")) return "ऑनलाइन (UPI)";
+    if (m.contains("card")) return "कार्ड";
     return method;
   }
 
@@ -761,7 +766,7 @@ class PdfReceiptService {
           pw.Center(
             child: pw.Text(
               language == ReceiptLanguage.hindi
-                  ? _fixDevanagari("बीजक सं. (BILL NO): $billNo")
+                  ? _fixDevanagari("बीजक सङ्ख्या: $billNo")
                   : "BILL NO: $billNo",
               style: pw.TextStyle(
                 fontSize: 9,
@@ -840,7 +845,7 @@ class PdfReceiptService {
               flex: 5,
               child: pw.Text(
                 language == ReceiptLanguage.hindi
-                    ? _fixDevanagari("वस्तु (ITEM)")
+                    ? _fixDevanagari("वस्तु विवरण")
                     : "ITEM",
                 style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
               ),
@@ -859,7 +864,7 @@ class PdfReceiptService {
               flex: 3,
               child: pw.Text(
                 language == ReceiptLanguage.hindi
-                    ? _fixDevanagari("राशि (AMOUNT)")
+                    ? _fixDevanagari("राशि")
                     : "AMOUNT",
                 textAlign: pw.TextAlign.right,
                 style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
@@ -886,12 +891,12 @@ class PdfReceiptService {
                     pw.SizedBox(width: 4),
                     pw.Expanded(
                       child: pw.Text(
-                        "${item.qty} x Rs ${item.rate.toStringAsFixed(2)}",
+                        "${item.qty} x ₹${item.rate.toStringAsFixed(2)}",
                         style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
                       ),
                     ),
                     pw.Text(
-                      "Rs ${item.lineTotal.toStringAsFixed(2)}",
+                      "₹${item.lineTotal.toStringAsFixed(2)}",
                       style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
                     ),
                   ],
@@ -910,7 +915,7 @@ class PdfReceiptService {
           children: [
             pw.Text(
               language == ReceiptLanguage.hindi
-                  ? _fixDevanagari("कुल वस्तुएँ: ${receiptItems.length} (सकल परिमाण: $totalQty)")
+                  ? _fixDevanagari("कुल वस्तुएँ: ${receiptItems.length} (सकल मात्रा: $totalQty)")
                   : "Total Items: ${receiptItems.length} (Qty: $totalQty)",
               style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
             ),
@@ -922,12 +927,12 @@ class PdfReceiptService {
           children: [
             pw.Text(
               language == ReceiptLanguage.hindi
-                  ? _fixDevanagari("सकल देय राशि (TOTAL):")
+                  ? _fixDevanagari("सकल देय राशि:")
                   : "TOTAL AMOUNT:",
               style: pw.TextStyle(fontSize: 10.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
             ),
             pw.Text(
-              "Rs ${totalAmount.toStringAsFixed(2)}",
+              "₹${totalAmount.toStringAsFixed(2)}",
               style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
             ),
           ],
@@ -944,7 +949,7 @@ class PdfReceiptService {
                 style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
               ),
               pw.Text(
-                "Rs ${amountTendered.toStringAsFixed(2)}",
+                "₹${amountTendered.toStringAsFixed(2)}",
                 style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.black),
               ),
             ],
@@ -960,7 +965,7 @@ class PdfReceiptService {
                   style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
                 ),
                 pw.Text(
-                  "Rs ${changeDue.toStringAsFixed(2)}",
+                  "₹${changeDue.toStringAsFixed(2)}",
                   style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
                 ),
               ],
@@ -988,13 +993,6 @@ class PdfReceiptService {
                   child: pw.Text(
                     _fixDevanagari("विक्रीत वस्तु की वापसी, धन-प्रतिदान अथवा विनिमय नहीं होगा।"),
                     style: const pw.TextStyle(fontSize: 6.8, color: PdfColors.black),
-                  ),
-                ),
-                pw.SizedBox(height: 1),
-                pw.Center(
-                  child: pw.Text(
-                    "(NO RETURN • NO REFUND • NO EXCHANGE)",
-                    style: const pw.TextStyle(fontSize: 6.5, color: PdfColors.grey800),
                   ),
                 ),
               ],
@@ -1129,12 +1127,12 @@ class PdfReceiptService {
       buffer.writeln("   *LOVE KUSH SHOPPING CENTER*");
       buffer.writeln("📍 *पता:* ए-२/३९२, सुभाष कंसल मार्ग, हर्ष विहार, दिल्ली - ११००९३");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("📋 *बीजक सं. (Bill No):* $billNo");
+      buffer.writeln("📋 *बीजक सङ्ख्या:* $billNo");
       buffer.writeln("🗓️ *पञ्चाङ्ग तिथि:* ${_formatPanchangTithi(billDate)}");
       buffer.writeln("📅 *आङ्ग्ल तिथि:* $formattedDate");
       buffer.writeln("👤 *कोषपाल:* $staffName");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("*वस्तु सूची (Items Purchased):*");
+      buffer.writeln("*वस्तु सूची:*");
 
       for (int i = 0; i < rawItems.length; i++) {
         final item = rawItems[i] is Map ? rawItems[i] as Map : {};
@@ -1148,16 +1146,15 @@ class PdfReceiptService {
       }
 
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
-      buffer.writeln("💰 *सकल देय राशि (GRAND TOTAL): ₹${totalAmount.toStringAsFixed(2)}*");
+      buffer.writeln("💰 *सकल देय राशि: ₹${totalAmount.toStringAsFixed(2)}*");
       buffer.writeln("💳 *भुगतान विधि:* ${_paymentModeSanskrit(paymentMethod)}");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("📌 *सूचना:*");
       buffer.writeln("• न वापसी • न प्रतिदान • न विनिमय");
       buffer.writeln("• विक्रीत वस्तु की वापसी, धन-प्रतिदान अथवा विनिमय नहीं होगा।");
-      buffer.writeln("  _(No Return • No Refund • No Exchange)_");
       buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
       buffer.writeln("🙏 *सधन्यवाद! पुनः पधारें!*");
-      buffer.writeln("🌿 _डिजिटल पीडीएफ बीजक संलग्न है (Digital PDF Bill attached)._");
+      buffer.writeln("🌿 _डिजिटल पीडीएफ बीजक संलग्न है।_");
     } else {
       buffer.writeln("🧾 *LOVE KUSH SHOPPING CENTER*");
       buffer.writeln("📍 *Address:* A-2/392, Subhash Kansal Marg, Harsh Vihar, Delhi - 110093");
