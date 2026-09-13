@@ -21,6 +21,8 @@ import 'vedic_time_service.dart';
 import 'vedic_clock_screen.dart';
 import 'settings_screen.dart';
 import 'voice_recognition_service.dart';
+import 'package:image_picker/image_picker.dart';
+import 'ai_counter_vision_service.dart';
 import 'package:printing/printing.dart';
 
 void main() async {
@@ -4948,6 +4950,136 @@ class _PosScreenState extends State<PosScreen> {
     });
   }
 
+  Future<void> _handleAiCounterScan({ImageSource source = ImageSource.camera}) async {
+    try {
+      final detectedItems = await AiCounterVisionService.pickAndAnalyzeCounterItems(
+        context,
+        source: source,
+      );
+
+      if (detectedItems != null && detectedItems.isNotEmpty) {
+        int addedCount = 0;
+        double addedSum = 0.0;
+
+        setState(() {
+          for (final item in detectedItems) {
+            final name = item.name.trim();
+            final catSuffix = item.category.isNotEmpty && item.category != "General"
+                ? "-${item.category.toUpperCase().replaceAll(' ', '_')}"
+                : "-ITEM";
+            final code = "OTHER$catSuffix";
+            final total = (item.qty * item.rate).round().toString();
+            final rateStr = item.rate % 1 == 0 ? item.rate.toInt().toString() : item.rate.toStringAsFixed(2);
+
+            cart.insert(0, {
+              "qty": item.qty.toString(),
+              "item": "$name\n$code",
+              "itemName": name,
+              "rawItemCode": code,
+              "item_code": code,
+              "rate": rateStr,
+              "price": total,
+            });
+            addedCount++;
+            addedSum += item.totalPrice;
+          }
+        });
+
+        _showPosNotification(
+          "Added $addedCount items (₹${addedSum % 1 == 0 ? addedSum.toInt() : addedSum.toStringAsFixed(2)}) from AI Bill!",
+          color: const Color(0xFF7C3AED),
+          icon: Icons.auto_awesome,
+          duration: const Duration(seconds: 5),
+        );
+      }
+    } catch (e) {
+      _showPosNotification(
+        "AI Scan Error: $e",
+        color: Colors.red,
+        icon: Icons.error_outline,
+      );
+    }
+  }
+
+  void _showAiScanOptionsSheet() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: const [
+                  Icon(Icons.auto_awesome, color: Color(0xFF7C3AED)),
+                  SizedBox(width: 8),
+                  Text(
+                    "AI Counter Bill Scanner",
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                "Instantly detects items on checkout counter (branded cosmetics, hair clutchers, safety pins, bangles, bindi, etc.) and calculates the bill!",
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
+              const SizedBox(height: 18),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: const Color(0xFFF5F3FF), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.camera_alt, color: Color(0xFF7C3AED)),
+                ),
+                title: const Text("Take Photo of Counter", style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text("Open camera to snap items laid on counter"),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _handleAiCounterScan(source: ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.photo_library, color: Color(0xFF2563EB)),
+                ),
+                title: const Text("Choose from Gallery", style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text("Select existing counter or receipt picture"),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _handleAiCounterScan(source: ImageSource.gallery);
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(8)),
+                  child: const Icon(Icons.key, color: Color(0xFFD97706)),
+                ),
+                title: const Text("Configure Gemini Free Key", style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text("Google AI Studio Free Tier (1,500 bills/day at ₹0)"),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  AiCounterVisionService.showApiKeySetupDialog(context);
+                },
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _showUnbarcodedCategoryPicker({double? initialRate}) {
     double currentRate = initialRate ?? (double.tryParse(rate) ?? 0.0);
     final rateCtrl = TextEditingController(
@@ -7214,6 +7346,11 @@ class _PosScreenState extends State<PosScreen> {
         iconTheme: const IconThemeData(color: Colors.black), 
         actions: [
           IconButton(
+            tooltip: "AI Counter Bill (Photo)",
+            icon: const Icon(Icons.auto_awesome, color: Color(0xFF7C3AED)),
+            onPressed: _showAiScanOptionsSheet,
+          ),
+          IconButton(
             tooltip: "Inventory & Add Items",
             icon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF2563EB)),
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: false))),
@@ -7656,23 +7793,70 @@ class _PosScreenState extends State<PosScreen> {
                                 ),
                               ),
                             ),
+                            const SizedBox(width: 6),
+                            InkWell(
+                              onTap: _showAiScanOptionsSheet,
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF5F3FF),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: const Color(0xFF7C3AED).withOpacity(0.5)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Icon(Icons.auto_awesome, size: 13, color: Color(0xFF7C3AED)),
+                                    SizedBox(width: 4),
+                                    Text("AI Bill", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6D28D9))),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ]
                           else
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFECFDF5),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: const Color(0xFF10B981)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: const [
-                                  Icon(Icons.bolt, size: 13, color: Color(0xFF059669)),
-                                  SizedBox(width: 4),
-                                  Text("Type ₹ & press + ADD", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
-                                ],
-                              ),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFECFDF5),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: const Color(0xFF10B981)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: const [
+                                      Icon(Icons.bolt, size: 13, color: Color(0xFF059669)),
+                                      SizedBox(width: 4),
+                                      Text("Type ₹ & press + ADD", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                InkWell(
+                                  onTap: _showAiScanOptionsSheet,
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF5F3FF),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: const Color(0xFF7C3AED).withOpacity(0.5)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: const [
+                                        Icon(Icons.auto_awesome, size: 13, color: Color(0xFF7C3AED)),
+                                        SizedBox(width: 4),
+                                        Text("AI Bill", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF6D28D9))),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           if (formattedItemCode.isNotEmpty) ...[
                             const SizedBox(width: 8),

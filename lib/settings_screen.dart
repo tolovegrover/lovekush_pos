@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'ai_counter_vision_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -145,7 +146,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // 2. STORE PROFILE
+                // 2. AI & SMART BILLING
+                const Padding(
+                  padding: EdgeInsets.only(left: 4, bottom: 8),
+                  child: Text(
+                    "AI & SMART BILLING",
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED), letterSpacing: 1.1),
+                  ),
+                ),
+                Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: Colors.grey.shade200),
+                  ),
+                  color: Colors.white,
+                  child: ListTile(
+                    leading: const Icon(Icons.auto_awesome, color: Color(0xFF7C3AED)),
+                    title: const Text(
+                      "AI Counter Bill Scanner (Gemini)",
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    subtitle: const Text("1,500 bills/day Free • Detects items, clutchers, safety pins, bangles & rates"),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => AiCounterVisionService.showApiKeySetupDialog(context),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // 3. STORE PROFILE
                 const Padding(
                   padding: EdgeInsets.only(left: 4, bottom: 8),
                   child: Text(
