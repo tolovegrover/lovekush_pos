@@ -353,53 +353,36 @@ class AiCounterVisionService {
   }) async {
     final base64Image = base64Encode(imageBytes);
 
-    // Fetch shop's learned visual price rules (confirmed by cashier on previous bills)
-    final priceMemory = await getShopPriceMemory();
-    String priceMemoryBlock = "";
-    if (priceMemory.isNotEmpty) {
-      final memoryList = priceMemory.entries
-          .take(60)
-          .map((e) => '- "${e.key}": ₹${e.value % 1 == 0 ? e.value.toInt() : e.value}')
-          .join("\n");
-      priceMemoryBlock = """
-
-4. STORE'S LEARNED PRICING RULES (PRIORITY STORE GROUNDING):
-Our store previously confirmed these selling prices for these item types:
-$memoryList
-When you visually detect an item matching or similar to these visual archetypes, apply this confirmed store rate and set "source": "learned".
-""";
-    }
-
     String voiceHintBlock = "";
     if (voiceHint != null && voiceHint.trim().isNotEmpty) {
       voiceHintBlock = """
 
-5. CASHIER'S LIVE SPOKEN VOICE HINT (HIGHEST OVERRIDE PRIORITY):
-The cashier looked at the counter and spoke this live instruction in Hindi/Hinglish/Indian English:
+CASHIER'S LIVE SPOKEN VOICE HINT:
+The cashier looked at the counter and spoke this instruction in Hindi/Hinglish/Indian English:
 "$voiceHint"
-CRITICAL RULES FOR VOICE HINT:
-- Parse all quantities, item types, and rates mentioned in the cashier's voice hint (e.g. "Do clutcher 40 wale", "Lipstick 150 ki hai", "Safety pin 10 ka packet").
-- Match each spoken rate directly to the corresponding physical item visible on the counter.
-- If the cashier specified a price for an item, that price OVERRIDES everything else!
-- For any item priced by the cashier's voice hint, set "source": "voice".
+- If the cashier explicitly stated a price for an item (e.g. "clutcher 40 ka hai", "lipstick 150"), set "rate" to that price and "source": "voice".
 """;
     }
 
-    // Optimized prompt for Indian retail cosmetic & general stores (Zero-inventory required)
+    // Optimized prompt: ONLY write names and quantities; DO NOT suggest or estimate prices!
     final prompt = """
-You are an expert AI retail cashier assistant for an Indian retail general, jewellery, and cosmetic shop ("Love Kush Shopping Center").
-Analyze this picture of items placed on the checkout counter and calculate the complete bill.
-NO INVENTORY LOOKUP IS NEEDED: You must act like an experienced apprentice shop cashier who visually identifies items and calculates their prices based on visual characteristics, printed packaging MRP, cashier voice hints, and standard Indian retail pricing rules.
+You are an expert AI retail item detector for an Indian retail general, jewellery, and cosmetic shop ("Love Kush Shopping Center").
+Analyze this picture of items placed on the checkout counter and list all items accurately.
 
-CRITICAL RULES:
+CRITICAL INSTRUCTION - DO NOT GUESS OR ESTIMATE ANY PRICES:
+Do NOT suggest, guess, or estimate any prices! The cashier will enter the exact numbers line-by-line using a fast calculator keypad.
+- Set "rate": 0.0 for all items (UNLESS the cashier explicitly stated a price in the live voice hint).
+- Set "source": "counter_scan" (or "voice" if from cashier's voice hint).
+- Focus 100% of your intelligence on accurately identifying the specific ITEM NAMES, SIZES, and QUANTITIES.
+
+RULES:
 1. IDENTIFY BOTH BRANDED AND UNBRANDED / UNNAMED ITEMS:
-   - UNBRANDED / UNNAMED / GENERAL ITEMS (Very common on counter):
-     * Hair Accessories: Hair Clutcher / Claw Clip (small/medium/large/butterfly/metal/stone), Tic-Tac Pins, Bobby Pins, Hair Rubber Bands, Scrunchie, Hair Band, Juda Pin.
+   - UNBRANDED / UNNAMED / GENERAL ITEMS (Common on counter):
+     * Hair Accessories: Hair Clutcher / Claw Clip (specify size/style, e.g. "Butterfly Hair Clutcher Medium", "Small Metal Hair Clip", "Tic-Tac Pins Card", "Bobby Pins", "Hair Rubber Bands", "Velvet Scrunchie", "Hair Band", "Juda Pin").
      * Daily Use / General: Safety Pins (card or bunch), Tailoring Thread / Ribbon / Lace, Comb, Nail Clipper, Pocket Mirror, Keychain, Mehendi Cone.
-     * Jewellery / Traditional: Bangles / Choori (specify type/size, e.g. "Glass Bangles Set", "Metal Choori Set", "Chuda"), Bindi Packet / Card, Sindoor, Earring Pair, Payal / Anklet, Mangalsutra.
+     * Jewellery / Traditional: Bangles / Choori (specify type/size if visible, e.g. "Glass Bangles Set 2.4", "Metal Choori Set 2.6", "Chuda"), Bindi Packet / Card, Sindoor, Earring Pair, Payal / Anklet, Mangalsutra.
    - BRANDED / PACKAGED COSMETIC ITEMS:
-     * Read brand name and product type (e.g. "Lakme Eyeconic Kajal", "Blue Heaven Nail Polish", "Ponds Powder", "Fair & Lovely Cream", "Dazller Eyeliner", "Elle 18 Lipstick", "Vaseline Lip Balm", "Garnier Face Wash").
-     * Look closely for printed MRP on packaging (e.g. ₹10, ₹20, ₹50, ₹180). Use the exact printed MRP if visible and set "source": "mrp".
+     * Read brand name, product line, and size/variant if visible (e.g. "Lakme Eyeconic Kajal", "Blue Heaven Nail Polish", "Ponds Powder 100g", "Fair & Lovely Cream 50g", "Dazller Eyeliner", "Elle 18 Matte Lipstick", "Vaseline Lip Balm", "Garnier Face Wash 100ml").
 
 2. QUANTITY ACCURACY:
    - Count the physical number of units for each distinct item.
@@ -407,39 +390,19 @@ CRITICAL RULES:
    - If there are 2 bindi cards, set qty: 2.
    - For bangles, count each set/dozen as 1 set (qty: 1) or individual bundles.
 
-3. VISUAL PRICING RULES (When no printed MRP or voice hint applies):
-   - Hair Accessories:
-     * Small plain plastic claw clips / pins: ₹10 - ₹15
-     * Medium / Large patterned claw clips / butterfly clutchers: ₹30 - ₹40
-     * Fancy metal / stone-studded / designer clutchers: ₹50 - ₹80
-     * Hair rubber bands / basic scrunchies: ₹5 - ₹10
-     * Velvet / satin scrunchies / hair bands: ₹20 - ₹40
-   - Cosmetics:
-     * Standard bullet lipsticks (daily wear, Elle 18, Blue Heaven): ₹100 - ₹140
-     * Liquid matte / transfer-proof lipsticks: ₹180 - ₹250
-     * Nail polish bottles: ₹20 - ₹50
-     * Kajal pencils / eyeliners: ₹90 - ₹180
-   - Jewellery & Traditional:
-     * Glass bangles (per set/dozen): ₹30 - ₹40
-     * Metal / velvet choori sets: ₹60 - ₹100
-     * Bindi cards: ₹10 - ₹20
-   - Daily use:
-     * Safety pin card / bunch: ₹10
-     * Tailoring thread reel: ₹10 - ₹15
-     * Mehendi cone: ₹10 - ₹15
-$priceMemoryBlock
 $voiceHintBlock
-4. RESPONSE FORMAT:
+
+3. RESPONSE FORMAT:
    Return ONLY a valid JSON array of objects. No markdown formatting, no code blocks, no backticks, no explanatory text.
    Schema:
    [
      {
-       "name": "Specific Descriptive Item Name (e.g. Butterfly Hair Clutcher Medium, Safety Pins Card, Elle 18 Matte Lipstick)",
+       "name": "Specific Descriptive Item Name (e.g. Butterfly Hair Clutcher Medium, Safety Pins Card, Elle 18 Matte Lipstick, Ponds Cream 50g)",
        "qty": 1,
-       "rate": 30.0,
+       "rate": 0.0,
        "category": "Hair Accessories" | "Cosmetics" | "Jewellery" | "General" | "Tailoring",
        "isBranded": false,
-       "source": "voice" | "learned" | "mrp" | "visual_estimate",
+       "source": "counter_scan",
        "confidence": "high" | "medium" | "low"
      }
    ]
@@ -614,28 +577,6 @@ $voiceHintBlock
     final List<AiDetectedItem> resultItems = itemsList
         .map((item) => AiDetectedItem.fromJson(item as Map<String, dynamic>))
         .toList();
-
-    // Cross-reference against learned store price memory (if not already set by voice)
-    for (final it in resultItems) {
-      if (it.isVoiceRate) continue; // Cashier's live voice hint takes absolute priority!
-
-      final nameLower = it.name.trim().toLowerCase();
-      if (priceMemory.containsKey(nameLower)) {
-        it.rate = priceMemory[nameLower]!;
-        it.isLearnedRate = true;
-      } else {
-        // Substring match for close variations (e.g. "matte lipstick")
-        for (final entry in priceMemory.entries) {
-          if (nameLower.contains(entry.key) || entry.key.contains(nameLower)) {
-            if (it.rate <= 0) {
-              it.rate = entry.value;
-              it.isLearnedRate = true;
-            }
-            break;
-          }
-        }
-      }
-    }
 
     return resultItems;
   }
@@ -906,22 +847,118 @@ class _AiCounterBillReviewSheet extends StatefulWidget {
 
 class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
   late List<AiDetectedItem> _items;
+  int _focusedIndex = 0;
+  String _calcBuffer = "";
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _items = List.from(widget.initialItems);
+    final firstUnpriced = _items.indexWhere((it) => it.rate <= 0);
+    _focusedIndex = firstUnpriced != -1 ? firstUnpriced : 0;
+    if (_items.isNotEmpty && _items[_focusedIndex].rate > 0) {
+      final r = _items[_focusedIndex].rate;
+      _calcBuffer = r % 1 == 0 ? r.toInt().toString() : r.toString();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
   }
 
   double get _grandTotal => _items.fold(0.0, (sum, it) => sum + it.totalPrice);
   int get _totalItemUnits => _items.fold(0, (sum, it) => sum + it.qty);
+
+  void _setFocused(int index) {
+    if (index < 0 || index >= _items.length) return;
+    setState(() {
+      _focusedIndex = index;
+      final curRate = _items[index].rate;
+      _calcBuffer = curRate > 0
+          ? (curRate % 1 == 0 ? curRate.toInt().toString() : curRate.toString())
+          : "";
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        final target = (index * 72.0).clamp(0.0, _scrollController.position.maxScrollExtent);
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  void _onDigit(String d) {
+    if (_focusedIndex < 0 || _focusedIndex >= _items.length) return;
+    setState(() {
+      if (_calcBuffer == "0" && d != ".") {
+        _calcBuffer = d;
+      } else {
+        _calcBuffer += d;
+      }
+      final parsed = double.tryParse(_calcBuffer) ?? 0.0;
+      _items[_focusedIndex].rate = parsed;
+    });
+  }
+
+  void _onQuickAdd(double amount) {
+    if (_focusedIndex < 0 || _focusedIndex >= _items.length) return;
+    setState(() {
+      final cur = double.tryParse(_calcBuffer) ?? _items[_focusedIndex].rate;
+      final next = cur + amount;
+      _calcBuffer = next % 1 == 0 ? next.toInt().toString() : next.toString();
+      _items[_focusedIndex].rate = next;
+    });
+  }
+
+  void _onClear() {
+    if (_focusedIndex < 0 || _focusedIndex >= _items.length) return;
+    setState(() {
+      _calcBuffer = "";
+      _items[_focusedIndex].rate = 0.0;
+    });
+  }
+
+  void _onBackspace() {
+    if (_focusedIndex < 0 || _focusedIndex >= _items.length) return;
+    setState(() {
+      if (_calcBuffer.isNotEmpty) {
+        _calcBuffer = _calcBuffer.substring(0, _calcBuffer.length - 1);
+        final parsed = double.tryParse(_calcBuffer) ?? 0.0;
+        _items[_focusedIndex].rate = parsed;
+      } else {
+        _items[_focusedIndex].rate = 0.0;
+      }
+    });
+  }
+
+  void _onPrevItem() {
+    if (_focusedIndex > 0) {
+      _setFocused(_focusedIndex - 1);
+    }
+  }
+
+  void _onNextOrDone() {
+    if (_focusedIndex < _items.length - 1) {
+      _setFocused(_focusedIndex + 1);
+    } else {
+      // Completed all lines, commit to cart
+      AiCounterVisionService().learnConfirmedPrices(_items);
+      Navigator.pop(context, _items);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return Container(
-      height: MediaQuery.of(context).size.height * 0.88,
+      height: MediaQuery.of(context).size.height * 0.94,
       padding: EdgeInsets.only(bottom: bottomInset),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -930,13 +967,13 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
       child: Column(
         children: [
           // Drag Handle
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Container(
             width: 44,
             height: 4,
             decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
 
           // Header Row
           Padding(
@@ -950,7 +987,7 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: const Color(0xFFDDD6FE)),
                   ),
-                  child: const Icon(Icons.auto_awesome, color: Color(0xFF7C3AED), size: 20),
+                  child: const Icon(Icons.calculate, color: Color(0xFF7C3AED), size: 20),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -958,12 +995,12 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        "AI Counter Bill Review",
+                        "AI Items • Calculator Entry",
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
                       ),
                       Text(
-                        "${_items.length} items detected • Tap rate/qty to adjust",
-                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                        "${_items.length} items ($_totalItemUnits pcs) • Enter rates line-by-line",
+                        style: const TextStyle(fontSize: 11.5, color: Colors.black54),
                       ),
                     ],
                   ),
@@ -978,14 +1015,14 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                       children: [
                         Image.memory(
                           widget.imageBytes,
-                          width: 48,
-                          height: 48,
+                          width: 44,
+                          height: 44,
                           fit: BoxFit.cover,
                         ),
                         Container(
                           padding: const EdgeInsets.all(2),
                           color: Colors.black54,
-                          child: const Icon(Icons.zoom_in, color: Colors.white, size: 12),
+                          child: const Icon(Icons.zoom_in, color: Colors.white, size: 10),
                         ),
                       ],
                     ),
@@ -994,22 +1031,22 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
               ],
             ),
           ),
-          const Divider(height: 24),
+          const Divider(height: 16),
 
           // Voice Hint Banner (if provided by cashier)
           if (widget.voiceHint != null && widget.voiceHint!.trim().isNotEmpty) ...[
             Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              margin: const EdgeInsets.symmetric(horizontal: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: const Color(0xFFEFF6FF),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: const Color(0xFFBFDBFE)),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.mic, size: 16, color: Color(0xFF2563EB)),
-                  const SizedBox(width: 8),
+                  const Icon(Icons.mic, size: 14, color: Color(0xFF2563EB)),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: Text(
                       'Voice Hint: "${widget.voiceHint!.trim()}"',
@@ -1021,7 +1058,7 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                 ],
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
           ],
 
           // Items List
@@ -1031,9 +1068,10 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                     child: Text("No items in list. Tap '+ Add Item' below."),
                   )
                 : ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
                     itemCount: _items.length,
-                    separatorBuilder: (_, __) => const Divider(height: 12),
+                    separatorBuilder: (_, __) => const SizedBox(height: 6),
                     itemBuilder: (ctx, index) {
                       final item = _items[index];
                       return _buildItemRow(item, index);
@@ -1041,283 +1079,502 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                   ),
           ),
 
-          // Action Toolbar: Add Item & Retake
+          // Compact Toolbar: Add Item & Retake
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
             child: Row(
               children: [
                 OutlinedButton.icon(
-                  icon: const Icon(Icons.add, size: 16),
-                  label: const Text("Add Item", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  icon: const Icon(Icons.add, size: 14),
+                  label: const Text("Add Item", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: const Size(0, 30),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   ),
                   onPressed: _addNewManualItem,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 OutlinedButton.icon(
-                  icon: const Icon(Icons.camera_alt, size: 16),
-                  label: const Text("Retake", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  icon: const Icon(Icons.camera_alt, size: 14),
+                  label: const Text("Retake", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: const Size(0, 30),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                   ),
                   onPressed: () => Navigator.pop(context, null),
                 ),
                 const Spacer(),
                 Text(
                   "Total: ₹${_grandTotal % 1 == 0 ? _grandTotal.toInt() : _grandTotal.toStringAsFixed(2)}",
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
                 ),
               ],
             ),
           ),
 
-          // Bottom Add All to Cart Button
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
-                  blurRadius: 10,
-                  offset: const Offset(0, -4),
-                ),
-              ],
-            ),
-            child: SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.shopping_cart_checkout, color: Colors.white),
-                label: Text(
-                  "Add All to Cart ($_totalItemUnits Units • ₹${_grandTotal % 1 == 0 ? _grandTotal.toInt() : _grandTotal.toStringAsFixed(2)})",
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF059669),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  elevation: 2,
-                ),
-                onPressed: _items.isEmpty
-                    ? null
-                    : () {
-                        AiCounterVisionService().learnConfirmedPrices(_items);
-                        Navigator.pop(context, _items);
-                      },
+          // Line-by-Line Calculator Keypad Panel
+          _buildCalculatorKeypad(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCalculatorKeypad() {
+    if (_items.isEmpty) return const SizedBox.shrink();
+    final currentItem = (_focusedIndex >= 0 && _focusedIndex < _items.length)
+        ? _items[_focusedIndex]
+        : null;
+    final bool isLastItem = _focusedIndex >= _items.length - 1;
+    final bool allPriced = _items.every((it) => it.rate > 0);
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Colors.grey.shade300, width: 1.5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 6,
+            offset: const Offset(0, -3),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Active item line banner
+          if (currentItem != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              margin: const EdgeInsets.only(bottom: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFAF5FF),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFDDD6FE)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF7C3AED),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      "${_focusedIndex + 1}/${_items.length}",
+                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      "${currentItem.qty}x ${currentItem.name}",
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF4C1D95)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  Text(
+                    "₹ ${_calcBuffer.isEmpty ? (currentItem.rate > 0 ? (currentItem.rate % 1 == 0 ? currentItem.rate.toInt() : currentItem.rate.toStringAsFixed(2)) : "0") : _calcBuffer}",
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF059669),
+                    ),
+                  ),
+                ],
               ),
             ),
+
+          // Keypad Grid (compact, easy to tap)
+          Row(
+            children: [
+              _buildCalcKey("1", () => _onDigit("1")),
+              _buildCalcKey("2", () => _onDigit("2")),
+              _buildCalcKey("3", () => _onDigit("3")),
+              _buildQuickAddKey("+10", 10),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              _buildCalcKey("4", () => _onDigit("4")),
+              _buildCalcKey("5", () => _onDigit("5")),
+              _buildCalcKey("6", () => _onDigit("6")),
+              _buildQuickAddKey("+20", 20),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              _buildCalcKey("7", () => _onDigit("7")),
+              _buildCalcKey("8", () => _onDigit("8")),
+              _buildCalcKey("9", () => _onDigit("9")),
+              _buildQuickAddKey("+50", 50),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              _buildCalcKey("C", _onClear, color: const Color(0xFFFEE2E2), textColor: const Color(0xFFDC2626)),
+              _buildCalcKey("0", () => _onDigit("0")),
+              _buildCalcKey("00", () => _onDigit("00")),
+              _buildCalcKey("⌫", _onBackspace, color: const Color(0xFFF1F5F9), textColor: const Color(0xFF475569)),
+            ],
+          ),
+          const SizedBox(height: 6),
+
+          // Action Navigation Row
+          Row(
+            children: [
+              if (_focusedIndex > 0)
+                Padding(
+                  padding: const EdgeInsets.only(right: 6.0),
+                  child: SizedBox(
+                    height: 40,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFCBD5E1)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      icon: const Icon(Icons.arrow_back_ios, size: 11),
+                      label: const Text("PREV", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      onPressed: _onPrevItem,
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: SizedBox(
+                  height: 40,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isLastItem || allPriced
+                          ? const Color(0xFF059669)
+                          : const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      elevation: 1,
+                    ),
+                    onPressed: _onNextOrDone,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          isLastItem
+                              ? "ADD ALL TO CART (₹${_grandTotal % 1 == 0 ? _grandTotal.toInt() : _grandTotal.toStringAsFixed(2)}) ➔"
+                              : "NEXT ITEM ➔",
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(isLastItem ? Icons.shopping_cart_checkout : Icons.arrow_forward_ios, size: 14),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildItemRow(AiDetectedItem item, int index) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          // Category Icon
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: _getCategoryColor(item.category).withOpacity(0.12),
-              shape: BoxShape.circle,
+  Widget _buildCalcKey(String label, VoidCallback onTap, {Color? color, Color? textColor, int flex = 1}) {
+    return Expanded(
+      flex: flex,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2.0),
+        child: SizedBox(
+          height: 38,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: color ?? const Color(0xFFF8FAFC),
+              foregroundColor: textColor ?? const Color(0xFF1E293B),
+              elevation: 0,
+              padding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+                side: BorderSide(color: Colors.grey.shade300),
+              ),
             ),
-            child: Icon(_getCategoryIcon(item.category), size: 16, color: _getCategoryColor(item.category)),
+            onPressed: onTap,
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: textColor ?? const Color(0xFF1E293B)),
+            ),
           ),
-          const SizedBox(width: 8),
+        ),
+      ),
+    );
+  }
 
-          // Name and Edit / Mic
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        item.name,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    // Quick Voice / Rename button
-                    InkWell(
-                      onTap: () => _editItemName(index),
-                      child: const Padding(
-                        padding: EdgeInsets.all(2),
-                        child: Icon(Icons.edit, size: 13, color: Colors.black45),
-                      ),
-                    ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    Text(
-                      item.category,
-                      style: TextStyle(fontSize: 10, color: _getCategoryColor(item.category), fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(width: 6),
-                    InkWell(
-                      onTap: () => _pickSizeForItem(index),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEF3C7),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: const Color(0xFFF59E0B)),
+  Widget _buildQuickAddKey(String label, double amount) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2.0),
+        child: SizedBox(
+          height: 38,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEFF6FF),
+              foregroundColor: const Color(0xFF2563EB),
+              elevation: 0,
+              padding: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+                side: const BorderSide(color: Color(0xFFBFDBFE)),
+              ),
+            ),
+            onPressed: () => _onQuickAdd(amount),
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildItemRow(AiDetectedItem item, int index) {
+    final bool isFocused = index == _focusedIndex;
+
+    return InkWell(
+      onTap: () => _setFocused(index),
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: isFocused ? const Color(0xFFFAF5FF) : const Color(0xFFF9FAFB),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isFocused ? const Color(0xFF7C3AED) : Colors.grey.shade200,
+            width: isFocused ? 2.0 : 1.0,
+          ),
+          boxShadow: isFocused
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF7C3AED).withOpacity(0.12),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          children: [
+            // Focused Indicator or Category Icon
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: isFocused
+                    ? const Color(0xFF7C3AED)
+                    : _getCategoryColor(item.category).withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: isFocused
+                  ? const Icon(Icons.edit, size: 14, color: Colors.white)
+                  : Icon(_getCategoryIcon(item.category), size: 15, color: _getCategoryColor(item.category)),
+            ),
+            const SizedBox(width: 8),
+
+            // Name and Edit / Size
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          item.name,
+                          style: TextStyle(
+                            fontWeight: isFocused ? FontWeight.w800 : FontWeight.bold,
+                            fontSize: 13,
+                            color: isFocused ? const Color(0xFF4C1D95) : Colors.black87,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.straighten, size: 10, color: Color(0xFFB45309)),
-                            const SizedBox(width: 3),
-                            Text(
-                              item.size != null && item.size!.isNotEmpty
-                                  ? "Size: ${item.size}"
-                                  : (SizeVariantService.extractSizeLabel(item.name) != null
-                                      ? "Size: ${SizeVariantService.extractSizeLabel(item.name)}"
-                                      : "📏 Size"),
-                              style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFFB45309)),
-                            ),
-                          ],
-                        ),
                       ),
-                    ),
-                    if (item.isVoiceRate) ...[
                       const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFF6FF),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.5)),
+                      // Quick Voice / Rename button
+                      InkWell(
+                        onTap: () => _editItemName(index),
+                        child: const Padding(
+                          padding: EdgeInsets.all(2),
+                          child: Icon(Icons.edit, size: 12, color: Colors.black45),
                         ),
-                        child: const Text("Voice Rate 🎤", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8))),
-                      ),
-                    ] else if (item.isLearnedRate) ...[
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFECFDF5),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: const Color(0xFF10B981).withOpacity(0.5)),
-                        ),
-                        child: const Text("Store Rate 🏷️", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF059669))),
-                      ),
-                    ] else if (item.isBranded) ...[
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEF3C7),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.5)),
-                        ),
-                        child: const Text("MRP 📦", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFFB45309))),
                       ),
                     ],
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Text(
+                        item.category,
+                        style: TextStyle(fontSize: 9.5, color: _getCategoryColor(item.category), fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: () => _pickSizeForItem(index),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFEF3C7),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: const Color(0xFFF59E0B)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.straighten, size: 9, color: Color(0xFFB45309)),
+                              const SizedBox(width: 3),
+                              Text(
+                                item.size != null && item.size!.isNotEmpty
+                                    ? "Size: ${item.size}"
+                                    : (SizeVariantService.extractSizeLabel(item.name) != null
+                                        ? "Size: ${SizeVariantService.extractSizeLabel(item.name)}"
+                                        : "📏 Size"),
+                                style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFFB45309)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (item.isVoiceRate) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.5)),
+                          ),
+                          child: const Text("Voice Rate 🎤", style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8))),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
 
-          // Quantity Stepper [-] [qty] [+]
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.grey.shade300),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                InkWell(
-                  onTap: () {
-                    if (item.qty > 1) {
-                      setState(() => item.qty--);
-                    } else {
-                      setState(() => _items.removeAt(index));
-                    }
-                  },
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                    child: Icon(Icons.remove, size: 14, color: Colors.black87),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: Text(
-                    "${item.qty}",
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
-                ),
-                InkWell(
-                  onTap: () => setState(() => item.qty++),
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                    child: Icon(Icons.add, size: 14, color: Colors.black87),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-
-          // Rate Input
-          InkWell(
-            onTap: () => _editItemRate(index),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            // Quantity Stepper [-] [qty] [+]
+            Container(
               decoration: BoxDecoration(
-                color: item.rate <= 0 ? const Color(0xFFFEF2F2) : Colors.white,
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: item.rate <= 0 ? Colors.redAccent : Colors.grey.shade300),
+                border: Border.all(color: Colors.grey.shade300),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  InkWell(
+                    onTap: () {
+                      if (item.qty > 1) {
+                        setState(() => item.qty--);
+                      } else {
+                        setState(() {
+                          _items.removeAt(index);
+                          if (_focusedIndex >= _items.length && _items.isNotEmpty) {
+                            _focusedIndex = _items.length - 1;
+                          }
+                        });
+                      }
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      child: Icon(Icons.remove, size: 13, color: Colors.black87),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 3),
+                    child: Text(
+                      "${item.qty}",
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                    ),
+                  ),
+                  InkWell(
+                    onTap: () => setState(() => item.qty++),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      child: Icon(Icons.add, size: 13, color: Colors.black87),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+
+            // Rate Display Pill (Active highlighted)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                color: isFocused
+                    ? const Color(0xFF7C3AED)
+                    : (item.rate <= 0 ? const Color(0xFFFEF2F2) : Colors.white),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: isFocused
+                      ? const Color(0xFF6D28D9)
+                      : (item.rate <= 0 ? Colors.redAccent : Colors.grey.shade300),
+                  width: isFocused ? 1.5 : 1.0,
+                ),
               ),
               child: Text(
-                item.rate <= 0 ? "₹ Set Rate" : "₹${item.rate % 1 == 0 ? item.rate.toInt() : item.rate.toStringAsFixed(2)}",
+                item.rate <= 0
+                    ? (isFocused ? (_calcBuffer.isNotEmpty ? "₹ $_calcBuffer" : "₹ __") : "₹ --")
+                    : (isFocused && _calcBuffer.isNotEmpty
+                        ? "₹ $_calcBuffer"
+                        : "₹${item.rate % 1 == 0 ? item.rate.toInt() : item.rate.toStringAsFixed(2)}"),
                 style: TextStyle(
-                  fontWeight: FontWeight.bold,
+                  fontWeight: FontWeight.w900,
                   fontSize: 12,
-                  color: item.rate <= 0 ? Colors.red : const Color(0xFF1E293B),
+                  color: isFocused
+                      ? Colors.white
+                      : (item.rate <= 0 ? Colors.red : const Color(0xFF1E293B)),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 6),
+            const SizedBox(width: 6),
 
-          // Line Total
-          SizedBox(
-            width: 52,
-            child: Text(
-              "₹${item.totalPrice % 1 == 0 ? item.totalPrice.toInt() : item.totalPrice.toStringAsFixed(2)}",
-              textAlign: TextAlign.right,
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: Color(0xFF059669)),
+            // Line Total
+            SizedBox(
+              width: 48,
+              child: Text(
+                "₹${item.totalPrice % 1 == 0 ? item.totalPrice.toInt() : item.totalPrice.toStringAsFixed(2)}",
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 12.5,
+                  color: isFocused ? const Color(0xFF7C3AED) : const Color(0xFF059669),
+                ),
+              ),
             ),
-          ),
-          const SizedBox(width: 4),
+            const SizedBox(width: 4),
 
-          // Delete Button
-          InkWell(
-            onTap: () => setState(() => _items.removeAt(index)),
-            child: const Padding(
-              padding: EdgeInsets.all(4),
-              child: Icon(Icons.close, size: 16, color: Colors.grey),
+            // Delete Button
+            InkWell(
+              onTap: () {
+                setState(() {
+                  _items.removeAt(index);
+                  if (_focusedIndex >= _items.length && _items.isNotEmpty) {
+                    _focusedIndex = _items.length - 1;
+                  }
+                });
+              },
+              child: const Padding(
+                padding: EdgeInsets.all(4),
+                child: Icon(Icons.close, size: 15, color: Colors.grey),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1386,45 +1643,6 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
         item.name = selectedVariant.fullName ?? SizeVariantService.formatItemWithSize(item.name, selectedVariant.sizeLabel);
         item.isLearnedRate = true;
       });
-      AiCounterVisionService().learnConfirmedPrices([item]);
-    }
-  }
-
-  void _editItemRate(int index) async {
-    final item = _items[index];
-    final ctrl = TextEditingController(text: item.rate > 0 ? (item.rate % 1 == 0 ? item.rate.toInt().toString() : item.rate.toString()) : "");
-
-    final newRateStr = await showDialog<String>(
-      context: context,
-      builder: (dCtx) => AlertDialog(
-        title: Text("Set Rate for ${item.name}", style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: const InputDecoration(
-            labelText: "Price / Rate (₹)",
-            prefixText: "₹ ",
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text("Cancel")),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dCtx, ctrl.text.trim()),
-            child: const Text("Save"),
-          ),
-        ],
-      ),
-    );
-
-    if (newRateStr != null) {
-      final p = double.tryParse(newRateStr) ?? 0.0;
-      setState(() {
-        item.rate = p;
-        item.isLearnedRate = true;
-      });
-      // Immediately learn/update store rate memory
       AiCounterVisionService().learnConfirmedPrices([item]);
     }
   }

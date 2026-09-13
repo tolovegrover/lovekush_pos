@@ -3881,20 +3881,21 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                                                   Navigator.pop(context, item);
                                                   return;
                                                 }
-                                                final variants = SizeVariantService.findVariantsForProduct(
-                                                  itemName: (item['item_name'] ?? '').toString(),
-                                                  currentRate: (item['price'] as num?)?.toDouble() ?? 0.0,
-                                                  itemData: item,
-                                                  inMemoryInventory: cloudInventory,
-                                                );
-                                                if (variants.length > 1) {
-                                                  final selected = await SizeVariantService.showSizeSelectorModal(
-                                                    context,
+                                                  final invMap = { for (var it in items) (it['item_code'] ?? '').toString(): it };
+                                                  final variants = SizeVariantService.findVariantsForProduct(
                                                     itemName: (item['item_name'] ?? '').toString(),
                                                     currentRate: (item['price'] as num?)?.toDouble() ?? 0.0,
                                                     itemData: item,
-                                                    inMemoryInventory: cloudInventory,
+                                                    inMemoryInventory: invMap,
                                                   );
+                                                  if (variants.length > 1) {
+                                                    final selected = await SizeVariantService.showSizeSelectorModal(
+                                                      context,
+                                                      itemName: (item['item_name'] ?? '').toString(),
+                                                      currentRate: (item['price'] as num?)?.toDouble() ?? 0.0,
+                                                      itemData: item,
+                                                      inMemoryInventory: invMap,
+                                                    );
                                                   if (selected != null) {
                                                     final updatedItem = Map<String, dynamic>.from(item);
                                                     final newName = selected.fullName ?? SizeVariantService.formatItemWithSize(
