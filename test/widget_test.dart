@@ -788,7 +788,7 @@ void main() {
       ]);
     });
 
-    testWidgets('PosScreen opens 7-category sheet when "+ Other (No Barcode)" is clicked and adds item to cart', (WidgetTester tester) async {
+    testWidgets('PosScreen adds unbarcoded item directly to cart like a calculator without popup when "+ Other" or ENTER is used', (WidgetTester tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: PosScreen(userName: "Admin", userEmail: "admin@lovekush.com", isAdmin: true),
@@ -809,26 +809,50 @@ void main() {
       await tester.tap(find.text("+ Other (No Barcode)"));
       await tester.pumpAndSettle();
 
-      // Verify category picker opened
-      expect(find.text("Add Unbarcoded Item as Other"), findsOneWidget);
-      expect(find.text("Bangles"), findsOneWidget);
-      expect(find.text("Stationary"), findsOneWidget);
-      expect(find.text("Tailoring"), findsOneWidget);
-      expect(find.text("Cosmetics"), findsOneWidget);
-      expect(find.text("Jewellary"), findsOneWidget);
-      expect(find.text("Undergarments"), findsOneWidget);
-      expect(find.text("Toys and gifts"), findsOneWidget);
+      // Verify NO blocking popup dialog is shown (pure calculator speed!)
+      expect(find.text("Add Unbarcoded Item as Other"), findsNothing);
 
-      // Tap "Cosmetics"
-      await tester.tap(find.text("Cosmetics"));
+      // Verify item was added into cart immediately
+      expect(state.cart.isNotEmpty, isTrue);
+      expect(state.cart.first['itemName'], "Other");
+      expect(state.cart.first['price'].toString(), "300");
+      expect(state.cart.first['qty'].toString(), "2");
+      expect(state.cart.first['rate'].toString(), "150");
+    });
+
+    testWidgets('PosScreen Calculator Mode allows direct price entry and instant addition without barcodes', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: PosScreen(userName: "Admin", userEmail: "admin@lovekush.com", isAdmin: true),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      // Switch to Calculator Mode
+      await tester.tap(find.text("Calculator"));
       await tester.pumpAndSettle();
 
-      // Verify item was added into cart
-      expect(state.cart.isNotEmpty, isTrue);
-      expect(state.cart.last['itemName'], "Other (Cosmetics)");
-      expect(state.cart.last['price'].toString(), "300");
-      expect(state.cart.last['qty'].toString(), "2");
-      expect(state.cart.last['rate'].toString(), "150");
+      final state = tester.state(find.byType(PosScreen)) as dynamic;
+      expect(state.isCalculatorMode, isTrue);
+      expect(state.focusedField, 2); // Focused on Rate
+
+      // Type 50 on keypad
+      await tester.tap(find.text("5"));
+      await tester.tap(find.text("0"));
+      await tester.pump();
+      expect(state.rate, "50");
+
+      // Tap "+ ADD"
+      expect(find.text("+ ADD"), findsOneWidget);
+      await tester.tap(find.text("+ ADD"));
+      await tester.pumpAndSettle();
+
+      // Item added directly to cart, focus stays on Rate
+      expect(state.cart.length, 1);
+      expect(state.cart.first['itemName'], "Other");
+      expect(state.cart.first['rate'], "50");
+      expect(state.cart.first['price'], "50");
+      expect(state.focusedField, 2);
     });
 
     testWidgets('ItemCatalogScreen renders Add to Cart button and prints label options', (WidgetTester tester) async {
@@ -971,8 +995,8 @@ void main() {
       });
       await tester.pump();
 
-      // Open unbarcoded sheet
-      await tester.tap(find.text("+ Other (No Barcode)"));
+      // Open unbarcoded sheet via longPress
+      await tester.longPress(find.text("+ Other (No Barcode)"));
       await tester.pumpAndSettle();
 
       // Tap Bangles to add instantly

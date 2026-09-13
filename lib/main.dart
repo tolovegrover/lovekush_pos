@@ -5128,8 +5128,9 @@ class _PosScreenState extends State<PosScreen> {
   void _addUnbarcodedItemToCart(String category, double itemRate, String itemQty, {String? customName}) {
     final name = (customName != null && customName.trim().isNotEmpty)
         ? customName.trim()
-        : "Other ($category)";
-    final code = "OTHER-${category.toUpperCase().replaceAll(' ', '_')}";
+        : (category.isEmpty || category == "General") ? "Other" : "Other ($category)";
+    final catSuffix = (category.isNotEmpty && category != "General") ? "-${category.toUpperCase().replaceAll(' ', '_')}" : "-ITEM";
+    final code = "OTHER$catSuffix";
     final qNum = double.tryParse(itemQty) ?? 1.0;
     final total = (qNum * itemRate).round().toString();
     final rateStr = itemRate % 1 == 0 ? itemRate.toInt().toString() : itemRate.toStringAsFixed(2);
@@ -5152,7 +5153,7 @@ class _PosScreenState extends State<PosScreen> {
       activeItemSub = "";
       activeConflicts = [];
       activeOnlineSuggestions = [];
-      focusedField = 0;
+      focusedField = isCalculatorMode ? 2 : 0;
     });
 
     // Non-blocking top notification with instant option to set/edit item name
@@ -5187,7 +5188,7 @@ class _PosScreenState extends State<PosScreen> {
     final item = cart[index];
     final currentName = (item["itemName"] ?? item["item"] ?? "").toString().split("\n").first;
     final nameCtrl = TextEditingController(
-      text: currentName.startsWith("Other (") ? "" : currentName,
+      text: (currentName.startsWith("Other (") || currentName == "Other") ? "" : currentName,
     );
     final rawCode = (item["rawItemCode"] ?? "").toString();
 
@@ -5415,6 +5416,7 @@ class _PosScreenState extends State<PosScreen> {
   String qty = "1"; 
   String rate = ""; 
   int focusedField = 0; 
+  bool isCalculatorMode = false;
   String paymentMethod = "Cash";
   String amountTendered = "";
   String onlineAmount = "";
@@ -5442,6 +5444,7 @@ class _PosScreenState extends State<PosScreen> {
       addItemDirectlyToCart(item, overrideRate: overrideRate, quantity: qty);
     };
     _loadCounterName();
+    _loadCalculatorModePreference();
     _initBluetooth();
     _syncInventoryFromCloud();
     PendingItemsManager.load().then((_) {
@@ -5464,6 +5467,74 @@ class _PosScreenState extends State<PosScreen> {
     _hybridCashController.dispose();
     _hybridOnlineController.dispose();
     super.dispose();
+  }
+
+  void _loadCalculatorModePreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedMode = prefs.getBool('pos_is_calculator_mode') ?? false;
+      if (mounted) {
+        setState(() {
+          isCalculatorMode = savedMode;
+          if (isCalculatorMode) {
+            focusedField = 2; // Default to Rate in calculator mode
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _toggleCalculatorMode(bool enabled) async {
+    setState(() {
+      isCalculatorMode = enabled;
+      focusedField = enabled ? 2 : 0;
+      if (enabled) {
+        rawItemCode = "";
+        _syncItemCodeController();
+      }
+    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('pos_is_calculator_mode', enabled);
+    } catch (_) {}
+  }
+
+  void _showCalculatorRenameDialog() {
+    final ctrl = TextEditingController(text: activeItemName.isNotEmpty && activeItemName != "General Item" ? activeItemName : "");
+    showDialog(
+      context: context,
+      builder: (dCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text("Next Item Name", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(
+            hintText: "e.g. Hair Oil, Bangles, Register...",
+            labelText: "Item Name (Optional)",
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              setState(() => activeItemName = "");
+              Navigator.pop(dCtx);
+            },
+            child: const Text("Reset to Other"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = ctrl.text.trim();
+              setState(() => activeItemName = val.isNotEmpty ? val : "");
+              Navigator.pop(dCtx);
+            },
+            child: const Text("Set"),
+          ),
+        ],
+      ),
+    );
   }
 
   void _initBluetooth() async {
@@ -5792,7 +5863,23 @@ class _PosScreenState extends State<PosScreen> {
 
   void addToCart() {
     if (rawItemCode.trim().isEmpty) {
-      _showUnbarcodedCategoryPicker(initialRate: double.tryParse(rate));
+      final p = double.tryParse(rate) ?? 0.0;
+      if (p <= 0) {
+        setState(() => focusedField = 2);
+        _showPosNotification(
+          "Please enter price first",
+          color: Colors.deepOrange,
+          icon: Icons.info_outline,
+          duration: const Duration(seconds: 2),
+        );
+        return;
+      }
+      _addUnbarcodedItemToCart(
+        "General",
+        p,
+        qty.isEmpty ? "1" : qty,
+        customName: activeItemName.isNotEmpty && activeItemName != "General Item" ? activeItemName : "Other",
+      );
       return;
     }
     if (rate.isEmpty) return;
@@ -5926,34 +6013,67 @@ class _PosScreenState extends State<PosScreen> {
   void onKeypadPress(String value) {
     setState(() {
       if (value == "ENTER") {
-        if (focusedField == 0) {
-          if (rawItemCode.isNotEmpty) {
-            _resolveScannedBarcode(rawItemCode);
+        if (isCalculatorMode) {
+          if (focusedField == 1) {
+            focusedField = 2; // Move from QTY to RATE
           } else {
-            focusedField = 1;
+            final p = double.tryParse(rate) ?? 0.0;
+            if (p > 0) {
+              _addUnbarcodedItemToCart(
+                "General",
+                p,
+                qty.isEmpty ? "1" : qty,
+                customName: activeItemName.isNotEmpty && activeItemName != "General Item" ? activeItemName : "Other",
+              );
+              focusedField = 2; // Stay on RATE for rapid calculator entries!
+            } else {
+              focusedField = 2;
+            }
           }
-        }
-        else if (focusedField == 1) focusedField = 2;
-        else if (focusedField == 2) {
-          if (rawItemCode.trim().isEmpty) {
-            _showUnbarcodedCategoryPicker(initialRate: double.tryParse(rate));
-          } else {
-            addToCart();
+        } else {
+          // Standard Barcode Mode
+          if (focusedField == 0) {
+            if (rawItemCode.isNotEmpty) {
+              _resolveScannedBarcode(rawItemCode);
+            } else {
+              focusedField = 2; // Advance directly to RATE if code is empty!
+            }
+          }
+          else if (focusedField == 1) focusedField = 2;
+          else if (focusedField == 2) {
+            if (rawItemCode.trim().isEmpty) {
+              final p = double.tryParse(rate) ?? 0.0;
+              if (p > 0) {
+                _addUnbarcodedItemToCart(
+                  "General",
+                  p,
+                  qty.isEmpty ? "1" : qty,
+                  customName: activeItemName.isNotEmpty && activeItemName != "General Item" ? activeItemName : "Other",
+                );
+              }
+            } else {
+              addToCart();
+            }
           }
         }
       } 
       else if (value == "BACK") {
-        if (focusedField == 2) focusedField = 1;
-        else if (focusedField == 1) focusedField = 0;
+        if (isCalculatorMode) {
+          if (focusedField == 2) focusedField = 1;
+          else if (focusedField == 1) focusedField = 2;
+        } else {
+          if (focusedField == 2) focusedField = 1;
+          else if (focusedField == 1) focusedField = 0;
+        }
       }
       else if (value == "DEL") {
         if (focusedField == 2) {
           if (rate.isNotEmpty) rate = rate.substring(0, rate.length - 1);
-          else focusedField = 1; 
+          else if (!isCalculatorMode) focusedField = 1; 
         } 
         else if (focusedField == 1) {
           if (qty.isNotEmpty) qty = qty.substring(0, qty.length - 1);
-          else focusedField = 0; 
+          else if (!isCalculatorMode) focusedField = 0; 
         } 
         else if (focusedField == 0) {
           final sel = _itemCodeController.selection;
@@ -6024,7 +6144,7 @@ class _PosScreenState extends State<PosScreen> {
       rawItemCode = "";
       qty = "1";
       rate = "";
-      focusedField = 0;
+      focusedField = isCalculatorMode ? 2 : 0;
       _syncItemCodeController();
       _updateLiveItemPreview('');
     });
@@ -6037,7 +6157,7 @@ class _PosScreenState extends State<PosScreen> {
       rawItemCode = "";
       qty = "1";
       rate = "";
-      focusedField = 0;
+      focusedField = isCalculatorMode ? 2 : 0;
       _syncItemCodeController();
       _updateLiveItemPreview('');
     });
@@ -7307,50 +7427,199 @@ class _PosScreenState extends State<PosScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      InkWell(
-                        onTap: () => _showUnbarcodedCategoryPicker(initialRate: double.tryParse(rate)),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFEF3C7),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0xFFF59E0B)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              Icon(Icons.category, size: 13, color: Color(0xFFB45309)),
-                              SizedBox(width: 4),
-                              Text("+ Other (No Barcode)", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
-                            ],
-                          ),
+                      // Mode Selector Pill (Barcode vs Calculator)
+                      Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            InkWell(
+                              onTap: () => _toggleCalculatorMode(false),
+                              borderRadius: BorderRadius.circular(18),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                                decoration: BoxDecoration(
+                                  color: !isCalculatorMode ? const Color(0xFF1E293B) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.qr_code_scanner, size: 12, color: !isCalculatorMode ? Colors.white : Colors.black87),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      "Barcode",
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: !isCalculatorMode ? FontWeight.bold : FontWeight.normal,
+                                        color: !isCalculatorMode ? Colors.white : Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            InkWell(
+                              onTap: () => _toggleCalculatorMode(true),
+                              borderRadius: BorderRadius.circular(18),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+                                decoration: BoxDecoration(
+                                  color: isCalculatorMode ? const Color(0xFF059669) : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.calculate, size: 12, color: isCalculatorMode ? Colors.white : Colors.black87),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      "Calculator",
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: isCalculatorMode ? FontWeight.bold : FontWeight.normal,
+                                        color: isCalculatorMode ? Colors.white : Colors.black87,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      if (formattedItemCode.isNotEmpty)
-                        InkWell(
-                          onTap: () => _showItemCodeLongPressMenu(context),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 4),
-                            child: Text("Barcode Actions ⚙️", style: TextStyle(fontSize: 11, color: Colors.blueAccent, fontWeight: FontWeight.bold)),
-                          ),
-                        ),
+                      // Actions on right
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!isCalculatorMode)
+                            InkWell(
+                              onTap: () {
+                                final p = double.tryParse(rate) ?? 0.0;
+                                if (p > 0) {
+                                  _addUnbarcodedItemToCart(
+                                    "General",
+                                    p,
+                                    qty.isEmpty ? "1" : qty,
+                                    customName: activeItemName.isNotEmpty && activeItemName != "General Item" ? activeItemName : "Other",
+                                  );
+                                } else {
+                                  setState(() => focusedField = 2);
+                                  _showPosNotification(
+                                    "Type rate and press ENTER to add",
+                                    color: const Color(0xFF3B82F6),
+                                    icon: Icons.edit,
+                                    duration: const Duration(seconds: 2),
+                                  );
+                                }
+                              },
+                              onLongPress: () => _showUnbarcodedCategoryPicker(initialRate: double.tryParse(rate)),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFEF3C7),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: const Color(0xFFF59E0B)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Icon(Icons.category, size: 13, color: Color(0xFFB45309)),
+                                    SizedBox(width: 4),
+                                    Text("+ Other (No Barcode)", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+                                  ],
+                                ),
+                              ),
+                            )
+                          else
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFECFDF5),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFF10B981)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: const [
+                                  Icon(Icons.bolt, size: 13, color: Color(0xFF059669)),
+                                  SizedBox(width: 4),
+                                  Text("Type ₹ & press + ADD", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF047857))),
+                                ],
+                              ),
+                            ),
+                          if (formattedItemCode.isNotEmpty) ...[
+                            const SizedBox(width: 8),
+                            InkWell(
+                              onTap: () => _showItemCodeLongPressMenu(context),
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 4),
+                                child: Text("Barcode Actions ⚙️", style: TextStyle(fontSize: 11, color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ],
                   ),
                 ),
                 Row(
                   children: [
-                    _buildInputBox(
-                      "ITEM CODE",
-                      formattedItemCode,
-                      focusedField == 0,
-                      0,
-                      flex: 8,
-                      isCode: true,
-                    ),
+                    if (isCalculatorMode)
+                      Expanded(
+                        flex: 6,
+                        child: GestureDetector(
+                          onTap: () => _showCalculatorRenameDialog(),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF0FDF4),
+                              border: Border.all(color: const Color(0xFF10B981), width: 1.5),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Text("MODE", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Color(0xFF059669))),
+                                const SizedBox(height: 4),
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.calculate, size: 14, color: Color(0xFF059669)),
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        activeItemName.isNotEmpty ? activeItemName : "Other",
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF065F46)),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      _buildInputBox(
+                        "ITEM CODE",
+                        formattedItemCode,
+                        focusedField == 0,
+                        0,
+                        flex: 8,
+                        isCode: true,
+                      ),
                     const SizedBox(width: 8),
                     _buildInputBox("QTY", qty.isEmpty ? "—" : qty, focusedField == 1, 1, flex: 3),
                     const SizedBox(width: 8),
-                    _buildInputBox("RATE", rate.isEmpty ? "" : "₹$rate", focusedField == 2, 2, flex: 4),
+                    _buildInputBox("RATE", rate.isEmpty ? "" : "₹$rate", focusedField == 2, 2, flex: isCalculatorMode ? 6 : 4),
                     const SizedBox(width: 8),
                     Expanded(
                       flex: 4,
@@ -7358,13 +7627,13 @@ class _PosScreenState extends State<PosScreen> {
                         duration: const Duration(milliseconds: 150),
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEFF6FF), 
-                          border: Border.all(color: Colors.blueAccent.withOpacity(0.3), width: 1),
+                          color: isCalculatorMode ? const Color(0xFFECFDF5) : const Color(0xFFEFF6FF), 
+                          border: Border.all(color: isCalculatorMode ? const Color(0xFF10B981).withOpacity(0.5) : Colors.blueAccent.withOpacity(0.3), width: 1),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Column(
                           children: [
-                            const Text("TOTAL", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.blueAccent)),
+                            Text("TOTAL", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: isCalculatorMode ? const Color(0xFF059669) : Colors.blueAccent)),
                             const SizedBox(height: 6),
                             Text(
                               totalPrice.isEmpty ? "—" : "₹$totalPrice",
@@ -7422,7 +7691,16 @@ class _PosScreenState extends State<PosScreen> {
                       _buildKeypadRow([_key("1", "A"), _key("2", "B"), _key("3", "C"), _actionKey("⌫", const Color(0xFFEF4444))]), 
                       _buildKeypadRow([_key("4", "D"), _key("5", "E"), _key("6", "F"), _actionKey("◀", const Color(0xFFF59E0B))]),
                       _buildKeypadRow([_key("7", "G"), _key("8", "H"), _key("9", "I"), _key("+/-", "RTN")]),
-                      _buildKeypadRow([_actionKey("📷 SCAN", Colors.black, isScan: true), _key("0", ""), _key(".", ""), _actionKey("ENTER", const Color(0xFF3B82F6), isEnter: true)]),
+                      _buildKeypadRow([
+                        _actionKey("📷 SCAN", Colors.black, isScan: true),
+                        _key("0", ""),
+                        _key(".", ""),
+                        _actionKey(
+                          isCalculatorMode ? "+ ADD" : "ENTER",
+                          isCalculatorMode ? const Color(0xFF059669) : const Color(0xFF3B82F6),
+                          isEnter: true,
+                        ),
+                      ]),
                     ],
                   ),
                 ),
