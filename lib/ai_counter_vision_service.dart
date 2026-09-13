@@ -16,6 +16,7 @@ class AiDetectedItem {
   bool isBranded;
   String confidence;
   bool isLearnedRate;
+  bool isVoiceRate;
 
   AiDetectedItem({
     required this.name,
@@ -25,6 +26,7 @@ class AiDetectedItem {
     this.isBranded = false,
     this.confidence = "medium",
     this.isLearnedRate = false,
+    this.isVoiceRate = false,
   });
 
   double get totalPrice => qty * rate;
@@ -55,7 +57,10 @@ class AiDetectedItem {
     }
 
     final cat = (json['category'] ?? "General").toString();
-    final branded = json['isBranded'] == true || (json['branded'] == true);
+    final src = (json['source'] ?? "").toString().toLowerCase();
+    final isVoice = src == "voice" || json['isVoiceRate'] == true;
+    final isLearned = src == "learned" || json['isLearnedRate'] == true;
+    final branded = json['isBranded'] == true || (json['branded'] == true) || src == "mrp";
     final conf = (json['confidence'] ?? "medium").toString();
 
     return AiDetectedItem(
@@ -65,6 +70,8 @@ class AiDetectedItem {
       category: cat,
       isBranded: branded,
       confidence: conf,
+      isLearnedRate: isLearned,
+      isVoiceRate: isVoice,
     );
   }
 
@@ -217,6 +224,20 @@ class AiCounterVisionService {
 
     final imageBytes = await pickedFile.readAsBytes();
 
+    // Option C (Default): Counter Photo Preview & Voice Hint Sheet
+    String? voiceHint;
+    if (context.mounted) {
+      voiceHint = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) => _AiCounterVoicePromptSheet(imageBytes: imageBytes),
+      );
+    }
+
+    // Cashier cancelled or dismissed sheet
+    if (voiceHint == "__CANCEL__") return null;
+
     // Show Progress Dialog
     if (!context.mounted) return null;
     final nav = Navigator.of(context);
@@ -231,17 +252,19 @@ class AiCounterVisionService {
             padding: const EdgeInsets.all(24),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              children: const [
-                CircularProgressIndicator(strokeWidth: 3, color: Color(0xFF7C3AED)),
-                SizedBox(height: 20),
-                Text(
-                  "Analyzing Counter Items...",
+              children: [
+                const CircularProgressIndicator(strokeWidth: 3, color: Color(0xFF7C3AED)),
+                const SizedBox(height: 20),
+                const Text(
+                  "AI Counter Scanning...",
                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 Text(
-                  "Detecting branded items, clutchers, safety pins, bangles & calculating bill...",
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                  voiceHint != null && voiceHint.isNotEmpty
+                      ? "Applying voice hint & visual rules with Gemini 2.5 Flash..."
+                      : "Calculating bill with Gemini 2.5 Flash visual rules...",
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -255,7 +278,11 @@ class AiCounterVisionService {
     String? errorMessage;
 
     try {
-      detectedItems = await service.analyzeCounterImage(imageBytes, apiKey: apiKey);
+      detectedItems = await service.analyzeCounterImage(
+        imageBytes,
+        apiKey: apiKey,
+        voiceHint: voiceHint,
+      );
     } catch (e) {
       errorMessage = e.toString();
     } finally {
@@ -287,6 +314,7 @@ class AiCounterVisionService {
       builder: (ctx) => _AiCounterBillReviewSheet(
         imageBytes: imageBytes,
         initialItems: detectedItems,
+        voiceHint: voiceHint,
       ),
     );
   }
@@ -295,39 +323,57 @@ class AiCounterVisionService {
   Future<List<AiDetectedItem>> analyzeCounterImage(
     Uint8List imageBytes, {
     required String apiKey,
+    String? voiceHint,
   }) async {
     final base64Image = base64Encode(imageBytes);
 
-    // Fetch shop's learned price memory (confirmed by cashier on previous bills)
+    // Fetch shop's learned visual price rules (confirmed by cashier on previous bills)
     final priceMemory = await getShopPriceMemory();
     String priceMemoryBlock = "";
     if (priceMemory.isNotEmpty) {
       final memoryList = priceMemory.entries
-          .take(50)
+          .take(60)
           .map((e) => '- "${e.key}": ₹${e.value % 1 == 0 ? e.value.toInt() : e.value}')
           .join("\n");
       priceMemoryBlock = """
 
-5. STORE'S LEARNED PRICE MEMORY (TOP PRIORITY - CONFIRMED BY OUR CASHIER):
-Our store previously confirmed these exact prices for the items below. If you detect these items or their close variants (e.g. specific lipsticks, clutchers, safety pins), use our store's confirmed rate:
+4. STORE'S LEARNED PRICING RULES (PRIORITY STORE GROUNDING):
+Our store previously confirmed these selling prices for these item types:
 $memoryList
+When you visually detect an item matching or similar to these visual archetypes, apply this confirmed store rate and set "source": "learned".
 """;
     }
 
-    // Optimized prompt for Indian retail cosmetic & general stores
+    String voiceHintBlock = "";
+    if (voiceHint != null && voiceHint.trim().isNotEmpty) {
+      voiceHintBlock = """
+
+5. CASHIER'S LIVE SPOKEN VOICE HINT (HIGHEST OVERRIDE PRIORITY):
+The cashier looked at the counter and spoke this live instruction in Hindi/Hinglish/Indian English:
+"$voiceHint"
+CRITICAL RULES FOR VOICE HINT:
+- Parse all quantities, item types, and rates mentioned in the cashier's voice hint (e.g. "Do clutcher 40 wale", "Lipstick 150 ki hai", "Safety pin 10 ka packet").
+- Match each spoken rate directly to the corresponding physical item visible on the counter.
+- If the cashier specified a price for an item, that price OVERRIDES everything else!
+- For any item priced by the cashier's voice hint, set "source": "voice".
+""";
+    }
+
+    // Optimized prompt for Indian retail cosmetic & general stores (Zero-inventory required)
     final prompt = """
-You are an expert AI retail cashier assistant for an Indian retail general and cosmetic shop ("Love Kush").
-Analyze this picture of items placed on the checkout counter and extract every single sellable item.
+You are an expert AI retail cashier assistant for an Indian retail general, jewellery, and cosmetic shop ("Love Kush Shopping Center").
+Analyze this picture of items placed on the checkout counter and calculate the complete bill.
+NO INVENTORY LOOKUP IS NEEDED: You must act like an experienced apprentice shop cashier who visually identifies items and calculates their prices based on visual characteristics, printed packaging MRP, cashier voice hints, and standard Indian retail pricing rules.
 
 CRITICAL RULES:
 1. IDENTIFY BOTH BRANDED AND UNBRANDED / UNNAMED ITEMS:
-   - UNBRANDED / UNNAMED / GENERAL ITEMS (Very common):
-     * Hair Accessories: Hair Clutcher (small/medium/large/butterfly), Hair Claw Clips, Tic-Tac Pins, Bobby Pins, Hair Rubber Bands, Scrunchie, Hair Band, Juda Pin.
+   - UNBRANDED / UNNAMED / GENERAL ITEMS (Very common on counter):
+     * Hair Accessories: Hair Clutcher / Claw Clip (small/medium/large/butterfly/metal/stone), Tic-Tac Pins, Bobby Pins, Hair Rubber Bands, Scrunchie, Hair Band, Juda Pin.
      * Daily Use / General: Safety Pins (card or bunch), Tailoring Thread / Ribbon / Lace, Comb, Nail Clipper, Pocket Mirror, Keychain, Mehendi Cone.
-     * Jewellery / Traditional: Bangles / Choori (specify type/size if visible, e.g. "Glass Bangles Set", "Metal Choori", "Chuda"), Bindi Packet / Card, Sindoor, Earring Pair, Payal / Anklet, Mangalsutra.
+     * Jewellery / Traditional: Bangles / Choori (specify type/size, e.g. "Glass Bangles Set", "Metal Choori Set", "Chuda"), Bindi Packet / Card, Sindoor, Earring Pair, Payal / Anklet, Mangalsutra.
    - BRANDED / PACKAGED COSMETIC ITEMS:
      * Read brand name and product type (e.g. "Lakme Eyeconic Kajal", "Blue Heaven Nail Polish", "Ponds Powder", "Fair & Lovely Cream", "Dazller Eyeliner", "Elle 18 Lipstick", "Vaseline Lip Balm", "Garnier Face Wash").
-     * Look closely for printed MRP (e.g. ₹10, ₹20, ₹50, ₹180). Use the exact printed MRP if visible.
+     * Look closely for printed MRP on packaging (e.g. ₹10, ₹20, ₹50, ₹180). Use the exact printed MRP if visible and set "source": "mrp".
 
 2. QUANTITY ACCURACY:
    - Count the physical number of units for each distinct item.
@@ -335,29 +381,39 @@ CRITICAL RULES:
    - If there are 2 bindi cards, set qty: 2.
    - For bangles, count each set/dozen as 1 set (qty: 1) or individual bundles.
 
-3. ESTIMATED OR DETECTED RATES (in Indian Rupees ₹):
-   - If MRP is clearly visible on packaging, set that amount (e.g. 180.0).
-   - If the item is UNBRANDED (like safety pins, hair clutcher, bindi, rubber band):
-     * Estimate realistic Indian retail prices:
-       - Safety Pin Card: 10.0
-       - Small Hair Clutcher: 15.0 - 20.0
-       - Medium/Large Hair Clutcher: 30.0 - 50.0
-       - Bindi Card / Packet: 10.0 - 20.0
-       - Hair Rubber Band / Scrunchie: 10.0 - 20.0
-       - Glass Bangles Set: 40.0 - 60.0
-       - Mehendi Cone: 10.0 - 15.0
-     * If rate is completely unknown, use 0.0 so the cashier can enter it.
+3. VISUAL PRICING RULES (When no printed MRP or voice hint applies):
+   - Hair Accessories:
+     * Small plain plastic claw clips / pins: ₹10 - ₹15
+     * Medium / Large patterned claw clips / butterfly clutchers: ₹30 - ₹40
+     * Fancy metal / stone-studded / designer clutchers: ₹50 - ₹80
+     * Hair rubber bands / basic scrunchies: ₹5 - ₹10
+     * Velvet / satin scrunchies / hair bands: ₹20 - ₹40
+   - Cosmetics:
+     * Standard bullet lipsticks (daily wear, Elle 18, Blue Heaven): ₹100 - ₹140
+     * Liquid matte / transfer-proof lipsticks: ₹180 - ₹250
+     * Nail polish bottles: ₹20 - ₹50
+     * Kajal pencils / eyeliners: ₹90 - ₹180
+   - Jewellery & Traditional:
+     * Glass bangles (per set/dozen): ₹30 - ₹40
+     * Metal / velvet choori sets: ₹60 - ₹100
+     * Bindi cards: ₹10 - ₹20
+   - Daily use:
+     * Safety pin card / bunch: ₹10
+     * Tailoring thread reel: ₹10 - ₹15
+     * Mehendi cone: ₹10 - ₹15
 $priceMemoryBlock
+$voiceHintBlock
 4. RESPONSE FORMAT:
    Return ONLY a valid JSON array of objects. No markdown formatting, no code blocks, no backticks, no explanatory text.
    Schema:
    [
      {
-       "name": "Specific Item Name (e.g. Hair Clutcher Medium, Safety Pins, Lakme Kajal)",
+       "name": "Specific Descriptive Item Name (e.g. Butterfly Hair Clutcher Medium, Safety Pins Card, Elle 18 Matte Lipstick)",
        "qty": 1,
-       "rate": 20.0,
+       "rate": 30.0,
        "category": "Hair Accessories" | "Cosmetics" | "Jewellery" | "General" | "Tailoring",
        "isBranded": false,
+       "source": "voice" | "learned" | "mrp" | "visual_estimate",
        "confidence": "high" | "medium" | "low"
      }
    ]
@@ -484,8 +540,10 @@ $priceMemoryBlock
         .map((item) => AiDetectedItem.fromJson(item as Map<String, dynamic>))
         .toList();
 
-    // Cross-reference against learned store price memory
+    // Cross-reference against learned store price memory (if not already set by voice)
     for (final it in resultItems) {
+      if (it.isVoiceRate) continue; // Cashier's live voice hint takes absolute priority!
+
       final nameLower = it.name.trim().toLowerCase();
       if (priceMemory.containsKey(nameLower)) {
         it.rate = priceMemory[nameLower]!;
@@ -694,11 +752,13 @@ $priceMemoryBlock
 class _AiCounterBillReviewSheet extends StatefulWidget {
   final Uint8List imageBytes;
   final List<AiDetectedItem> initialItems;
+  final String? voiceHint;
 
   const _AiCounterBillReviewSheet({
     Key? key,
     required this.imageBytes,
     required this.initialItems,
+    this.voiceHint,
   }) : super(key: key);
 
   @override
@@ -796,6 +856,34 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
             ),
           ),
           const Divider(height: 24),
+
+          // Voice Hint Banner (if provided by cashier)
+          if (widget.voiceHint != null && widget.voiceHint!.trim().isNotEmpty) ...[
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFBFDBFE)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.mic, size: 16, color: Color(0xFF2563EB)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Voice Hint: "${widget.voiceHint!.trim()}"',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E40AF)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
 
           // Items List
           Expanded(
@@ -940,7 +1028,18 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                       item.category,
                       style: TextStyle(fontSize: 10, color: _getCategoryColor(item.category), fontWeight: FontWeight.w600),
                     ),
-                    if (item.isLearnedRate) ...[
+                    if (item.isVoiceRate) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.5)),
+                        ),
+                        child: const Text("Voice Rate 🎤", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8))),
+                      ),
+                    ] else if (item.isLearnedRate) ...[
                       const SizedBox(width: 4),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
@@ -950,6 +1049,17 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                           border: Border.all(color: const Color(0xFF10B981).withOpacity(0.5)),
                         ),
                         child: const Text("Store Rate 🏷️", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF059669))),
+                      ),
+                    ] else if (item.isBranded) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF3C7),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.5)),
+                        ),
+                        child: const Text("MRP 📦", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFFB45309))),
                       ),
                     ],
                   ],
@@ -1265,5 +1375,339 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
       default:
         return Icons.category;
     }
+  }
+}
+
+/// Bottom Sheet displayed immediately after counter photo capture
+/// Enables Cashier to speak an optional voice hint (e.g. "Do clutcher 40 wale, ek lipstick")
+/// or tap directly to calculate bill using visual pricing rules (Option C by default)
+class _AiCounterVoicePromptSheet extends StatefulWidget {
+  final Uint8List imageBytes;
+
+  const _AiCounterVoicePromptSheet({
+    Key? key,
+    required this.imageBytes,
+  }) : super(key: key);
+
+  @override
+  State<_AiCounterVoicePromptSheet> createState() => _AiCounterVoicePromptSheetState();
+}
+
+class _AiCounterVoicePromptSheetState extends State<_AiCounterVoicePromptSheet> with SingleTickerProviderStateMixin {
+  late TextEditingController _hintCtrl;
+  final VoiceRecognitionService _voiceService = VoiceRecognitionService();
+  bool _isListening = false;
+  late AnimationController _pulseAnim;
+  String _activeLocale = 'hi_IN';
+
+  @override
+  void initState() {
+    super.initState();
+    _hintCtrl = TextEditingController();
+    _pulseAnim = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _initVoice();
+  }
+
+  Future<void> _initVoice() async {
+    await _voiceService.init();
+    if (mounted) {
+      setState(() {
+        _activeLocale = _voiceService.currentLocaleId;
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _hintCtrl.dispose();
+    _pulseAnim.dispose();
+    if (_isListening) {
+      _voiceService.stopListening();
+    }
+    super.dispose();
+  }
+
+  void _toggleListening() async {
+    if (_isListening) {
+      await _voiceService.stopListening();
+      if (mounted) setState(() => _isListening = false);
+    } else {
+      if (!_voiceService.isInitialized) {
+        await _voiceService.init();
+      }
+      setState(() => _isListening = true);
+      _voiceService.startListening(
+        onResult: (words) {
+          if (mounted) {
+            setState(() {
+              _hintCtrl.text = words;
+            });
+          }
+        },
+        localeId: _activeLocale,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final hasHint = _hintCtrl.text.trim().isNotEmpty;
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(16, 12, 16, 16 + bottomInset),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Drag handle
+          Center(
+            child: Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Header Row with photo preview
+          Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.memory(
+                  widget.imageBytes,
+                  width: 46,
+                  height: 46,
+                  fit: BoxFit.cover,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text(
+                      "Counter Photo Captured",
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      "Option C: Visual Rules + Voice Hint (No inventory)",
+                      style: TextStyle(fontSize: 11, color: Color(0xFF7C3AED), fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.black54),
+                onPressed: () => Navigator.pop(context, "__CANCEL__"),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Voice Hint Card
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF5F3FF),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: _isListening ? const Color(0xFF7C3AED) : const Color(0xFFDDD6FE),
+                width: _isListening ? 1.8 : 1.0,
+              ),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: const [
+                        Icon(Icons.mic, color: Color(0xFF7C3AED), size: 18),
+                        SizedBox(width: 6),
+                        Text(
+                          "Voice Rate & Item Hint (Optional)",
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF5B21B6)),
+                        ),
+                      ],
+                    ),
+                    // Language toggle (Hindi / English)
+                    InkWell(
+                      onTap: () {
+                        final newLoc = _activeLocale == 'hi_IN' ? 'en_IN' : 'hi_IN';
+                        setState(() => _activeLocale = newLoc);
+                        _voiceService.setLocale(newLoc);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFDDD6FE)),
+                        ),
+                        child: Text(
+                          _activeLocale == 'hi_IN' ? "🇮🇳 हिन्दी" : "🇬🇧 English",
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Mic Pulse button & status
+                GestureDetector(
+                  onTap: _toggleListening,
+                  child: AnimatedBuilder(
+                    animation: _pulseAnim,
+                    builder: (ctx, child) {
+                      return Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _isListening
+                              ? const Color(0xFF7C3AED).withOpacity(0.15 + (_pulseAnim.value * 0.15))
+                              : Colors.white,
+                          boxShadow: _isListening
+                              ? [
+                                  BoxShadow(
+                                    color: const Color(0xFF7C3AED).withOpacity(0.3 * _pulseAnim.value),
+                                    blurRadius: 16 * _pulseAnim.value,
+                                    spreadRadius: 4 * _pulseAnim.value,
+                                  )
+                                ]
+                              : [
+                                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 6, offset: const Offset(0, 2))
+                                ],
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _isListening ? const Color(0xFFDC2626) : const Color(0xFF7C3AED),
+                          ),
+                          child: Icon(
+                            _isListening ? Icons.stop : Icons.mic,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                Text(
+                  _isListening ? "Listening... Speak clearly in Hindi or English" : "Tap mic to speak (or skip to scan directly)",
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: _isListening ? FontWeight.bold : FontWeight.normal,
+                    color: _isListening ? const Color(0xFFDC2626) : Colors.black54,
+                  ),
+                ),
+
+                if (hasHint) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.record_voice_over, size: 16, color: Color(0xFF7C3AED)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '"${_hintCtrl.text.trim()}"',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                        ),
+                        InkWell(
+                          onTap: () => setState(() => _hintCtrl.clear()),
+                          child: const Icon(Icons.close, size: 16, color: Colors.black45),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Quick Spoken Example Chips
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              _buildHintChip("Do clutcher 40"),
+              _buildHintChip("Lipstick 150"),
+              _buildHintChip("Safety pin 10"),
+              _buildHintChip("Bangles 80"),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Primary Scan Action Button
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF7C3AED),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 2,
+            ),
+            icon: Icon(hasHint ? Icons.auto_awesome : Icons.bolt, color: Colors.white),
+            label: Text(
+              hasHint ? "Calculate Bill (Photo + Voice Hint)" : "Calculate Bill with AI (Visual Rules)",
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            onPressed: () {
+              if (_isListening) _voiceService.stopListening();
+              Navigator.pop(context, _hintCtrl.text.trim());
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHintChip(String text) {
+    return InkWell(
+      onTap: () {
+        setState(() {
+          if (_hintCtrl.text.isEmpty) {
+            _hintCtrl.text = text;
+          } else {
+            _hintCtrl.text = "${_hintCtrl.text}, $text";
+          }
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: Text(
+          '+ "$text"',
+          style: const TextStyle(fontSize: 10, color: Colors.black87, fontWeight: FontWeight.w500),
+        ),
+      ),
+    );
   }
 }

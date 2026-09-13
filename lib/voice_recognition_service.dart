@@ -38,6 +38,38 @@ class VoiceRecognitionService {
     await prefs.setString('pos_voice_locale', localeId);
   }
 
+  Future<void> startListening({
+    required Function(String words) onResult,
+    Function(double level)? onSoundLevelChange,
+    String? localeId,
+  }) async {
+    if (!_isInitialized) await init();
+    try {
+      await _speech.listen(
+        localeId: localeId ?? currentLocaleId,
+        onSoundLevelChange: onSoundLevelChange,
+        listenOptions: stt.SpeechListenOptions(
+          cancelOnError: false,
+          partialResults: true,
+          listenMode: stt.ListenMode.dictation,
+        ),
+        onResult: (result) {
+          onResult(result.recognizedWords);
+        },
+      );
+    } catch (e) {
+      debugPrint("VoiceRecognitionService startListening error: $e");
+    }
+  }
+
+  Future<void> stopListening() async {
+    try {
+      await _speech.stop();
+    } catch (e) {
+      debugPrint("VoiceRecognitionService stopListening error: $e");
+    }
+  }
+
   /// Open Voice Naming Modal Sheet with live transcription & North Indian language toggle
   static Future<String?> showVoiceInputSheet(
     BuildContext context, {
