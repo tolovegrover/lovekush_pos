@@ -690,7 +690,7 @@ $voiceHintBlock
                         ),
                         const SizedBox(height: 6),
                         const Text(
-                          "Each Google account provides 1,500 free daily scans ($0 / ₹0). Paste keys from your family members' accounts below (separate with a new line or comma). The app will automatically share and failover between them so quota never runs out!",
+                          "Each Google account provides 1,500 free daily scans (\$0 / ₹0). Paste keys from your family members' accounts below (separate with a new line or comma). The app will automatically share and failover between them so quota never runs out!",
                           style: TextStyle(fontSize: 11, color: Colors.black87, height: 1.3),
                         ),
                       ],

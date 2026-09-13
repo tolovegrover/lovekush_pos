@@ -26,6 +26,18 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Love Kush POS needs camera access to scan barcodes and photograph checkout counter items for AI billing.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Love Kush POS needs photo library access to upload shop logo and counter photos.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Love Kush POS needs microphone access to recognize voice commands and price hints.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Love Kush POS needs speech recognition to transcribe item names and prices.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Love Kush POS uses Bluetooth to connect to thermal receipt printers.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Love Kush POS uses Bluetooth to connect to thermal receipt printers.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

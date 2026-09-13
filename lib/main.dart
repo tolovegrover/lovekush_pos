@@ -5754,6 +5754,7 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   void _initBluetooth() async {
+    if (!Platform.isAndroid) return;
     try {
       List<BluetoothDevice> devices = await bluetooth.getBondedDevices();
       setState(() => _devices = devices);
@@ -5799,6 +5800,32 @@ class _PosScreenState extends State<PosScreen> {
   }
 
   void _showPrinterDialog() {
+    if (!Platform.isAndroid) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: const [
+              Icon(Icons.print, color: Color(0xFF7C3AED)),
+              SizedBox(width: 8),
+              Text("Printer Setup (iOS)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            ],
+          ),
+          content: const Text(
+            "Bluetooth Classic (SPP) thermal printers are only supported on Android hardware.\n\nOn iPhone/iPad, you can:\n1. Print bills via AirPrint / Network Wi-Fi printers using PDF Print.\n2. Tap 'Share Bill' to send high-quality PDF bills directly via WhatsApp.",
+            style: TextStyle(fontSize: 13, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("OK"),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -8771,6 +8798,7 @@ class _BarcodeLabelPrinterScreenState extends State<BarcodeLabelPrinterScreen> {
   }
 
   void _checkPrinter() async {
+    if (!Platform.isAndroid) return;
     try {
       bool? connected = await bluetooth.isConnected;
       List<BluetoothDevice> bonded = await bluetooth.getBondedDevices();
@@ -8782,6 +8810,12 @@ class _BarcodeLabelPrinterScreenState extends State<BarcodeLabelPrinterScreen> {
   }
 
   void _showPrinterDialog() {
+    if (!Platform.isAndroid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Bluetooth thermal printer is only supported on Android.")),
+      );
+      return;
+    }
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
@@ -8826,6 +8860,12 @@ class _BarcodeLabelPrinterScreenState extends State<BarcodeLabelPrinterScreen> {
   String get locationCode => "${_rackCtrl.text.padLeft(2, '0')}-${_colCtrl.text.padLeft(2, '0')}-${_rowCtrl.text.toUpperCase()}-${_itemCtrl.text}".toUpperCase();
 
   void _printLabel() async {
+    if (!Platform.isAndroid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Bluetooth thermal printer is only supported on Android.")),
+      );
+      return;
+    }
     try {
       bool? isConnected = await bluetooth.isConnected;
       if (isConnected != true) {
@@ -9585,6 +9625,14 @@ Future<void> executeReprintThermalBill({
   required Map<String, dynamic> bill,
   ReceiptLanguage language = ReceiptLanguage.english,
 }) async {
+  if (!Platform.isAndroid) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Bluetooth thermal printer is only supported on Android. Please use PDF Print.")),
+      );
+    }
+    return;
+  }
   bool? isConnected = await bluetooth.isConnected;
   if (isConnected != true) {
     if (context.mounted) {
