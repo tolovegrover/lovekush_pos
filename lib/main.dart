@@ -4985,11 +4985,86 @@ class _PosScreenState extends State<PosScreen> {
           }
         });
 
-        // Automatically learn/update store rate memory from confirmed items
+        // Automatically learn/update store rate memory from confirmed items (AI Backtraining)
         await AiCounterVisionService().learnConfirmedPrices(detectedItems);
 
+        // Database & Catalog Ingestion: Check if items exist in database
+        int newCatalogItemsCount = 0;
+        for (final item in detectedItems) {
+          final cleanName = item.name.trim();
+          if (cleanName.isNotEmpty && item.rate > 0) {
+            final nameLower = cleanName.toLowerCase();
+
+            // Check if item already exists in cloud inventory
+            Map<String, dynamic>? existingInv;
+            for (final inv in cloudInventory.values) {
+              final invName = (inv['item_name'] ?? '').toString().toLowerCase().trim();
+              if (invName == nameLower) {
+                existingInv = inv;
+                break;
+              }
+            }
+
+            if (existingInv != null) {
+              // Item exists: check if cashier billed at a changed rate
+              final existingRate = (existingInv['price'] as num?)?.toDouble() ?? 0.0;
+              if (existingRate > 0 && (existingRate - item.rate).abs() >= 0.01) {
+                final invCode = (existingInv['item_code'] ?? '').toString();
+                final barcode = (existingInv['company_barcode'] ?? invCode).toString();
+                PendingRateChangesManager.addRateChange(
+                  itemCode: invCode,
+                  barcode: barcode,
+                  itemName: cleanName,
+                  oldRate: existingRate,
+                  newRate: item.rate,
+                );
+              }
+            } else {
+              // Item NOT found in database: Add to Pending Queue and Auto-ingest into Supabase
+              newCatalogItemsCount++;
+              String slug = cleanName.replaceAll(RegExp(r'[^a-zA-Z0-9]+'), '-').toUpperCase();
+              if (slug.length > 20) slug = slug.substring(0, 20);
+              if (slug.endsWith('-')) slug = slug.substring(0, slug.length - 1);
+              final aiCode = "AI-$slug";
+              final cat = item.category.isNotEmpty ? item.category : 'General';
+
+              PendingItemsManager.addPending(
+                barcode: aiCode,
+                name: cleanName,
+                price: item.rate,
+                category: cat,
+              );
+
+              autoIngestProductToDatabase(
+                barcode: aiCode,
+                name: cleanName,
+                price: item.rate,
+                category: cat,
+              );
+
+              // Immediately cache into cloudInventory so it can be searched
+              cloudInventory[aiCode] = {
+                'item_code': aiCode,
+                'item_name': cleanName,
+                'price': item.rate,
+                'company_barcode': aiCode,
+                'shelf_location': 'AI-COUNTER',
+                'category': cat,
+                'mrp': item.rate,
+                'stock_qty': 10,
+                'is_online': true,
+              };
+            }
+          }
+        }
+
+        String notifMsg = "Added $addedCount items (₹${addedSum % 1 == 0 ? addedSum.toInt() : addedSum.toStringAsFixed(2)}) from AI Bill!";
+        if (newCatalogItemsCount > 0) {
+          notifMsg += " • $newCatalogItemsCount new item${newCatalogItemsCount > 1 ? 's' : ''} added to database!";
+        }
+
         _showPosNotification(
-          "Added $addedCount items (₹${addedSum % 1 == 0 ? addedSum.toInt() : addedSum.toStringAsFixed(2)}) from AI Bill!",
+          notifMsg,
           color: const Color(0xFF7C3AED),
           icon: Icons.auto_awesome,
           duration: const Duration(seconds: 5),
