@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'vedic_time_service.dart';
+import 'vedic_festive_service.dart';
+import 'main.dart';
 
 class VedicClockScreen extends StatefulWidget {
   const VedicClockScreen({Key? key}) : super(key: key);
@@ -15,6 +17,10 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
   late TabController _tabController;
   Timer? _ticker;
   DateTime _now = DateTime.now();
+
+  // Festive Guide State
+  String _festiveSearchQuery = "";
+  String _festiveFilterType = "All"; // "All", "आगामी", "महापर्व", "त्यौहार", "व्रत"
 
   // Converter 1: Clock -> Vedic
   final TextEditingController _hourCtrl = TextEditingController(text: "13");
@@ -38,7 +44,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _startClock();
     _performClockToVedicConversion();
     _performVedicToClockConversion();
@@ -356,6 +362,7 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
           indicatorWeight: 3,
           tabs: const [
             Tab(icon: Icon(Icons.access_time_filled, size: 20), text: "लाइव घड़ी (Live)"),
+            Tab(icon: Icon(Icons.celebration, size: 20), text: "त्यौहार व स्टॉक (Festivals)"),
             Tab(icon: Icon(Icons.sync_alt, size: 20), text: "परिवर्तक (Converter)"),
             Tab(icon: Icon(Icons.menu_book, size: 20), text: "प्रमाण व सूत्र (Rules)"),
           ],
@@ -367,10 +374,13 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
           // TAB 1: LIVE VEDIC CLOCK & PANCHANG
           _buildLiveClockTab(liveVedic, panchang, solar, sunriseStr, sunsetStr, dayFraction),
 
-          // TAB 2: BIDIRECTIONAL CONVERTER
+          // TAB 2: FESTIVALS & VRATS RETAIL GUIDE
+          _buildFestivalsTab(),
+
+          // TAB 3: BIDIRECTIONAL CONVERTER
           _buildConverterTab(sunriseStr),
 
-          // TAB 3: RULES & FORMULAS
+          // TAB 4: RULES & FORMULAS
           _buildRulesTab(),
         ],
       ),
@@ -862,6 +872,10 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
               ],
             ),
           ),
+          const SizedBox(height: 16),
+
+          // 5. IMMINENT FESTIVALS & WHAT SELLS SPOTLIGHT
+          _buildLiveFestiveSpotlight(_now),
           const SizedBox(height: 24),
         ],
       ),
@@ -1616,6 +1630,475 @@ class _VedicClockScreenState extends State<VedicClockScreen> with SingleTickerPr
           ),
           Expanded(
             child: Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // FESTIVALS & WHAT SELLS LIVE SPOTLIGHT
+  // ==========================================
+  Widget _buildLiveFestiveSpotlight(DateTime now) {
+    final upcoming = VedicFestiveService.getUpcomingFestivals(now);
+    final nextEv = upcoming.isNotEmpty ? upcoming.first : null;
+    if (nextEv == null) return const SizedBox.shrink();
+
+    final days = nextEv.daysRemaining(now);
+    final isToday = days == 0;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isToday
+              ? [const Color(0xFFBE123C), const Color(0xFFE11D48)]
+              : [const Color(0xFF831843), const Color(0xFFBE185D)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 3))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(nextEv.icon, color: Colors.amberAccent, size: 28),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isToday
+                          ? "🎉 आज का महापर्व • TODAY'S FESTIVAL"
+                          : "🌟 आगामी प्रमुख पर्व • IN $days DAYS",
+                      style: const TextStyle(color: Colors.amberAccent, fontSize: 10.5, fontWeight: FontWeight.bold, letterSpacing: 1.0),
+                    ),
+                    Text(
+                      nextEv.hindiName,
+                      style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      "${nextEv.name} • ${nextEv.tithiDescription}",
+                      style: const TextStyle(color: Colors.white70, fontSize: 11.5),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(8)),
+                child: Column(
+                  children: [
+                    Text("${nextEv.demandMultiplier}x", style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.w900, fontSize: 18)),
+                    const Text("Surge", style: TextStyle(color: Colors.white70, fontSize: 9.5, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          const Divider(color: Colors.white24, height: 1),
+          const SizedBox(height: 10),
+
+          // WHAT SELLS HIGHLIGHT
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.25),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.shopping_bag, size: 15, color: Colors.amberAccent),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        "🛍️ इस समय सबसे ज्यादा क्या बिकता है (Hot Selling Retail Items):",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5, color: Colors.amberAccent),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  nextEv.topSellingItemsHindi,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white, height: 1.3),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  nextEv.topSellingItemsEnglish,
+                  style: const TextStyle(fontSize: 11, color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Action button: View full list of 32+ festivals & vrats
+          SizedBox(
+            width: double.infinity,
+            height: 36,
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF831843),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                elevation: 0,
+              ),
+              icon: const Icon(Icons.celebration, size: 16),
+              label: const Text(
+                "सभी 32+ त्यौहार, व्रत एवं बिकने वाले सामान देखें ➔",
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+              onPressed: () => _tabController.animateTo(1),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
+  // TAB 2: FESTIVALS & VRATS RETAIL GUIDE
+  // ==========================================
+  Widget _buildFestivalsTab() {
+    final now = DateTime.now();
+    var list = VedicFestiveService.getUpcomingFestivals(now);
+
+    if (_festiveSearchQuery.trim().isNotEmpty) {
+      list = VedicFestiveService.searchFestivals(_festiveSearchQuery);
+    }
+
+    if (_festiveFilterType == "त्यौहार") {
+      list = list.where((ev) => ev.type == "त्यौहार").toList();
+    } else if (_festiveFilterType == "व्रत") {
+      list = list.where((ev) => ev.type == "व्रत").toList();
+    } else if (_festiveFilterType == "महापर्व") {
+      list = list.where((ev) => ev.type == "महापर्व").toList();
+    } else if (_festiveFilterType == "आगामी") {
+      list = list.where((ev) => ev.daysRemaining(now) <= 30).toList();
+    }
+
+    return Column(
+      children: [
+        // Search & Filter Header
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          color: Colors.white,
+          child: Column(
+            children: [
+              TextField(
+                decoration: InputDecoration(
+                  hintText: "त्यौहार या बिकने वाला सामान खोजें (उदा. चूड़ी, लड्डू गोपाल, गणेश)...",
+                  hintStyle: const TextStyle(fontSize: 12.5, color: Colors.black45),
+                  prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFFD97706)),
+                  suffixIcon: _festiveSearchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: () => setState(() => _festiveSearchQuery = ""),
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: const Color(0xFFFFFBEB),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFFDE68A)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: Color(0xFFFDE68A)),
+                  ),
+                ),
+                onChanged: (val) => setState(() => _festiveSearchQuery = val),
+              ),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _buildFestiveChip("सभी (All 32+)", "All"),
+                    const SizedBox(width: 6),
+                    _buildFestiveChip("⏳ 30 दिन में (Upcoming)", "आगामी"),
+                    const SizedBox(width: 6),
+                    _buildFestiveChip("🪔 महापर्व (Grand)", "महापर्व"),
+                    const SizedBox(width: 6),
+                    _buildFestiveChip("🎉 त्यौहार (Festivals)", "त्यौहार"),
+                    const SizedBox(width: 6),
+                    _buildFestiveChip("🔱 व्रत (Vrats)", "व्रत"),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+
+        // Festivals List
+        Expanded(
+          child: list.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.search_off, size: 48, color: Colors.grey),
+                      const SizedBox(height: 8),
+                      Text(
+                        "'$_festiveSearchQuery' से संबंधित कोई त्यौहार नहीं मिला",
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                    ],
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: list.length,
+                  itemBuilder: (ctx, idx) {
+                    final ev = list[idx];
+                    return _buildFestivalCard(ev, now);
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFestiveChip(String label, String value) {
+    final bool isSelected = _festiveFilterType == value;
+    return ChoiceChip(
+      label: Text(label),
+      labelStyle: TextStyle(
+        fontSize: 11,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        color: isSelected ? Colors.white : const Color(0xFF92400E),
+      ),
+      selected: isSelected,
+      selectedColor: const Color(0xFFD97706),
+      backgroundColor: const Color(0xFFFEF3C7),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      side: BorderSide(color: isSelected ? const Color(0xFFB45309) : const Color(0xFFFDE68A)),
+      onSelected: (_) => setState(() => _festiveFilterType = value),
+    );
+  }
+
+  Widget _buildFestivalCard(VedicFestivalEvent ev, DateTime now) {
+    final days = ev.daysRemaining(now);
+    final isToday = days == 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isToday
+              ? const Color(0xFFE11D48)
+              : (days <= 14 ? const Color(0xFFF59E0B) : Colors.grey.shade200),
+          width: isToday ? 2 : (days <= 14 ? 1.5 : 1),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isToday
+                    ? [const Color(0xFFBE123C), const Color(0xFFE11D48)]
+                    : (days <= 14
+                        ? [const Color(0xFFB45309), const Color(0xFFD97706)]
+                        : [const Color(0xFF1E293B), const Color(0xFF334155)]),
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
+            ),
+            child: Row(
+              children: [
+                Icon(ev.icon, color: Colors.amberAccent, size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        ev.hindiName,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white),
+                      ),
+                      Text(
+                        "${ev.name} • ${ev.tithiDescription}",
+                        style: const TextStyle(fontSize: 11, color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isToday ? Colors.white : Colors.black26,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    isToday ? "🎉 आज ही है!" : (days <= 30 ? "⏳ $days दिन शेष" : "आगामी"),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: isToday ? const Color(0xFFBE123C) : Colors.amberAccent,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Demand Surge & Type Badges
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.amber.shade300),
+                      ),
+                      child: Text(
+                        "🔥 ${ev.demandMultiplier}x बिक्री उछाल (Surge)",
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFFB45309)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.blue.shade200),
+                      ),
+                      child: Text(
+                        ev.type,
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // WHAT SELLS (इस समय क्या बिकता है)
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: const [
+                          Icon(Icons.shopping_bag, size: 16, color: Color(0xFFB45309)),
+                          SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              "🛍️ इस समय सबसे ज्यादा क्या बिकता है (Hot Selling Items):",
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF92400E)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        ev.topSellingItemsHindi,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B), height: 1.3),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        ev.topSellingItemsEnglish,
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // DISTRIBUTOR & STOCK ADVICE
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0FDF4),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFBBF7D0)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.lightbulb, size: 16, color: Color(0xFF16A34A)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          "📦 स्टॉक सलाह: ${ev.distributorAdvice}",
+                          style: const TextStyle(fontSize: 11.5, color: Color(0xFF166534), fontWeight: FontWeight.w600, height: 1.3),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // Action button: Search in store inventory
+                SizedBox(
+                  width: double.infinity,
+                  height: 34,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFB45309),
+                      side: const BorderSide(color: Color(0xFFF59E0B)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                    icon: const Icon(Icons.inventory_2_outlined, size: 14),
+                    label: const Text(
+                      "दुकान के इन्वेंटरी में स्टॉक चेक करें (Search in Shop)",
+                      style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold),
+                    ),
+                    onPressed: () {
+                      final kw = ev.searchKeywords.isNotEmpty ? ev.searchKeywords.first : ev.name;
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ItemCatalogScreen(
+                            selectMode: false,
+                            initialSearchQuery: kw,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

@@ -19,6 +19,7 @@ import 'cosmetics_catalog.dart';
 import 'pdf_receipt_service.dart';
 import 'vedic_time_service.dart';
 import 'vedic_clock_screen.dart';
+import 'vedic_festive_service.dart';
 import 'settings_screen.dart';
 import 'voice_recognition_service.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7720,6 +7721,15 @@ class _PosScreenState extends State<PosScreen> {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.alarm_on, color: Color(0xFFD97706)),
+                title: const Text('Vedic Clock & Festivals', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD97706))),
+                subtitle: const Text('वैदिक घड़ी, पञ्चाङ्ग एवं त्यौहार स्टॉक (What Sells Guide)'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const VedicClockScreen()));
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.manage_accounts, color: Colors.black87),
                 title: const Text('Manage Staff Access', style: TextStyle(fontWeight: FontWeight.bold)),
                 onTap: () {
@@ -7769,6 +7779,15 @@ class _PosScreenState extends State<PosScreen> {
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(context, MaterialPageRoute(builder: (_) => const FestiveStockScreen()));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.alarm_on, color: Color(0xFFD97706)),
+                title: const Text('Vedic Clock & Festivals', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFFD97706))),
+                subtitle: const Text('वैदिक घड़ी, पञ्चाङ्ग एवं त्यौहार स्टॉक (What Sells Guide)'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const VedicClockScreen()));
                 },
               ),
               ListTile(
@@ -10922,99 +10941,17 @@ class IndianFestiveEvent {
   }
 }
 
-// Master Indian Retail Festive & Season Calendar
-final List<IndianFestiveEvent> masterFestiveCalendar = const [
-  IndianFestiveEvent(
-    name: "Sharad Navratri & Durga Puja",
-    hindiName: "शारदीय नवरात्रि एवं दुर्गा पूजा",
-    approxMonth: 9,
-    approxDay: 28,
-    demandMultiplier: 2.6,
-    focusCategories: "Festive Makeup, Sindoor, Kajal, Compact Powder, Lipsticks, Nail Enamel",
-    distributorAdvice: "Order stock 2 weeks early (by Sept 14). High footfall for cosmetics.",
-    icon: Icons.celebration,
-  ),
-  IndianFestiveEvent(
-    name: "Karwa Chauth & Ahoi Ashtami",
-    hindiName: "करवा चौथ एवं अहोई अष्टमी",
-    approxMonth: 10,
-    approxDay: 19,
-    demandMultiplier: 3.8,
-    focusCategories: "Bangles, Mehendi Cones, Bridal Lipsticks, Waterproof Kajal, Facial Kits, Bindi",
-    distributorAdvice: "PEAK COSMETICS RUSH! Order stock 3-4 weeks prior (by Sept 25) to prevent shortages.",
-    icon: Icons.favorite,
-  ),
-  IndianFestiveEvent(
-    name: "Dhanteras & Diwali Festival",
-    hindiName: "धनतेरस एवं दीपावली महापर्व",
-    approxMonth: 11,
-    approxDay: 1,
-    demandMultiplier: 4.5,
-    focusCategories: "Gift Baskets, Luxury Perfumes, Skin Care Hampers, Creams, Premium Cosmetics",
-    distributorAdvice: "Year's Biggest Turnover! Distributor orders must arrive and be shelved by Oct 15.",
-    icon: Icons.auto_awesome,
-  ),
-  IndianFestiveEvent(
-    name: "Winter Wedding Season (Lagun)",
-    hindiName: "शीतकालीन विवाह सीजन (शादी-ब्याह)",
-    approxMonth: 11,
-    approxDay: 20,
-    demandMultiplier: 3.2,
-    focusCategories: "Bridal Makeup, Foundations, Concealers, Eyelashes, Hair Sprays, Artificial Jewelry",
-    distributorAdvice: "Heavy continuous demand through mid-December. Keep backup cartons in basement.",
-    icon: Icons.diversity_1,
-  ),
-  IndianFestiveEvent(
-    name: "Winter Skincare Peak & New Year",
-    hindiName: "सर्दियों की स्किनकेयर एवं नव वर्ष",
-    approxMonth: 12,
-    approxDay: 20,
-    demandMultiplier: 2.5,
-    focusCategories: "Pond's Cold Cream, Nivea Body Lotions, Vaseline Petroleum Jelly, Lip Balms, Glycerin",
-    distributorAdvice: "Ensure bulk cases of 100ml & 200ml cold creams and moisturizing lotions are stocked.",
-    icon: Icons.ac_unit,
-  ),
-  IndianFestiveEvent(
-    name: "Spring Wedding Season (Jan-Feb)",
-    hindiName: "वसंत विवाह मुहूर्त सीजन",
-    approxMonth: 1,
-    approxDay: 20,
-    demandMultiplier: 2.8,
-    focusCategories: "Party Makeup, Waterproof Mascara, Highlighters, Bangles, Deodorants, Perfumes",
-    distributorAdvice: "Restock post-Diwali inventory depletion by first week of January.",
-    icon: Icons.loyalty,
-  ),
-  IndianFestiveEvent(
-    name: "Holi & Spring Care Transition",
-    hindiName: "होली महापर्व एवं त्वचा सुरक्षा",
-    approxMonth: 3,
-    approxDay: 15,
-    demandMultiplier: 2.2,
-    focusCategories: "Hair Oils (Coconut/Mustard/Almond), Face Cleansers, Mild Soaps, Post-color Skin Creams",
-    distributorAdvice: "Transition off heavy cold creams to light summer face washes and skin shields.",
-    icon: Icons.color_lens,
-  ),
-  IndianFestiveEvent(
-    name: "Summer Rush & Chaitra Navratri",
-    hindiName: "ग्रीष्मकालीन दैनिक उत्पाद एवं चैत्र नवरात्रि",
-    approxMonth: 4,
-    approxDay: 10,
-    demandMultiplier: 2.0,
-    focusCategories: "Prickly Heat Powders (Dermicool/Nycil), Summer Talcs, Deodorants, Sunscreens SPF 30/50",
-    distributorAdvice: "High summer volume. Stock cooling talc and roll-ons in front counter trays.",
-    icon: Icons.wb_sunny,
-  ),
-  IndianFestiveEvent(
-    name: "Hariyali Teej & Raksha Bandhan",
-    hindiName: "हरियाली तीज एवं रक्षाबंधन",
-    approxMonth: 8,
-    approxDay: 10,
-    demandMultiplier: 2.9,
-    focusCategories: "Green Bangles, Mehendi Cones, Festive Lip Colors, Sister Gift Sets, Nail Paints",
-    distributorAdvice: "Place orders by July 20. Huge crowd for mehendi and bangles 2 days prior to Teej.",
-    icon: Icons.card_giftcard,
-  ),
-];
+// Master Indian Retail Festive & Season Calendar (Populated from comprehensive VedicFestiveService: 32+ Hindu festivals & vrats)
+final List<IndianFestiveEvent> masterFestiveCalendar = VedicFestiveService.allFestivals.map((vf) => IndianFestiveEvent(
+  name: vf.name,
+  hindiName: vf.hindiName,
+  approxMonth: vf.approxMonth,
+  approxDay: vf.approxDay,
+  demandMultiplier: vf.demandMultiplier,
+  focusCategories: "${vf.topSellingItemsHindi} (${vf.topSellingItemsEnglish})",
+  distributorAdvice: vf.distributorAdvice,
+  icon: vf.icon,
+)).toList();
 
 class _AdminDashboardScreenState extends State<AdminDashboardScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
@@ -11554,6 +11491,11 @@ class FestiveStockScreen extends StatelessWidget {
         backgroundColor: const Color(0xFF111827),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
+          IconButton(
+            tooltip: "वैदिक घड़ी, पञ्चाङ्ग एवं स्टॉक गाइड",
+            icon: const Icon(Icons.alarm_on, color: Colors.orangeAccent),
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VedicClockScreen())),
+          ),
           TextButton.icon(
             style: TextButton.styleFrom(foregroundColor: Colors.amberAccent),
             icon: const Icon(Icons.inventory_2_outlined, size: 18),

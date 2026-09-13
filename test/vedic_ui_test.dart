@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lovekush_pos/vedic_clock_screen.dart';
 import 'package:lovekush_pos/settings_screen.dart';
-import 'package:lovekush_pos/vedic_time_service.dart';
 
 void main() {
   group('Vedic Clock & Settings Screen Widget Tests', () {
@@ -21,6 +20,7 @@ void main() {
 
       // Check tabs
       expect(find.text("लाइव घड़ी (Live)"), findsOneWidget);
+      expect(find.text("त्यौहार व स्टॉक (Festivals)"), findsOneWidget);
       expect(find.text("परिवर्तक (Converter)"), findsOneWidget);
       expect(find.text("प्रमाण व सूत्र (Rules)"), findsOneWidget);
 
@@ -65,6 +65,36 @@ void main() {
       // Verify preset chips
       expect(find.text("13:27:06 (द्रिक ६० घटी -> 18:26:28)"), findsOneWidget);
       expect(find.text("18:26:28 (द्रिक ६० -> 13:27:06)"), findsOneWidget);
+    });
+
+    testWidgets('VedicClockScreen Festivals & Stock tab renders occasions and what-sells guide', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: VedicClockScreen(),
+        ),
+      );
+      await tester.pump();
+
+      // Tap on Festivals & Stock tab
+      await tester.tap(find.text("त्यौहार व स्टॉक (Festivals)"));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining("त्यौहार या बिकने वाला सामान खोजें"), findsOneWidget);
+      expect(find.textContaining("सभी (All 32+)"), findsOneWidget);
+
+      // Search for Teej
+      await tester.enterText(find.byType(TextField), "तीज");
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining("हरियाली तीज"), findsWidgets);
+      expect(find.textContaining("चूड़ियां"), findsWidgets);
+
+      // Search for Krishna / Laddoo Gopal
+      await tester.enterText(find.byType(TextField), "गोपाल");
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining("श्री कृष्ण जन्माष्टमी"), findsWidgets);
+      expect(find.textContaining("लड्डू गोपाल जी"), findsWidgets);
     });
 
     testWidgets('VedicClockScreen Rules tab renders unit reference table', (tester) async {

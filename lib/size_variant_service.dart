@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'cosmetics_catalog.dart';
+import 'ai_counter_vision_service.dart';
 
 /// Represents a single Size Variant of a retail item with its corresponding rate.
 class SizeVariant {
@@ -227,17 +229,17 @@ class SizeVariantService {
     return list;
   }
 
-  /// Generate intelligent retail size presets when product is not in catalog
+  /// Generate standard retail size presets ONLY for standard apparel and bangles.
+  /// Does NOT invent fake Small/Medium/Large for arbitrary items.
   static List<SizeVariant> getCategorySmartPresets({
     required String category,
     required String itemName,
     required double currentRate,
   }) {
     final lowerName = itemName.toLowerCase();
-    final lowerCat = category.toLowerCase();
     final double baseRate = currentRate > 0 ? currentRate : 50.0;
 
-    // A. Bangles / Churi / Kangan
+    // A. Bangles / Churi / Kangan (Standard Indian bangle sizing)
     if (lowerName.contains("bangle") || lowerName.contains("churi") || lowerName.contains("kangan") || lowerName.contains("kada")) {
       return [
         SizeVariant(sizeLabel: "Size 2.2", rate: baseRate),
@@ -248,35 +250,7 @@ class SizeVariantService {
       ];
     }
 
-    // B. Hair accessories (Clutchers, Pins, Clips, Scrunchies, Rubber bands)
-    if (lowerCat.contains("hair") || lowerName.contains("clutcher") || lowerName.contains("pin") || lowerName.contains("clip") || lowerName.contains("band")) {
-      final double s = (baseRate * 0.6).roundToDouble().clamp(10, 9999);
-      final double m = baseRate;
-      final double l = (baseRate * 1.5).roundToDouble();
-      final double j = (baseRate * 2.2).roundToDouble();
-      return [
-        SizeVariant(sizeLabel: "Small (Chhota)", rate: s),
-        SizeVariant(sizeLabel: "Medium", rate: m),
-        SizeVariant(sizeLabel: "Large (Bada)", rate: l),
-        SizeVariant(sizeLabel: "Jumbo", rate: j),
-      ];
-    }
-
-    // C. Cosmetics / Liquids (Lotions, Creams, Shampoos, Oils, Face Wash)
-    if (lowerCat.contains("cosmetic") || lowerCat.contains("skincare") || lowerName.contains("lotion") || lowerName.contains("cream") || lowerName.contains("oil") || lowerName.contains("shampoo") || lowerName.contains("wash")) {
-      final double smallRate = (baseRate * 0.55).roundToDouble().clamp(20, 9999);
-      final double medRate = baseRate;
-      final double lrgRate = (baseRate * 1.8).roundToDouble();
-      final double fmlRate = (baseRate * 3.2).roundToDouble();
-      return [
-        SizeVariant(sizeLabel: "Small (50g / 50ml)", rate: smallRate),
-        SizeVariant(sizeLabel: "Medium (100g / 100ml)", rate: medRate),
-        SizeVariant(sizeLabel: "Large (200g / 200ml)", rate: lrgRate),
-        SizeVariant(sizeLabel: "Family (400g / 400ml)", rate: fmlRate),
-      ];
-    }
-
-    // D. Apparel / Hosiery / Undergarments
+    // B. Apparel / Garments / Hosiery (Standard Indian garment sizing)
     if (lowerName.contains("bra") || lowerName.contains("panty") || lowerName.contains("towel") || lowerName.contains("socks") || lowerName.contains("suit") || lowerName.contains("legging") || lowerName.contains("tshirt")) {
       return [
         SizeVariant(sizeLabel: "S (Small)", rate: baseRate),
@@ -287,14 +261,109 @@ class SizeVariantService {
       ];
     }
 
-    // E. General default sizes
-    final double sRate = (baseRate * 0.7).roundToDouble().clamp(10, 9999);
-    final double lRate = (baseRate * 1.4).roundToDouble();
-    return [
-      SizeVariant(sizeLabel: "Small", rate: sRate),
-      SizeVariant(sizeLabel: "Medium", rate: baseRate),
-      SizeVariant(sizeLabel: "Large", rate: lRate),
-    ];
+    // Do NOT generate fake sizes for general items (cosmetics, accessories, pooja items, etc.)
+    return [];
+  }
+
+  /// Search internet using Gemini AI for authentic Indian market pack sizes and rates
+  static Future<List<SizeVariant>> searchMarketSizesWithAI(String productName) async {
+    try {
+      final keyPool = await AiCounterVisionService().getApiKeys();
+      if (keyPool.isEmpty) return [];
+
+      final prompt = """
+You are an expert Indian retail and FMCG consumer product specialist.
+For the product sold in Indian retail shops: "$productName",
+what are the authentic packaging sizes/variants and their typical selling rates/MRPs (in INR ₹) in India?
+Return ONLY a valid JSON array of objects. Each object must have:
+- "size": string (e.g. "50ml", "100ml", "200ml", "Size 2.4", "Size 2.6", "S", "M", "L", "XL")
+- "rate": number (realistic retail MRP/selling rate in INR ₹)
+- "fullName": string (full product name including size)
+
+RULES:
+1. If this product DOES NOT typically come in multiple sizes (e.g. standard eyeliner, kajal, comb, bindi, safety pins, nail polish, single toy, single idol), return an empty JSON array: []
+2. Do NOT invent generic "Small, Medium, Large" if the product doesn't have such sizes. Only return genuine Indian market pack sizes.
+3. Output strictly valid JSON without markdown backticks or commentary.
+""";
+
+      final requestBody = jsonEncode({
+        "contents": [
+          {
+            "parts": [
+              {"text": prompt}
+            ]
+          }
+        ],
+        "generationConfig": {
+          "temperature": 0.1,
+          "maxOutputTokens": 600,
+          "responseMimeType": "application/json"
+        }
+      });
+
+      const modelsToTry = [
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
+        'gemini-2.5-flash-lite',
+      ];
+
+      for (final key in keyPool) {
+        for (final model in modelsToTry) {
+          try {
+            final url = Uri.parse(
+              "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=${key.trim()}",
+            );
+            final res = await http.post(
+              url,
+              headers: {"Content-Type": "application/json"},
+              body: requestBody,
+            ).timeout(const Duration(seconds: 12));
+
+            if (res.statusCode == 200) {
+              final data = jsonDecode(res.body);
+              final candidates = data['candidates'] as List?;
+              if (candidates != null && candidates.isNotEmpty) {
+                final content = candidates[0]['content'];
+                final parts = content != null ? content['parts'] as List? : null;
+                if (parts != null && parts.isNotEmpty) {
+                  String raw = parts[0]['text'] ?? "[]";
+                  raw = raw.trim();
+                  if (raw.startsWith("```json")) raw = raw.substring(7);
+                  if (raw.startsWith("```")) raw = raw.substring(3);
+                  if (raw.endsWith("```")) raw = raw.substring(0, raw.length - 3);
+                  raw = raw.trim();
+                  final parsed = jsonDecode(raw);
+                  if (parsed is List) {
+                    final List<SizeVariant> variants = [];
+                    for (var item in parsed) {
+                      if (item is Map) {
+                        final size = (item['size'] ?? item['name'] ?? '').toString().trim();
+                        final r = item['rate'] ?? item['price'] ?? 0.0;
+                        final double rate = r is num ? r.toDouble() : (double.tryParse(r.toString()) ?? 0.0);
+                        if (size.isNotEmpty && rate > 0) {
+                          variants.add(SizeVariant(
+                            sizeLabel: size,
+                            rate: rate,
+                            fullName: item['fullName']?.toString(),
+                          ));
+                        }
+                      }
+                    }
+                    if (variants.isNotEmpty) {
+                      return variants;
+                    }
+                  }
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      debugPrint("Error searching market sizes with AI: $e");
+    }
+    return [];
   }
 
   /// Show interactive Modal Sheet to choose a size with corresponding rate
@@ -350,6 +419,8 @@ class _SizeSelectorSheet extends StatefulWidget {
 class _SizeSelectorSheetState extends State<_SizeSelectorSheet> {
   late List<SizeVariant> _variants;
   bool _showCustomInput = false;
+  bool _isSearchingAI = false;
+  String? _aiSearchMessage;
   final TextEditingController _customSizeCtrl = TextEditingController();
   final TextEditingController _customRateCtrl = TextEditingController();
 
@@ -369,6 +440,43 @@ class _SizeSelectorSheetState extends State<_SizeSelectorSheet> {
     _customSizeCtrl.dispose();
     _customRateCtrl.dispose();
     super.dispose();
+  }
+
+  void _searchInternetSizesWithAI() async {
+    setState(() {
+      _isSearchingAI = true;
+      _aiSearchMessage = null;
+    });
+
+    try {
+      final baseName = SizeVariantService.extractBaseProductName(widget.itemName);
+      final query = baseName.isNotEmpty ? baseName : widget.itemName;
+      final results = await SizeVariantService.searchMarketSizesWithAI(query);
+      if (mounted) {
+        setState(() {
+          _isSearchingAI = false;
+          if (results.isNotEmpty) {
+            for (final r in results) {
+              final key = r.sizeLabel.toLowerCase().trim();
+              if (!_variants.any((v) => v.sizeLabel.toLowerCase().trim() == key)) {
+                _variants.add(r);
+              }
+            }
+            _variants.sort((a, b) => a.rate.compareTo(b.rate));
+            _aiSearchMessage = "✓ AI ने इंटरनेट से ${results.length} असली साइज खोजे हैं।";
+          } else {
+            _aiSearchMessage = "यह उत्पाद भारतीय बाजार में सामान्यतः 1 ही मानक साइज में आता है।";
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isSearchingAI = false;
+          _aiSearchMessage = "AI सर्च में असमर्थ: $e";
+        });
+      }
+    }
   }
 
   @override
@@ -417,7 +525,7 @@ class _SizeSelectorSheetState extends State<_SizeSelectorSheet> {
                           ),
                           const SizedBox(height: 2),
                           const Text(
-                            "Select size to automatically apply corresponding rate",
+                            "Select size or choose 'No Size' if not applicable",
                             style: TextStyle(fontSize: 11, color: Colors.white70),
                           ),
                         ],
@@ -433,15 +541,113 @@ class _SizeSelectorSheetState extends State<_SizeSelectorSheet> {
 
               const SizedBox(height: 12),
 
-              // Available Size Variants List
+              // 1. Quick Action: "Ignore Size / Standard" (Optional Size)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: const Text(
-                  "AVAILABLE SIZES & RATES",
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black54, letterSpacing: 1.0),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF334155),
+                    backgroundColor: const Color(0xFFF1F5F9),
+                    side: BorderSide(color: Colors.grey.shade300),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 10),
+                  ),
+                  icon: const Icon(Icons.check_box_outline_blank, size: 16, color: Color(0xFF475569)),
+                  label: const Text(
+                    "⚡ Standard / No Size (कोई साइज नहीं - सामान्य)",
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(
+                      context,
+                      SizeVariant(
+                        sizeLabel: "",
+                        rate: widget.currentRate,
+                        fullName: SizeVariantService.extractBaseProductName(widget.itemName),
+                      ),
+                    );
+                  },
                 ),
               ),
               const SizedBox(height: 8),
+
+              // 2. AI Internet Size Discovery Button
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFAF5FF),
+                    foregroundColor: const Color(0xFF7C3AED),
+                    elevation: 0,
+                    side: const BorderSide(color: Color(0xFFDDD6FE)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 10),
+                  ),
+                  icon: _isSearchingAI
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF7C3AED)),
+                        )
+                      : const Icon(Icons.travel_explore, size: 16, color: Color(0xFF7C3AED)),
+                  label: Text(
+                    _isSearchingAI
+                        ? "इंटरनेट से असली साइज खोज रहे हैं..."
+                        : "🌐 Search Real Sizes with AI (इंटरनेट से असली साइज खोजें)",
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: _isSearchingAI ? null : _searchInternetSizesWithAI,
+                ),
+              ),
+              if (_aiSearchMessage != null) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: Text(
+                    _aiSearchMessage!,
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280), fontStyle: FontStyle.italic),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+
+              // Available Size Variants List
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    const Text(
+                      "AVAILABLE SIZES & RATES",
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black54, letterSpacing: 1.0),
+                    ),
+                    const Spacer(),
+                    if (_variants.isNotEmpty)
+                      Text(
+                        "${_variants.length} options",
+                        style: const TextStyle(fontSize: 10.5, color: Colors.grey),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              if (_variants.isEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: const Text(
+                      "इस उत्पाद के कोई पूर्व-निर्धारित साइज नहीं हैं। आप 'कोई साइज नहीं' चुन सकते हैं या ऊपर 'AI से इंटरनेट सर्च' कर सकते हैं।",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11.5, color: Colors.black54),
+                    ),
+                  ),
+                ),
+              ],
 
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),

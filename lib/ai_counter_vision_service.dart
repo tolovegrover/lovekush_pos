@@ -578,6 +578,32 @@ $voiceHintBlock
         .map((item) => AiDetectedItem.fromJson(item as Map<String, dynamic>))
         .toList();
 
+    // Check store's learned price memory for prices previously entered by user
+    try {
+      final savedPriceMemory = await getShopPriceMemory();
+      if (savedPriceMemory.isNotEmpty) {
+        for (final it in resultItems) {
+          if (it.isVoiceRate) continue; // Cashier live voice hint has highest priority
+          final nameLower = it.name.trim().toLowerCase();
+          if (savedPriceMemory.containsKey(nameLower) && savedPriceMemory[nameLower]! > 0) {
+            it.rate = savedPriceMemory[nameLower]!;
+            it.isLearnedRate = true;
+          } else {
+            // Substring match for close variations (min 3 chars)
+            for (final entry in savedPriceMemory.entries) {
+              if (entry.key.length >= 3 && (nameLower.contains(entry.key) || entry.key.contains(nameLower))) {
+                if (entry.value > 0) {
+                  it.rate = entry.value;
+                  it.isLearnedRate = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
     return resultItems;
   }
 
@@ -872,8 +898,21 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
   double get _grandTotal => _items.fold(0.0, (sum, it) => sum + it.totalPrice);
   int get _totalItemUnits => _items.fold(0, (sum, it) => sum + it.qty);
 
+  void _saveCurrentItemPrice() {
+    if (_focusedIndex >= 0 && _focusedIndex < _items.length) {
+      final cur = _items[_focusedIndex];
+      if (cur.rate > 0 && cur.name.trim().isNotEmpty) {
+        cur.isLearnedRate = true;
+        AiCounterVisionService().learnConfirmedPrices([cur]);
+      }
+    }
+  }
+
   void _setFocused(int index) {
     if (index < 0 || index >= _items.length) return;
+    if (_focusedIndex >= 0 && _focusedIndex < _items.length && _focusedIndex != index) {
+      _saveCurrentItemPrice();
+    }
     setState(() {
       _focusedIndex = index;
       final curRate = _items[index].rate;
@@ -903,6 +942,7 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
       }
       final parsed = double.tryParse(_calcBuffer) ?? 0.0;
       _items[_focusedIndex].rate = parsed;
+      _items[_focusedIndex].isLearnedRate = false; // User is customizing rate
     });
   }
 
@@ -913,6 +953,7 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
       final next = cur + amount;
       _calcBuffer = next % 1 == 0 ? next.toInt().toString() : next.toString();
       _items[_focusedIndex].rate = next;
+      _items[_focusedIndex].isLearnedRate = false;
     });
   }
 
@@ -921,6 +962,7 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
     setState(() {
       _calcBuffer = "";
       _items[_focusedIndex].rate = 0.0;
+      _items[_focusedIndex].isLearnedRate = false;
     });
   }
 
@@ -934,20 +976,23 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
       } else {
         _items[_focusedIndex].rate = 0.0;
       }
+      _items[_focusedIndex].isLearnedRate = false;
     });
   }
 
   void _onPrevItem() {
+    _saveCurrentItemPrice();
     if (_focusedIndex > 0) {
       _setFocused(_focusedIndex - 1);
     }
   }
 
   void _onNextOrDone() {
+    _saveCurrentItemPrice();
     if (_focusedIndex < _items.length - 1) {
       _setFocused(_focusedIndex + 1);
     } else {
-      // Completed all lines, commit to cart
+      // Completed all lines, commit to cart and save all confirmed items
       AiCounterVisionService().learnConfirmedPrices(_items);
       Navigator.pop(context, _items);
     }
@@ -1439,13 +1484,25 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                                     ? "Size: ${item.size}"
                                     : (SizeVariantService.extractSizeLabel(item.name) != null
                                         ? "Size: ${SizeVariantService.extractSizeLabel(item.name)}"
-                                        : "📏 Size"),
+                                        : "+ Size (ऐच्छिक)"),
                                 style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFFB45309)),
                               ),
                             ],
                           ),
                         ),
                       ),
+                      if (item.isLearnedRate && !item.isVoiceRate) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: const Color(0xFF059669).withOpacity(0.5)),
+                          ),
+                          child: const Text("Saved Rate ✓", style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Color(0xFF065F46))),
+                        ),
+                      ],
                       if (item.isVoiceRate) ...[
                         const SizedBox(width: 4),
                         Container(
@@ -1638,12 +1695,23 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
     );
     if (selectedVariant != null) {
       setState(() {
-        item.size = selectedVariant.sizeLabel;
-        item.rate = selectedVariant.rate;
-        item.name = selectedVariant.fullName ?? SizeVariantService.formatItemWithSize(item.name, selectedVariant.sizeLabel);
-        item.isLearnedRate = true;
+        if (selectedVariant.sizeLabel.isEmpty) {
+          // Cashier chose to ignore or remove size
+          item.size = null;
+          item.name = SizeVariantService.extractBaseProductName(item.name);
+          if (selectedVariant.rate > 0) {
+            item.rate = selectedVariant.rate;
+          }
+        } else {
+          item.size = selectedVariant.sizeLabel;
+          item.rate = selectedVariant.rate;
+          item.name = selectedVariant.fullName ?? SizeVariantService.formatItemWithSize(item.name, selectedVariant.sizeLabel);
+          item.isLearnedRate = true;
+        }
       });
-      AiCounterVisionService().learnConfirmedPrices([item]);
+      if (item.rate > 0) {
+        AiCounterVisionService().learnConfirmedPrices([item]);
+      }
     }
   }
 

@@ -804,9 +804,9 @@ void main() {
       });
       await tester.pump();
 
-      // Find and tap "+ Other (No Barcode)"
-      expect(find.text("+ Other (No Barcode)"), findsOneWidget);
-      await tester.tap(find.text("+ Other (No Barcode)"));
+      // Find and tap "+ Other"
+      expect(find.text("+ Other"), findsOneWidget);
+      await tester.tap(find.text("+ Other"));
       await tester.pumpAndSettle();
 
       // Verify NO blocking popup dialog is shown (pure calculator speed!)
@@ -996,7 +996,7 @@ void main() {
       await tester.pump();
 
       // Open unbarcoded sheet via longPress
-      await tester.longPress(find.text("+ Other (No Barcode)"));
+      await tester.longPress(find.text("+ Other"));
       await tester.pumpAndSettle();
 
       // Tap Bangles to add instantly
