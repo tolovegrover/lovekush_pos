@@ -4985,6 +4985,9 @@ class _PosScreenState extends State<PosScreen> {
           }
         });
 
+        // Automatically learn/update store rate memory from confirmed items
+        await AiCounterVisionService().learnConfirmedPrices(detectedItems);
+
         _showPosNotification(
           "Added $addedCount items (₹${addedSum % 1 == 0 ? addedSum.toInt() : addedSum.toStringAsFixed(2)}) from AI Bill!",
           color: const Color(0xFF7C3AED),

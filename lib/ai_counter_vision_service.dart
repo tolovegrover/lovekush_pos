@@ -15,6 +15,7 @@ class AiDetectedItem {
   String category;
   bool isBranded;
   String confidence;
+  bool isLearnedRate;
 
   AiDetectedItem({
     required this.name,
@@ -23,6 +24,7 @@ class AiDetectedItem {
     this.category = "General",
     this.isBranded = false,
     this.confidence = "medium",
+    this.isLearnedRate = false,
   });
 
   double get totalPrice => qty * rate;
@@ -85,6 +87,7 @@ class AiCounterVisionService {
   AiCounterVisionService._internal();
 
   static const String _prefApiKey = 'gemini_vision_api_key';
+  static const String _prefPriceMemory = 'shop_ai_price_memory';
 
   Future<String?> getApiKey() async {
     final prefs = await SharedPreferences.getInstance();
@@ -94,6 +97,65 @@ class AiCounterVisionService {
   Future<void> saveApiKey(String key) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefApiKey, key.trim());
+  }
+
+  /// Get shop's confirmed price memory (learned from cashier edits/confirmations)
+  Future<Map<String, double>> getShopPriceMemory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_prefPriceMemory);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) {
+          return decoded.map((k, v) => MapEntry(k.toString().toLowerCase().trim(), (v as num).toDouble()));
+        }
+      }
+    } catch (e) {
+      debugPrint("Error loading shop price memory: $e");
+    }
+    return {};
+  }
+
+  /// Learn/Update store confirmed rates whenever cashier checks out or edits prices
+  Future<void> learnConfirmedPrices(List<AiDetectedItem> items) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final current = await getShopPriceMemory();
+      bool changed = false;
+      for (final it in items) {
+        if (it.rate > 0 && it.name.trim().isNotEmpty) {
+          final k = it.name.trim().toLowerCase();
+          if (current[k] != it.rate) {
+            current[k] = it.rate;
+            changed = true;
+          }
+        }
+      }
+      if (changed) {
+        await prefs.setString(_prefPriceMemory, jsonEncode(current));
+        debugPrint("AI Vision learned/updated ${items.length} item rates in shop price memory");
+      }
+    } catch (e) {
+      debugPrint("Error saving shop price memory: $e");
+    }
+  }
+
+  /// Remove a specific learned item from price memory
+  Future<void> removeLearnedPrice(String itemName) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final current = await getShopPriceMemory();
+      current.remove(itemName.trim().toLowerCase());
+      await prefs.setString(_prefPriceMemory, jsonEncode(current));
+    } catch (e) {
+      debugPrint("Error removing item from price memory: $e");
+    }
+  }
+
+  /// Reset all learned shop price memory
+  Future<void> clearAllPriceMemory() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefPriceMemory);
   }
 
   /// Launch camera or image picker to capture checkout counter items
@@ -216,8 +278,24 @@ class AiCounterVisionService {
   }) async {
     final base64Image = base64Encode(imageBytes);
 
+    // Fetch shop's learned price memory (confirmed by cashier on previous bills)
+    final priceMemory = await getShopPriceMemory();
+    String priceMemoryBlock = "";
+    if (priceMemory.isNotEmpty) {
+      final memoryList = priceMemory.entries
+          .take(50)
+          .map((e) => '- "${e.key}": ₹${e.value % 1 == 0 ? e.value.toInt() : e.value}')
+          .join("\n");
+      priceMemoryBlock = """
+
+5. STORE'S LEARNED PRICE MEMORY (TOP PRIORITY - CONFIRMED BY OUR CASHIER):
+Our store previously confirmed these exact prices for the items below. If you detect these items or their close variants (e.g. specific lipsticks, clutchers, safety pins), use our store's confirmed rate:
+$memoryList
+""";
+    }
+
     // Optimized prompt for Indian retail cosmetic & general stores
-    const prompt = """
+    final prompt = """
 You are an expert AI retail cashier assistant for an Indian retail general and cosmetic shop ("Love Kush").
 Analyze this picture of items placed on the checkout counter and extract every single sellable item.
 
@@ -249,7 +327,7 @@ CRITICAL RULES:
        - Glass Bangles Set: 40.0 - 60.0
        - Mehendi Cone: 10.0 - 15.0
      * If rate is completely unknown, use 0.0 so the cashier can enter it.
-
+$priceMemoryBlock
 4. RESPONSE FORMAT:
    Return ONLY a valid JSON array of objects. No markdown formatting, no code blocks, no backticks, no explanatory text.
    Schema:
@@ -352,7 +430,31 @@ CRITICAL RULES:
       itemsList = parsed['items'];
     }
 
-    return itemsList.map((item) => AiDetectedItem.fromJson(item as Map<String, dynamic>)).toList();
+    final List<AiDetectedItem> resultItems = itemsList
+        .map((item) => AiDetectedItem.fromJson(item as Map<String, dynamic>))
+        .toList();
+
+    // Cross-reference against learned store price memory
+    for (final it in resultItems) {
+      final nameLower = it.name.trim().toLowerCase();
+      if (priceMemory.containsKey(nameLower)) {
+        it.rate = priceMemory[nameLower]!;
+        it.isLearnedRate = true;
+      } else {
+        // Substring match for close variations (e.g. "matte lipstick")
+        for (final entry in priceMemory.entries) {
+          if (nameLower.contains(entry.key) || entry.key.contains(nameLower)) {
+            if (it.rate <= 0) {
+              it.rate = entry.value;
+              it.isLearnedRate = true;
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    return resultItems;
   }
 
   /// Show Dialog to configure the Free Gemini API Key
@@ -391,7 +493,7 @@ CRITICAL RULES:
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: const [
                         Text(
-                          "✨ 1,500 bills/day completely FREE ($0 / ₹0)",
+                          "✨ 1,500 bills/day completely FREE (\$0 / ₹0)",
                           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF6D28D9)),
                         ),
                         SizedBox(height: 4),
@@ -677,6 +779,7 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                 onPressed: _items.isEmpty
                     ? null
                     : () {
+                        AiCounterVisionService().learnConfirmedPrices(_items);
                         Navigator.pop(context, _items);
                       },
               ),
@@ -733,9 +836,25 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                     ),
                   ],
                 ),
-                Text(
-                  item.category,
-                  style: TextStyle(fontSize: 10, color: _getCategoryColor(item.category), fontWeight: FontWeight.w600),
+                Row(
+                  children: [
+                    Text(
+                      item.category,
+                      style: TextStyle(fontSize: 10, color: _getCategoryColor(item.category), fontWeight: FontWeight.w600),
+                    ),
+                    if (item.isLearnedRate) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: const Color(0xFF10B981).withOpacity(0.5)),
+                        ),
+                        child: const Text("Store Rate 🏷️", style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF059669))),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
@@ -908,7 +1027,12 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
 
     if (newRateStr != null) {
       final p = double.tryParse(newRateStr) ?? 0.0;
-      setState(() => item.rate = p);
+      setState(() {
+        item.rate = p;
+        item.isLearnedRate = true;
+      });
+      // Immediately learn/update store rate memory
+      AiCounterVisionService().learnConfirmedPrices([item]);
     }
   }
 
