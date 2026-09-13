@@ -97,6 +97,9 @@ class AiCounterVisionService {
   static const String _prefModel = 'gemini_vision_model';
   static const String _prefPriceMemory = 'shop_ai_price_memory';
 
+  static int _currentKeyIndex = 0;
+  static final Map<String, DateTime> _exhaustedKeys = {};
+
   /// Supported Gemini multimodal models in order of fallback priority
   static const List<String> availableModels = [
     'gemini-2.5-flash',
@@ -105,6 +108,24 @@ class AiCounterVisionService {
     'gemini-2.0-flash-lite',
     'gemini-3.5-flash',
   ];
+
+  /// Parse one or multiple API keys separated by commas, newlines, or semicolons
+  static List<String> parseApiKeys(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return [];
+    return raw
+        .split(RegExp(r'[,\n\r;\s]+'))
+        .map((k) => k.trim())
+        .where((k) => k.isNotEmpty && k.length >= 15)
+        .toSet() // Deduplicate
+        .toList();
+  }
+
+  /// Get all configured family API keys
+  Future<List<String>> getApiKeys() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefApiKey);
+    return parseApiKeys(raw);
+  }
 
   Future<String?> getApiKey() async {
     final prefs = await SharedPreferences.getInstance();
@@ -191,14 +212,14 @@ class AiCounterVisionService {
     ImageSource source = ImageSource.camera,
   }) async {
     final service = AiCounterVisionService();
-    String? apiKey = await service.getApiKey();
+    List<String> keys = await service.getApiKeys();
 
     // If no API key configured yet, prompt setup dialog
-    if (apiKey == null || apiKey.trim().isEmpty) {
+    if (keys.isEmpty) {
       final configured = await showApiKeySetupDialog(context);
       if (!configured) return null;
-      apiKey = await service.getApiKey();
-      if (apiKey == null || apiKey.trim().isEmpty) return null;
+      keys = await service.getApiKeys();
+      if (keys.isEmpty) return null;
     }
 
     // Capture or pick image
@@ -280,7 +301,6 @@ class AiCounterVisionService {
     try {
       detectedItems = await service.analyzeCounterImage(
         imageBytes,
-        apiKey: apiKey,
         voiceHint: voiceHint,
       );
     } catch (e) {
@@ -322,7 +342,7 @@ class AiCounterVisionService {
   /// Analyze image bytes with Gemini Flash (Google AI Studio)
   Future<List<AiDetectedItem>> analyzeCounterImage(
     Uint8List imageBytes, {
-    required String apiKey,
+    String? apiKey,
     String? voiceHint,
   }) async {
     final base64Image = base64Encode(imageBytes);
@@ -439,6 +459,36 @@ $voiceHintBlock
       }
     });
 
+    // Determine family key pool
+    List<String> keyPool;
+    if (apiKey != null && apiKey.trim().isNotEmpty) {
+      keyPool = parseApiKeys(apiKey);
+    } else {
+      keyPool = await getApiKeys();
+    }
+
+    if (keyPool.isEmpty) {
+      throw "No Gemini API Key configured. Please enter your API Key in Settings.";
+    }
+
+    // Prune exhausted keys older than 5 minutes
+    final now = DateTime.now();
+    _exhaustedKeys.removeWhere((_, time) => now.difference(time).inMinutes >= 5);
+
+    // Order keys: non-exhausted keys first, rotated by _currentKeyIndex
+    List<String> sortedKeys = List.from(keyPool);
+    if (sortedKeys.length > 1) {
+      final shift = _currentKeyIndex % sortedKeys.length;
+      sortedKeys = [...sortedKeys.sublist(shift), ...sortedKeys.sublist(0, shift)];
+      sortedKeys.sort((a, b) {
+        final aEx = _exhaustedKeys.containsKey(a);
+        final bEx = _exhaustedKeys.containsKey(b);
+        if (aEx && !bEx) return 1;
+        if (!aEx && bEx) return -1;
+        return 0;
+      });
+    }
+
     // Query active Gemini model with automatic fallback
     final savedModelPref = await getSelectedModel();
     List<String> modelsToTry;
@@ -450,56 +500,75 @@ $voiceHintBlock
 
     http.Response? response;
     String lastErrorMessage = "Unknown error";
+    bool anyQuotaExceeded = false;
 
-    for (final model in modelsToTry) {
-      final url = Uri.parse(
-        "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=${apiKey.trim()}",
-      );
+    for (int kIdx = 0; kIdx < sortedKeys.length; kIdx++) {
+      final activeKey = sortedKeys[kIdx];
+      final keyDisplay = activeKey.length > 8
+          ? "${activeKey.substring(0, 6)}...${activeKey.substring(activeKey.length - 4)}"
+          : activeKey;
 
-      try {
-        debugPrint("AI Counter Vision: Attempting Gemini model '$model'...");
-        final res = await http.post(
-          url,
-          headers: {"Content-Type": "application/json"},
-          body: requestBody,
-        ).timeout(const Duration(seconds: 25));
+      for (final model in modelsToTry) {
+        final url = Uri.parse(
+          "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=${activeKey.trim()}",
+        );
 
-        if (res.statusCode == 200) {
-          response = res;
-          debugPrint("AI Counter Vision: Successfully received response with model '$model'");
-          break;
-        }
-
-        String errMessage = "Gemini API error (Status ${res.statusCode})";
         try {
-          final errJson = jsonDecode(res.body);
-          if (errJson['error'] != null && errJson['error']['message'] != null) {
-            errMessage = errJson['error']['message'];
+          debugPrint("AI Counter Vision: Trying model '$model' with family key #$kIdx ($keyDisplay)...");
+          final res = await http.post(
+            url,
+            headers: {"Content-Type": "application/json"},
+            body: requestBody,
+          ).timeout(const Duration(seconds: 25));
+
+          if (res.statusCode == 200) {
+            response = res;
+            _exhaustedKeys.remove(activeKey);
+            _currentKeyIndex = (_currentKeyIndex + 1) % keyPool.length;
+            debugPrint("AI Counter Vision: Success with key $keyDisplay and model '$model'");
+            break;
           }
-        } catch (_) {}
 
-        lastErrorMessage = errMessage;
-        debugPrint("AI Counter Vision: Model '$model' returned ${res.statusCode}: $errMessage");
+          String errMessage = "Gemini API error (Status ${res.statusCode})";
+          try {
+            final errJson = jsonDecode(res.body);
+            if (errJson['error'] != null && errJson['error']['message'] != null) {
+              errMessage = errJson['error']['message'];
+            }
+          } catch (_) {}
 
-        // Fatal errors: invalid API key or rate limit
-        if (res.statusCode == 400 && errMessage.toLowerCase().contains("api_key")) {
-          throw "Invalid Gemini API Key. Please check the key in Settings.";
-        } else if (res.statusCode == 429) {
-          throw "Gemini API Rate limit reached. Please wait a moment and try again.";
+          lastErrorMessage = errMessage;
+          debugPrint("AI Counter Vision: Model '$model' with key $keyDisplay returned ${res.statusCode}: $errMessage");
+
+          if (res.statusCode == 429) {
+            _exhaustedKeys[activeKey] = DateTime.now();
+            anyQuotaExceeded = true;
+            debugPrint("AI Counter Vision: Family key $keyDisplay reached rate limit (429). Rotating to next key in pool...");
+            break; // Break model loop, proceed to next family key
+          }
+
+          if (res.statusCode == 400 && errMessage.toLowerCase().contains("api_key")) {
+            debugPrint("AI Counter Vision: Family key $keyDisplay is invalid (400). Trying next key...");
+            break; // Break model loop, proceed to next family key
+          }
+        } catch (e) {
+          lastErrorMessage = e.toString();
+          debugPrint("AI Counter Vision: Exception on model '$model' with key $keyDisplay: $e");
         }
+      }
 
-        // If 404 (model not found / deprecated) or 400 with model error, loop continues to next model
-      } catch (e) {
-        if (e is String && (e.contains("Invalid Gemini API Key") || e.contains("Rate limit reached"))) {
-          rethrow;
-        }
-        lastErrorMessage = e.toString();
-        debugPrint("AI Counter Vision: Exception on model '$model': $e");
+      if (response != null && response.statusCode == 200) {
+        break; // Successfully received response, stop key iteration
       }
     }
 
     if (response == null || response.statusCode != 200) {
-      throw "AI Vision error: $lastErrorMessage. (Models attempted: ${modelsToTry.join(', ')}). Please check your API key in Settings.";
+      if (anyQuotaExceeded && sortedKeys.length > 1) {
+        throw "All ${keyPool.length} family API keys in your pool reached their daily/minute rate limit. Please wait a few moments or add another family account key in Settings.";
+      } else if (anyQuotaExceeded) {
+        throw "Gemini API rate limit reached (429). Tip: Add keys from your family members' Google accounts in Settings to combine quotas!";
+      }
+      throw "AI Vision error: $lastErrorMessage. (Models attempted: ${modelsToTry.join(', ')}). Please check your API keys in Settings.";
     }
 
     final Map<String, dynamic> data = jsonDecode(response.body);
@@ -565,26 +634,33 @@ $voiceHintBlock
     return resultItems;
   }
 
-  /// Show Dialog to configure the Free Gemini API Key and Model
+  /// Show Dialog to configure the Free Gemini API Key Pool and Model
   static Future<bool> showApiKeySetupDialog(BuildContext context) async {
     final service = AiCounterVisionService();
     final currentKey = await service.getApiKey() ?? "";
     final currentModel = await service.getSelectedModel();
     final keyCtrl = TextEditingController(text: currentKey);
     String selectedModel = currentModel;
-    bool obscure = true;
+    bool obscure = false;
 
     final result = await showDialog<bool>(
       context: context,
       builder: (dCtx) => StatefulBuilder(
         builder: (ctx, setDState) {
+          final parsedKeys = parseApiKeys(keyCtrl.text);
+
           return AlertDialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             title: Row(
               children: const [
                 Icon(Icons.auto_awesome, color: Color(0xFF7C3AED)),
                 SizedBox(width: 8),
-                Text("Gemini AI Setup (100% Free)", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Expanded(
+                  child: Text(
+                    "Gemini AI Setup (Family Pool)",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
               ],
             ),
             content: SingleChildScrollView(
@@ -593,40 +669,96 @@ $voiceHintBlock
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(10),
+                    padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF5F3FF),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: const Color(0xFFDDD6FE)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          "✨ 1,500 bills/day completely FREE (\$0 / ₹0)",
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF6D28D9)),
+                      children: [
+                        Row(
+                          children: const [
+                            Icon(Icons.family_restroom, size: 18, color: Color(0xFF6D28D9)),
+                            SizedBox(width: 6),
+                            Text(
+                              "Family Multi-Key Pool (Unlimited)",
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF6D28D9)),
+                            ),
+                          ],
                         ),
-                        SizedBox(height: 4),
-                        Text(
-                          "Google AI Studio provides 1,500 free requests per day without requiring a credit card or subscription.",
-                          style: TextStyle(fontSize: 11, color: Colors.black87),
+                        const SizedBox(height: 6),
+                        const Text(
+                          "Each Google account provides 1,500 free daily scans ($0 / ₹0). Paste keys from your family members' accounts below (separate with a new line or comma). The app will automatically share and failover between them so quota never runs out!",
+                          style: TextStyle(fontSize: 11, color: Colors.black87, height: 1.3),
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 14),
-                  const Text("Enter your Google AI Studio API Key:", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  const Text("Google AI Studio API Keys:", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 6),
                   TextField(
                     controller: keyCtrl,
                     obscureText: obscure,
+                    minLines: 2,
+                    maxLines: 4,
+                    onChanged: (_) => setDState(() {}),
                     decoration: InputDecoration(
-                      hintText: "AIzaSy...",
+                      hintText: "Paste 1 or more keys:\nAIzaSy...Key1\nAIzaSy...Key2",
                       border: const OutlineInputBorder(),
+                      contentPadding: const EdgeInsets.all(12),
                       suffixIcon: IconButton(
                         icon: Icon(obscure ? Icons.visibility_off : Icons.visibility),
                         onPressed: () => setDState(() => obscure = !obscure),
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  // Live Pool Counter Indicator
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: parsedKeys.length > 1
+                          ? const Color(0xFFECFDF5)
+                          : (parsedKeys.length == 1 ? const Color(0xFFEFF6FF) : Colors.grey.shade100),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: parsedKeys.length > 1
+                            ? const Color(0xFFA7F3D0)
+                            : (parsedKeys.length == 1 ? const Color(0xFFBFDBFE) : Colors.grey.shade300),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          parsedKeys.length > 1
+                              ? Icons.verified
+                              : (parsedKeys.length == 1 ? Icons.check_circle_outline : Icons.info_outline),
+                          size: 15,
+                          color: parsedKeys.length > 1
+                              ? const Color(0xFF059669)
+                              : (parsedKeys.length == 1 ? const Color(0xFF2563EB) : Colors.grey),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            parsedKeys.length > 1
+                                ? "🎉 ${parsedKeys.length} Family Keys Active (~${parsedKeys.length * 1500} scans/day capacity)"
+                                : (parsedKeys.length == 1
+                                    ? "1 Key Active (~1,500 scans/day). Tip: Add family keys to combine quotas!"
+                                    : "No valid API key entered yet"),
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: parsedKeys.length > 1
+                                  ? const Color(0xFF065F46)
+                                  : (parsedKeys.length == 1 ? const Color(0xFF1E40AF) : Colors.black54),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -696,18 +828,19 @@ $voiceHintBlock
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF7C3AED)),
                 onPressed: () async {
-                  final key = keyCtrl.text.trim();
-                  if (key.isNotEmpty) {
-                    await service.saveApiKey(key);
+                  final raw = keyCtrl.text.trim();
+                  final parsed = parseApiKeys(raw);
+                  if (parsed.isNotEmpty) {
+                    await service.saveApiKey(raw);
                     await service.saveSelectedModel(selectedModel);
                     Navigator.pop(dCtx, true);
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Please enter a valid API Key")),
+                      const SnackBar(content: Text("Please enter at least 1 valid API Key")),
                     );
                   }
                 },
-                child: const Text("Save Key & Model", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                child: const Text("Save Keys & Model", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
             ],
           );
