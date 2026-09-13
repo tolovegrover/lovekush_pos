@@ -24,6 +24,7 @@ import 'voice_recognition_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'ai_counter_vision_service.dart';
 import 'package:printing/printing.dart';
+import 'bill_management_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -7175,8 +7176,245 @@ class _PosScreenState extends State<PosScreen> {
     showReceiptPreviewDialog(
       context: context,
       bill: bill,
+      userName: widget.userName,
+      inMemoryInventory: cloudInventory,
       onPrint: () => _reprintBill(bill),
       onPrintWithLanguage: (lang) => _reprintBill(bill, language: lang),
+      onBillModified: () {
+        setState(() {});
+      },
+    );
+  }
+
+  Future<void> _openRecentBillsSheet() async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          return FutureBuilder<List<Map<String, dynamic>>>(
+            future: () async {
+              final now = DateTime.now();
+              final todayStart = DateTime(now.year, now.month, now.day).toUtc().toIso8601String();
+              final res = await Supabase.instance.client
+                  .from('bills')
+                  .select()
+                  .gte('created_at', todayStart)
+                  .order('created_at', ascending: false)
+                  .limit(30);
+              return List<Map<String, dynamic>>.from(res.map((e) => Map<String, dynamic>.from(e)));
+            }(),
+            builder: (ctx, snapshot) {
+              return Container(
+                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(20),
+                    topRight: Radius.circular(20),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    // Handle & Title bar
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF1F2937),
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(20),
+                          topRight: Radius.circular(20),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.receipt_long, color: Colors.amberAccent, size: 22),
+                          const SizedBox(width: 8),
+                          const Text(
+                            "Today's Bills & Quick Actions",
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.white70),
+                            onPressed: () => Navigator.pop(sheetCtx),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (snapshot.connectionState == ConnectionState.waiting)
+                      const Expanded(child: Center(child: CircularProgressIndicator()))
+                    else if (snapshot.hasError)
+                      Expanded(
+                        child: Center(
+                          child: Text("Error: ${snapshot.error}", style: const TextStyle(color: Colors.red)),
+                        ),
+                      )
+                    else if (!snapshot.hasData || snapshot.data!.isEmpty)
+                      const Expanded(
+                        child: Center(
+                          child: Text("No bills generated today yet.", style: TextStyle(color: Colors.black54)),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.separated(
+                          padding: const EdgeInsets.all(12),
+                          itemCount: snapshot.data!.length,
+                          separatorBuilder: (_, index) => const Divider(height: 12),
+                          itemBuilder: (ctx, idx) {
+                            final bill = snapshot.data![idx];
+                            final isCanc = BillManagementService.isCancelled(bill);
+                            final isEd = BillManagementService.isEdited(bill);
+                            final cancInfo = BillManagementService.getCancellationInfo(bill);
+                            final bNo = (bill['bill_number'] ?? 'N/A').toString();
+                            final itemsCount = BillManagementService.extractItems(bill['items_json']).length;
+                            final dt = PdfReceiptService.parseIndianStandardTime(bill['created_at']);
+                            final timeStr =
+                                "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}";
+
+                            return Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: isCanc ? const Color(0xFFFEF2F2) : Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isCanc ? const Color(0xFFFECACA) : Colors.grey.shade200,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        "Bill #$bNo",
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      if (isCanc)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(color: Colors.red.shade100, borderRadius: BorderRadius.circular(4)),
+                                          child: const Text("CANCELLED", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 10)),
+                                        )
+                                      else if (isEd)
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(color: Colors.amber.shade100, borderRadius: BorderRadius.circular(4)),
+                                          child: const Text("EDITED", style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold, fontSize: 10)),
+                                        ),
+                                      const Spacer(),
+                                      Text(
+                                        "₹${bill['total_amount']}",
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 16,
+                                          color: isCanc ? Colors.red : const Color(0xFF1D4ED8),
+                                          decoration: isCanc ? TextDecoration.lineThrough : null,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    "Items: $itemsCount • Time: $timeStr • Staff: ${bill['staff_name'] ?? 'Staff'}",
+                                    style: const TextStyle(fontSize: 11, color: Colors.black54),
+                                  ),
+                                  if (isCanc && cancInfo != null && cancInfo['cancellation_reason'] != null) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      "Reason: ${cancInfo['cancellation_reason']}",
+                                      style: const TextStyle(fontSize: 11, color: Colors.red, fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      if (!isCanc) ...[
+                                        OutlinedButton.icon(
+                                          icon: const Icon(Icons.edit_note, size: 14, color: Color(0xFFD97706)),
+                                          label: const Text("Edit", style: TextStyle(fontSize: 11, color: Color(0xFFB45309), fontWeight: FontWeight.bold)),
+                                          style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(color: Color(0xFFF59E0B)),
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            minimumSize: Size.zero,
+                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          ),
+                                          onPressed: () async {
+                                            final ok = await BillManagementService.showEditBillDialog(
+                                              context,
+                                              bill: bill,
+                                              userName: widget.userName,
+                                              inMemoryInventory: cloudInventory,
+                                            );
+                                            if (ok) {
+                                              setSheetState(() {});
+                                              setState(() {});
+                                            }
+                                          },
+                                        ),
+                                        const SizedBox(width: 6),
+                                        OutlinedButton.icon(
+                                          icon: const Icon(Icons.cancel_outlined, size: 14, color: Colors.red),
+                                          label: const Text("Cancel", style: TextStyle(fontSize: 11, color: Colors.red, fontWeight: FontWeight.bold)),
+                                          style: OutlinedButton.styleFrom(
+                                            side: const BorderSide(color: Colors.redAccent),
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            minimumSize: Size.zero,
+                                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          ),
+                                          onPressed: () async {
+                                            final ok = await BillManagementService.showCancelBillDialog(
+                                              context,
+                                              bill: bill,
+                                              userName: widget.userName,
+                                              inMemoryInventory: cloudInventory,
+                                            );
+                                            if (ok) {
+                                              setSheetState(() {});
+                                              setState(() {});
+                                            }
+                                          },
+                                        ),
+                                        const SizedBox(width: 6),
+                                      ],
+                                      if (isEd || isCanc) ...[
+                                        IconButton(
+                                          icon: const Icon(Icons.history, size: 18, color: Color(0xFF2563EB)),
+                                          tooltip: "Audit History",
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                          onPressed: () => BillManagementService.showBillHistoryDialog(context, bill: bill),
+                                        ),
+                                        const SizedBox(width: 4),
+                                      ],
+                                      IconButton(
+                                        icon: const Icon(Icons.visibility_outlined, size: 18, color: Colors.black87),
+                                        tooltip: "Preview & Print",
+                                        padding: EdgeInsets.zero,
+                                        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                        onPressed: () {
+                                          _openReprintPreview(bill);
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 
@@ -7294,7 +7532,7 @@ class _PosScreenState extends State<PosScreen> {
                 subtitle: const Text('Sales reports, cash flow, festive trends & past bills'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => AdminDashboardScreen(userName: widget.userName)));
                 },
               ),
               ListTile(
@@ -7390,7 +7628,7 @@ class _PosScreenState extends State<PosScreen> {
                 subtitle: const Text('Browse sales & reprint receipts'),
                 onTap: () {
                   Navigator.pop(context);
-                  Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminDashboardScreen()));
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => AdminDashboardScreen(userName: widget.userName)));
                 },
               ),
             ],
@@ -7459,6 +7697,11 @@ class _PosScreenState extends State<PosScreen> {
             tooltip: "Inventory & Add Items",
             icon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF2563EB)),
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ItemCatalogScreen(selectMode: false))),
+          ),
+          IconButton(
+            tooltip: "Today's Bills & Edit/Cancel",
+            icon: const Icon(Icons.receipt_long, color: Color(0xFF0284C7)),
+            onPressed: _openRecentBillsSheet,
           ),
           IconButton(
             tooltip: "Reprint Last Bill (Preview First)",
@@ -9827,10 +10070,16 @@ void showReceiptPreviewDialog({
   required Map<String, dynamic> bill,
   required VoidCallback onPrint,
   void Function(ReceiptLanguage language)? onPrintWithLanguage,
+  String? userName,
+  VoidCallback? onBillModified,
+  Map<String, Map<String, dynamic>>? inMemoryInventory,
 }) {
-  final items = bill['items_json'] is List
-      ? (bill['items_json'] as List<dynamic>)
-      : (bill['items_json'] is String ? (json.decode(bill['items_json']) as List<dynamic>) : []);
+  final items = BillManagementService.extractItems(bill['items_json']);
+  final bool isCancelled = BillManagementService.isCancelled(bill);
+  final bool isEdited = BillManagementService.isEdited(bill);
+  final cancInfo = BillManagementService.getCancellationInfo(bill);
+  final editHistory = BillManagementService.getEditHistory(bill);
+
   final String bNo = (bill['bill_number'] ?? "N/A").toString();
   final String counterName = (bill['counter_name'] ?? "").toString();
   final rawTotal = bill['total_amount'];
@@ -9874,14 +10123,39 @@ void showReceiptPreviewDialog({
                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: Colors.amberAccent,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: const Text(
-                        "PREVIEW",
+                    if (isCancelled)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade700,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          "CANCELLED",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 10, letterSpacing: 0.8),
+                        ),
+                      )
+                    else if (isEdited)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade700,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          "EDITED",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 10, letterSpacing: 0.8),
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.amberAccent,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          "PREVIEW",
                         style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w900, fontSize: 10, letterSpacing: 0.8),
                       ),
                     ),
@@ -9940,6 +10214,54 @@ void showReceiptPreviewDialog({
                             counterName.toUpperCase(),
                             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.black54),
                           ),
+                        ],
+                        if (isCancelled) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEE2E2),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.red.shade400, width: 1.5),
+                            ),
+                            child: Column(
+                              children: [
+                                const Text(
+                                  "⚠️ रद्द बीजक / CANCELLED BILL (VOID)",
+                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Color(0xFFB91C1C)),
+                                  textAlign: TextAlign.center,
+                                ),
+                                if (cancInfo != null && cancInfo['cancellation_reason'] != null) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    "Reason: ${cancInfo['cancellation_reason']}",
+                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF7F1D1D)),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+                        if (isEdited) ...[
+                          const SizedBox(height: 4),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEF3C7),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.amber.shade600, width: 1),
+                            ),
+                            child: Text(
+                              "✏️ Modified Bill (${editHistory.length} edit${editHistory.length > 1 ? 's' : ''})",
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFB45309)),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
                         ],
                         const SizedBox(height: 10),
 
@@ -10103,6 +10425,105 @@ void showReceiptPreviewDialog({
                   ),
                 ),
               ),
+              // Management Action Bar: Edit, Cancel, History
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isCancelled ? const Color(0xFFFEF2F2) : const Color(0xFFFFFBEB),
+                  border: Border(
+                    top: BorderSide(color: Colors.grey.shade300),
+                    bottom: BorderSide(color: Colors.grey.shade200),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    if (!isCancelled) ...[
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.edit_note, size: 16, color: Color(0xFFD97706)),
+                          label: const Text("Edit Bill", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFB45309))),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Color(0xFFF59E0B)),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () async {
+                            Navigator.pop(dialogContext);
+                            final ok = await BillManagementService.showEditBillDialog(
+                              context,
+                              bill: bill,
+                              userName: userName ?? staffName,
+                              inMemoryInventory: inMemoryInventory,
+                              onUpdated: onBillModified,
+                            );
+                            if (ok && context.mounted) {
+                              showReceiptPreviewDialog(
+                                context: context,
+                                bill: bill,
+                                onPrint: onPrint,
+                                onPrintWithLanguage: onPrintWithLanguage,
+                                userName: userName,
+                                onBillModified: onBillModified,
+                                inMemoryInventory: inMemoryInventory,
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.cancel_outlined, size: 16, color: Colors.red),
+                          label: const Text("Cancel Bill", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.red)),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.redAccent),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () async {
+                            Navigator.pop(dialogContext);
+                            await BillManagementService.showCancelBillDialog(
+                              context,
+                              bill: bill,
+                              userName: userName ?? staffName,
+                              inMemoryInventory: inMemoryInventory,
+                              onCancelled: onBillModified,
+                            );
+                          },
+                        ),
+                      ),
+                    ] else ...[
+                      const Expanded(
+                        child: Row(
+                          children: [
+                            Icon(Icons.block, size: 16, color: Colors.red),
+                            SizedBox(width: 6),
+                            Text(
+                              "Bill Cancelled / Voided",
+                              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (isEdited || isCancelled) ...[
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.history, size: 16, color: Color(0xFF2563EB)),
+                        label: const Text("History", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Color(0xFF2563EB)),
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        onPressed: () {
+                          BillManagementService.showBillHistoryDialog(context, bill: bill);
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              ),
               // Footer Action Buttons
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -10200,7 +10621,8 @@ void showReceiptPreviewDialog({
 }
 
 class AdminDashboardScreen extends StatefulWidget {
-  const AdminDashboardScreen({Key? key}) : super(key: key);
+  final String? userName;
+  const AdminDashboardScreen({Key? key, this.userName}) : super(key: key);
   @override
   _AdminDashboardScreenState createState() => _AdminDashboardScreenState();
 }
@@ -10342,6 +10764,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
   double cashCollection = 0.0;
   double upiCollection = 0.0;
   int billsCount = 0;
+  int cancelledCount = 0;
   List<dynamic> pastBills = [];
   BlueThermalPrinter bluetooth = BlueThermalPrinter.instance;
   
@@ -10392,7 +10815,13 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
       double total = 0;
       double cash = 0;
       double upi = 0;
+      int activeBillsCount = 0;
+      int cancelledBillsCount = 0;
       for (var row in data) {
+        if (BillManagementService.isCancelled(row)) {
+          cancelledBillsCount++;
+          continue; // EXCLUDE CANCELLED BILLS FROM REVENUE!
+        }
         final rawAmt = row['total_amount'];
         double amt = rawAmt is num ? rawAmt.toDouble() : (double.tryParse(rawAmt?.toString() ?? '0') ?? 0.0);
         total += amt;
@@ -10402,13 +10831,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
         } else {
           cash += amt;
         }
+        activeBillsCount++;
       }
 
       setState(() {
         collection = total;
         cashCollection = cash;
         upiCollection = upi;
-        billsCount = data.length;
+        billsCount = activeBillsCount;
+        cancelledCount = cancelledBillsCount;
         pastBills = data;
         isLoading = false;
       });
@@ -10428,8 +10859,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
     showReceiptPreviewDialog(
       context: context,
       bill: bill,
+      userName: widget.userName ?? 'Admin',
       onPrint: () => _reprintBill(bill),
       onPrintWithLanguage: (lang) => _reprintBill(bill, language: lang),
+      onBillModified: () {
+        _fetchDashboardData();
+      },
     );
   }
 
@@ -10558,6 +10993,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Text("BILLS: $billsCount", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.indigo)),
+                              if (cancelledCount > 0) ...[
+                                const SizedBox(height: 1),
+                                Text("($cancelledCount voided)", style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 10, color: Colors.red)),
+                              ],
                               const SizedBox(height: 2),
                               Text("Avg: ₹${avgBillValue.toStringAsFixed(0)} / bill", style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11, color: Colors.black54)),
                             ],
@@ -10639,73 +11078,180 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with Single
                     itemCount: pastBills.length,
                     itemBuilder: (context, index) {
                       final bill = pastBills[index];
+                      final bool isCanc = BillManagementService.isCancelled(bill);
+                      final bool isEd = BillManagementService.isEdited(bill);
+                      final cancInfo = BillManagementService.getCancellationInfo(bill);
+                      final editHistory = BillManagementService.getEditHistory(bill);
                       String bNo = bill['bill_number'] ?? "N/A";
                       String pMethod = bill['payment_method'] ?? 'Cash';
                       bool isUpi = pMethod.toLowerCase().contains('upi') || pMethod.toLowerCase().contains('online');
 
-                      return ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: isUpi ? Colors.indigo.shade100 : Colors.green.shade100,
-                          child: Icon(isUpi ? Icons.qr_code_2 : Icons.payments, color: isUpi ? Colors.indigo : Colors.green),
+                      return Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isCanc ? const Color(0xFFFEF2F2) : Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isCanc ? const Color(0xFFFECACA) : Colors.grey.shade200,
+                          ),
                         ),
-                        title: Text("₹${bill['total_amount']}  (No: $bNo)", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                        subtitle: Text("Paid: ₹${bill['amount_tendered'] ?? bill['total_amount']} • Change: ₹${bill['change_due'] ?? 0} ($pMethod)\nStaff: ${bill['staff_name']} • Counter: ${bill['counter_name']}"),
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              () {
-                                final dt = PdfReceiptService.parseIndianStandardTime(bill['created_at']);
-                                return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}";
-                              }(),
-                              style: const TextStyle(color: Colors.black54, fontSize: 12),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                          leading: CircleAvatar(
+                            backgroundColor: isCanc
+                                ? Colors.red.shade100
+                                : (isUpi ? Colors.indigo.shade100 : Colors.green.shade100),
+                            child: Icon(
+                              isCanc
+                                  ? Icons.block
+                                  : (isUpi ? Icons.qr_code_2 : Icons.payments),
+                              color: isCanc
+                                  ? Colors.red
+                                  : (isUpi ? Colors.indigo : Colors.green),
                             ),
-                            const SizedBox(height: 4),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: const Icon(Icons.picture_as_pdf, size: 20, color: Color(0xFF2563EB)),
-                                  tooltip: "Preview PDF",
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                                  onPressed: () => PdfReceiptService.openPdfPreviewDialog(
-                                    context: context,
-                                    bill: bill,
-                                    onThermalPrint: (lang) => executeReprintThermalBill(
+                          ),
+                          title: Row(
+                            children: [
+                              Text(
+                                "₹${bill['total_amount']}",
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                  color: isCanc ? Colors.red : Colors.black87,
+                                  decoration: isCanc ? TextDecoration.lineThrough : null,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              if (isCanc)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: Colors.red.shade100, borderRadius: BorderRadius.circular(4)),
+                                  child: const Text("CANCELLED", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 10)),
+                                )
+                              else if (isEd)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(color: Colors.amber.shade100, borderRadius: BorderRadius.circular(4)),
+                                  child: Text("EDITED (${editHistory.length}x)", style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold, fontSize: 10)),
+                                ),
+                              const SizedBox(width: 6),
+                              Text("(No: $bNo)", style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                            ],
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 2),
+                              if (isCanc && cancInfo != null && cancInfo['cancellation_reason'] != null) ...[
+                                Text(
+                                  "Reason: \"${cancInfo['cancellation_reason']}\"",
+                                  style: const TextStyle(fontSize: 11, color: Colors.red, fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 2),
+                              ],
+                              Text(
+                                "Paid: ₹${bill['amount_tendered'] ?? bill['total_amount']} • Change: ₹${bill['change_due'] ?? 0} ($pMethod)\nStaff: ${bill['staff_name']} • Counter: ${bill['counter_name']}",
+                                style: const TextStyle(fontSize: 11, color: Colors.black54),
+                              ),
+                            ],
+                          ),
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                () {
+                                  final dt = PdfReceiptService.parseIndianStandardTime(bill['created_at']);
+                                  return "${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}:${dt.second.toString().padLeft(2, '0')}";
+                                }(),
+                                style: const TextStyle(color: Colors.black54, fontSize: 11),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (!isCanc) ...[
+                                    IconButton(
+                                      icon: const Icon(Icons.edit_note, size: 20, color: Color(0xFFD97706)),
+                                      tooltip: "Edit Bill",
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                      onPressed: () async {
+                                        final ok = await BillManagementService.showEditBillDialog(
+                                          context,
+                                          bill: bill,
+                                          userName: widget.userName ?? 'Admin',
+                                          onUpdated: _fetchDashboardData,
+                                        );
+                                        if (ok) _fetchDashboardData();
+                                      },
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.cancel_outlined, size: 18, color: Colors.red),
+                                      tooltip: "Cancel / Void Bill",
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                      onPressed: () async {
+                                        final ok = await BillManagementService.showCancelBillDialog(
+                                          context,
+                                          bill: bill,
+                                          userName: widget.userName ?? 'Admin',
+                                          onCancelled: _fetchDashboardData,
+                                        );
+                                        if (ok) _fetchDashboardData();
+                                      },
+                                    ),
+                                  ],
+                                  if (isEd || isCanc) ...[
+                                    IconButton(
+                                      icon: const Icon(Icons.history, size: 18, color: Color(0xFF2563EB)),
+                                      tooltip: "Audit History",
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                      onPressed: () => BillManagementService.showBillHistoryDialog(context, bill: bill),
+                                    ),
+                                  ],
+                                  IconButton(
+                                    icon: const Icon(Icons.picture_as_pdf, size: 18, color: Color(0xFF2563EB)),
+                                    tooltip: "Preview PDF",
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                    onPressed: () => PdfReceiptService.openPdfPreviewDialog(
                                       context: context,
-                                      bluetooth: BlueThermalPrinter.instance,
                                       bill: bill,
-                                      language: lang,
+                                      onThermalPrint: (lang) => executeReprintThermalBill(
+                                        context: context,
+                                        bluetooth: BlueThermalPrinter.instance,
+                                        bill: bill,
+                                        language: lang,
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 2),
-                                IconButton(
-                                  icon: const Icon(Icons.share, size: 20, color: Color(0xFF25D366)),
-                                  tooltip: "WhatsApp / PDF",
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                                  onPressed: () => PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: bill),
-                                ),
-                                const SizedBox(width: 4),
-                                ElevatedButton.icon(
-                                  icon: const Icon(Icons.print, size: 14, color: Colors.white),
-                                  label: const Text("Reprint", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF2563EB),
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                    minimumSize: Size.zero,
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  IconButton(
+                                    icon: const Icon(Icons.share, size: 18, color: Color(0xFF25D366)),
+                                    tooltip: "WhatsApp / PDF",
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                                    onPressed: () => PdfReceiptService.showWhatsAppPdfDialog(context: context, bill: bill),
                                   ),
-                                  onPressed: () => _showBillPreview(bill),
-                                ),
-                              ],
-                            ),
-                          ],
+                                  const SizedBox(width: 2),
+                                  ElevatedButton.icon(
+                                    icon: const Icon(Icons.print, size: 13, color: Colors.white),
+                                    label: const Text("Reprint", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: isCanc ? Colors.grey.shade600 : const Color(0xFF2563EB),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      minimumSize: Size.zero,
+                                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    onPressed: () => _showBillPreview(bill),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          onTap: () => _showBillPreview(bill),
                         ),
-                        onTap: () => _showBillPreview(bill),
                       );
                     },
                   ),

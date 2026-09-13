@@ -814,16 +814,18 @@ class PdfReceiptService {
     return defaultVal;
   }
 
-  /// Robust items extractor supporting List or JSON-encoded String
+  /// Robust items extractor supporting List or JSON-encoded String (filtering internal metadata)
   static List<dynamic> _extractItems(dynamic raw) {
-    if (raw is List) return raw;
-    if (raw is String && raw.isNotEmpty) {
+    List<dynamic> list = [];
+    if (raw is List) {
+      list = raw;
+    } else if (raw is String && raw.isNotEmpty) {
       try {
         final decoded = json.decode(raw);
-        if (decoded is List) return decoded;
+        if (decoded is List) list = decoded;
       } catch (_) {}
     }
-    return [];
+    return list.where((e) => e is! Map || e['_is_meta'] != true).toList();
   }
 
   /// Generate a clean, minimal, thermal-style PDF receipt document for a bill
@@ -912,8 +914,31 @@ class PdfReceiptService {
     }
 
     // 4. Build Minimal Thermal-Style Receipt Content
+    final String pmUpper = (bill['payment_method'] ?? '').toString().toUpperCase();
+    final bool isCanc = pmUpper.startsWith('CANCELLED') || pmUpper.startsWith('VOID');
+
     List<pw.Widget> buildReceiptWidgets(pw.Context context) {
       return [
+        if (isCanc) ...[
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(vertical: 4),
+            margin: const pw.EdgeInsets.only(bottom: 6),
+            decoration: pw.BoxDecoration(
+              border: pw.Border.all(color: PdfColors.red800, width: 1.5),
+            ),
+            child: pw.Center(
+              child: pw.Text(
+                "*** CANCELLED / VOID BILL ***",
+                style: pw.TextStyle(
+                  fontSize: 10,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.red800,
+                ),
+              ),
+            ),
+          ),
+        ],
         // Top Header: Centered Bag Logo with Krishna Mor Pankh & Sacred Invocation
         pw.Align(
           alignment: pw.Alignment.topCenter,
@@ -1507,6 +1532,14 @@ class PdfReceiptService {
         "${billDate.day.toString().padLeft(2, '0')}-${billDate.month.toString().padLeft(2, '0')}-${billDate.year} ${billDate.hour.toString().padLeft(2, '0')}:${billDate.minute.toString().padLeft(2, '0')}";
 
     final StringBuffer buffer = StringBuffer();
+    final String pmUpper = paymentMethod.toUpperCase();
+    final bool isCanc = pmUpper.startsWith('CANCELLED') || pmUpper.startsWith('VOID');
+    if (isCanc) {
+      buffer.writeln(language == ReceiptLanguage.hindi
+          ? "⚠️ *रद्द बीजक / CANCELLED BILL (VOID)*"
+          : "⚠️ *CANCELLED / VOID BILL*");
+      buffer.writeln("━━━━━━━━━━━━━━━━━━━━");
+    }
 
     if (language == ReceiptLanguage.hindi) {
       final vedicTime = VedicTimeService.normalToVedic(billDate);
