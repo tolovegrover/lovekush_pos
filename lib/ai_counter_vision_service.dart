@@ -87,7 +87,17 @@ class AiCounterVisionService {
   AiCounterVisionService._internal();
 
   static const String _prefApiKey = 'gemini_vision_api_key';
+  static const String _prefModel = 'gemini_vision_model';
   static const String _prefPriceMemory = 'shop_ai_price_memory';
+
+  /// Supported Gemini multimodal models in order of fallback priority
+  static const List<String> availableModels = [
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash-lite',
+    'gemini-3.5-flash',
+  ];
 
   Future<String?> getApiKey() async {
     final prefs = await SharedPreferences.getInstance();
@@ -97,6 +107,16 @@ class AiCounterVisionService {
   Future<void> saveApiKey(String key) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefApiKey, key.trim());
+  }
+
+  Future<String> getSelectedModel() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_prefModel) ?? 'auto';
+  }
+
+  Future<void> saveSelectedModel(String model) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefModel, model);
   }
 
   /// Get shop's confirmed price memory (learned from cashier edits/confirmations)
@@ -343,11 +363,6 @@ $priceMemoryBlock
    ]
 """;
 
-    // Check Gemini 1.5 Flash endpoint
-    final url = Uri.parse(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey.trim()}",
-    );
-
     final requestBody = jsonEncode({
       "contents": [
         {
@@ -368,32 +383,67 @@ $priceMemoryBlock
       }
     });
 
-    http.Response response;
-    try {
-      response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: requestBody,
-      ).timeout(const Duration(seconds: 25));
-    } catch (e) {
-      throw "Network error connecting to Gemini AI: $e. Please check your internet connection.";
+    // Query active Gemini model with automatic fallback
+    final savedModelPref = await getSelectedModel();
+    List<String> modelsToTry;
+    if (savedModelPref != 'auto' && availableModels.contains(savedModelPref)) {
+      modelsToTry = [savedModelPref, ...availableModels.where((m) => m != savedModelPref)];
+    } else {
+      modelsToTry = List.from(availableModels);
     }
 
-    if (response.statusCode != 200) {
-      String errMessage = "Gemini API error (Status ${response.statusCode})";
-      try {
-        final errJson = jsonDecode(response.body);
-        if (errJson['error'] != null && errJson['error']['message'] != null) {
-          errMessage = errJson['error']['message'];
-        }
-      } catch (_) {}
+    http.Response? response;
+    String lastErrorMessage = "Unknown error";
 
-      if (response.statusCode == 400 && errMessage.toLowerCase().contains("api_key")) {
-        throw "Invalid Gemini API Key. Please check the key in Settings.";
-      } else if (response.statusCode == 429) {
-        throw "Rate limit reached. Please wait a moment and try again.";
+    for (final model in modelsToTry) {
+      final url = Uri.parse(
+        "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=${apiKey.trim()}",
+      );
+
+      try {
+        debugPrint("AI Counter Vision: Attempting Gemini model '$model'...");
+        final res = await http.post(
+          url,
+          headers: {"Content-Type": "application/json"},
+          body: requestBody,
+        ).timeout(const Duration(seconds: 25));
+
+        if (res.statusCode == 200) {
+          response = res;
+          debugPrint("AI Counter Vision: Successfully received response with model '$model'");
+          break;
+        }
+
+        String errMessage = "Gemini API error (Status ${res.statusCode})";
+        try {
+          final errJson = jsonDecode(res.body);
+          if (errJson['error'] != null && errJson['error']['message'] != null) {
+            errMessage = errJson['error']['message'];
+          }
+        } catch (_) {}
+
+        lastErrorMessage = errMessage;
+        debugPrint("AI Counter Vision: Model '$model' returned ${res.statusCode}: $errMessage");
+
+        // Fatal errors: invalid API key or rate limit
+        if (res.statusCode == 400 && errMessage.toLowerCase().contains("api_key")) {
+          throw "Invalid Gemini API Key. Please check the key in Settings.";
+        } else if (res.statusCode == 429) {
+          throw "Gemini API Rate limit reached. Please wait a moment and try again.";
+        }
+
+        // If 404 (model not found / deprecated) or 400 with model error, loop continues to next model
+      } catch (e) {
+        if (e is String && (e.contains("Invalid Gemini API Key") || e.contains("Rate limit reached"))) {
+          rethrow;
+        }
+        lastErrorMessage = e.toString();
+        debugPrint("AI Counter Vision: Exception on model '$model': $e");
       }
-      throw errMessage;
+    }
+
+    if (response == null || response.statusCode != 200) {
+      throw "AI Vision error: $lastErrorMessage. (Models attempted: ${modelsToTry.join(', ')}). Please check your API key in Settings.";
     }
 
     final Map<String, dynamic> data = jsonDecode(response.body);
@@ -457,11 +507,13 @@ $priceMemoryBlock
     return resultItems;
   }
 
-  /// Show Dialog to configure the Free Gemini API Key
+  /// Show Dialog to configure the Free Gemini API Key and Model
   static Future<bool> showApiKeySetupDialog(BuildContext context) async {
     final service = AiCounterVisionService();
     final currentKey = await service.getApiKey() ?? "";
+    final currentModel = await service.getSelectedModel();
     final keyCtrl = TextEditingController(text: currentKey);
+    String selectedModel = currentModel;
     bool obscure = true;
 
     final result = await showDialog<bool>(
@@ -519,6 +571,51 @@ $priceMemoryBlock
                       ),
                     ),
                   ),
+                  const SizedBox(height: 14),
+                  const Text("Gemini Vision Model:", style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    value: selectedModel,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'auto',
+                        child: Text("Auto: Gemini 2.5 Flash (Fallback: 2.0)", style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                      ),
+                      DropdownMenuItem(
+                        value: 'gemini-2.5-flash',
+                        child: Text("gemini-2.5-flash (Google Recommended)", style: TextStyle(fontSize: 13)),
+                      ),
+                      DropdownMenuItem(
+                        value: 'gemini-2.0-flash',
+                        child: Text("gemini-2.0-flash (Stable Multi-modal)", style: TextStyle(fontSize: 13)),
+                      ),
+                      DropdownMenuItem(
+                        value: 'gemini-2.5-flash-lite',
+                        child: Text("gemini-2.5-flash-lite (Fastest / Budget)", style: TextStyle(fontSize: 13)),
+                      ),
+                      DropdownMenuItem(
+                        value: 'gemini-2.0-flash-lite',
+                        child: Text("gemini-2.0-flash-lite (Lightweight)", style: TextStyle(fontSize: 13)),
+                      ),
+                      DropdownMenuItem(
+                        value: 'gemini-3.5-flash',
+                        child: Text("gemini-3.5-flash (Next-Gen Flash)", style: TextStyle(fontSize: 13)),
+                      ),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setDState(() => selectedModel = val);
+                    },
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    "Note: Google deprecated gemini-1.5-flash. Love Kush POS now uses gemini-2.5-flash with automatic multi-model fallback.",
+                    style: TextStyle(fontSize: 10, color: Colors.black54),
+                  ),
                   const SizedBox(height: 10),
                   TextButton.icon(
                     icon: const Icon(Icons.open_in_new, size: 15),
@@ -544,6 +641,7 @@ $priceMemoryBlock
                   final key = keyCtrl.text.trim();
                   if (key.isNotEmpty) {
                     await service.saveApiKey(key);
+                    await service.saveSelectedModel(selectedModel);
                     Navigator.pop(dCtx, true);
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -551,7 +649,7 @@ $priceMemoryBlock
                     );
                   }
                 },
-                child: const Text("Save Key", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                child: const Text("Save Key & Model", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
             ],
           );

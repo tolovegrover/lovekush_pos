@@ -5068,8 +5068,8 @@ class _PosScreenState extends State<PosScreen> {
                   decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(8)),
                   child: const Icon(Icons.key, color: Color(0xFFD97706)),
                 ),
-                title: const Text("Configure Gemini Free Key", style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text("Google AI Studio Free Tier (1,500 bills/day at ₹0)"),
+                title: const Text("Configure Gemini AI Key & Model", style: TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text("Google AI Studio Free Tier (Gemini 2.5 Flash • 1,500 bills/day Free)"),
                 onTap: () {
                   Navigator.pop(ctx);
                   AiCounterVisionService.showApiKeySetupDialog(context);

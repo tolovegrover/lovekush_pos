@@ -167,7 +167,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       "AI Counter Bill Scanner (Gemini)",
                       style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                     ),
-                    subtitle: const Text("1,500 bills/day Free • Detects items, clutchers, safety pins, bangles & rates"),
+                    subtitle: const Text("1,500 bills/day Free • Gemini 2.5 Flash • Store Price Memory & Unbranded Detection"),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => AiCounterVisionService.showApiKeySetupDialog(context),
                   ),
