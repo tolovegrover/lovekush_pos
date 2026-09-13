@@ -6,10 +6,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'voice_recognition_service.dart';
+import 'size_variant_service.dart';
 
 /// Model representing a single item detected by AI on the checkout counter
 class AiDetectedItem {
   String name;
+  String? size;
   int qty;
   double rate;
   String category;
@@ -20,6 +22,7 @@ class AiDetectedItem {
 
   AiDetectedItem({
     required this.name,
+    this.size,
     this.qty = 1,
     this.rate = 0.0,
     this.category = "General",
@@ -62,9 +65,11 @@ class AiDetectedItem {
     final isLearned = src == "learned" || json['isLearnedRate'] == true;
     final branded = json['isBranded'] == true || (json['branded'] == true) || src == "mrp";
     final conf = (json['confidence'] ?? "medium").toString();
+    final parsedSize = (json['size'] ?? json['sizeLabel'] ?? SizeVariantService.extractSizeLabel(rawName))?.toString();
 
     return AiDetectedItem(
       name: rawName,
+      size: parsedSize,
       qty: parsedQty,
       rate: parsedRate,
       category: cat,
@@ -77,6 +82,7 @@ class AiDetectedItem {
 
   Map<String, dynamic> toJson() => {
     'name': name,
+    if (size != null) 'size': size,
     'qty': qty,
     'rate': rate,
     'category': category,
@@ -1161,6 +1167,33 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
                       item.category,
                       style: TextStyle(fontSize: 10, color: _getCategoryColor(item.category), fontWeight: FontWeight.w600),
                     ),
+                    const SizedBox(width: 6),
+                    InkWell(
+                      onTap: () => _pickSizeForItem(index),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF3C7),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: const Color(0xFFF59E0B)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.straighten, size: 10, color: Color(0xFFB45309)),
+                            const SizedBox(width: 3),
+                            Text(
+                              item.size != null && item.size!.isNotEmpty
+                                  ? "Size: ${item.size}"
+                                  : (SizeVariantService.extractSizeLabel(item.name) != null
+                                      ? "Size: ${SizeVariantService.extractSizeLabel(item.name)}"
+                                      : "📏 Size"),
+                              style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Color(0xFFB45309)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                     if (item.isVoiceRate) ...[
                       const SizedBox(width: 4),
                       Container(
@@ -1335,6 +1368,25 @@ class _AiCounterBillReviewSheetState extends State<_AiCounterBillReviewSheet> {
 
     if (newName != null && newName.isNotEmpty) {
       setState(() => item.name = newName);
+    }
+  }
+
+  void _pickSizeForItem(int index) async {
+    final item = _items[index];
+    final selectedVariant = await SizeVariantService.showSizeSelectorModal(
+      context,
+      itemName: item.name,
+      currentRate: item.rate,
+      category: item.category,
+    );
+    if (selectedVariant != null) {
+      setState(() {
+        item.size = selectedVariant.sizeLabel;
+        item.rate = selectedVariant.rate;
+        item.name = selectedVariant.fullName ?? SizeVariantService.formatItemWithSize(item.name, selectedVariant.sizeLabel);
+        item.isLearnedRate = true;
+      });
+      AiCounterVisionService().learnConfirmedPrices([item]);
     }
   }
 

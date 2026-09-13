@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'pdf_receipt_service.dart';
+import 'size_variant_service.dart';
 
 /// Service providing comprehensive Bill Editing, Cancellation (Voiding),
 /// Stock Reconciliation, and Audit History Tracking for Love Kush POS.
@@ -598,19 +599,63 @@ class BillManagementService {
                               children: [
                                 Text(name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                                 const SizedBox(height: 2),
-                                InkWell(
-                                  onTap: () => _promptEditItemRate(context, it, setBState),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        "₹${rate % 1 == 0 ? rate.toInt() : rate.toStringAsFixed(2)} / unit",
-                                        style: const TextStyle(fontSize: 11, color: Color(0xFF2563EB), fontWeight: FontWeight.w600),
+                                Wrap(
+                                  spacing: 8,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    InkWell(
+                                      onTap: () => _promptEditItemRate(context, it, setBState),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            "₹${rate % 1 == 0 ? rate.toInt() : rate.toStringAsFixed(2)} / unit",
+                                            style: const TextStyle(fontSize: 11, color: Color(0xFF2563EB), fontWeight: FontWeight.w600),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          const Icon(Icons.edit, size: 12, color: Color(0xFF2563EB)),
+                                        ],
                                       ),
-                                      const SizedBox(width: 4),
-                                      const Icon(Icons.edit, size: 12, color: Color(0xFF2563EB)),
-                                    ],
-                                  ),
+                                    ),
+                                    InkWell(
+                                      onTap: () async {
+                                        final selected = await SizeVariantService.showSizeSelectorModal(
+                                          context,
+                                          itemName: name,
+                                          currentRate: rate,
+                                          inMemoryInventory: inMemoryInventory,
+                                        );
+                                        if (selected != null) {
+                                          setBState(() {
+                                            it['rate'] = selected.rate % 1 == 0 ? selected.rate.toInt().toString() : selected.rate.toString();
+                                            final newName = selected.fullName ?? SizeVariantService.formatItemWithSize(name, selected.sizeLabel);
+                                            it['item'] = newName;
+                                            it['itemName'] = newName;
+                                            it['price'] = (qty * selected.rate).round().toString();
+                                          });
+                                        }
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF3E8FF),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: const Color(0xFFD8B4FE)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.straighten, size: 10, color: Color(0xFF7E22CE)),
+                                            const SizedBox(width: 2),
+                                            Text(
+                                              SizeVariantService.extractSizeLabel(name) ?? "Size",
+                                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF7E22CE)),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),

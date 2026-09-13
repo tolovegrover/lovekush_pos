@@ -25,6 +25,7 @@ import 'package:image_picker/image_picker.dart';
 import 'ai_counter_vision_service.dart';
 import 'package:printing/printing.dart';
 import 'bill_management_service.dart';
+import 'size_variant_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -3875,10 +3876,39 @@ class _ItemCatalogScreenState extends State<ItemCatalogScreen> {
                                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                                                 elevation: 0,
                                               ),
-                                              onPressed: () {
+                                              onPressed: () async {
                                                 if (widget.selectMode) {
                                                   Navigator.pop(context, item);
                                                   return;
+                                                }
+                                                final variants = SizeVariantService.findVariantsForProduct(
+                                                  itemName: (item['item_name'] ?? '').toString(),
+                                                  currentRate: (item['price'] as num?)?.toDouble() ?? 0.0,
+                                                  itemData: item,
+                                                  inMemoryInventory: cloudInventory,
+                                                );
+                                                if (variants.length > 1) {
+                                                  final selected = await SizeVariantService.showSizeSelectorModal(
+                                                    context,
+                                                    itemName: (item['item_name'] ?? '').toString(),
+                                                    currentRate: (item['price'] as num?)?.toDouble() ?? 0.0,
+                                                    itemData: item,
+                                                    inMemoryInventory: cloudInventory,
+                                                  );
+                                                  if (selected != null) {
+                                                    final updatedItem = Map<String, dynamic>.from(item);
+                                                    final newName = selected.fullName ?? SizeVariantService.formatItemWithSize(
+                                                      (item['item_name'] ?? '').toString(),
+                                                      selected.sizeLabel,
+                                                    );
+                                                    updatedItem['item_name'] = newName;
+                                                    if (selected.barcode != null && selected.barcode!.isNotEmpty) {
+                                                      updatedItem['item_code'] = selected.barcode;
+                                                    }
+                                                    updatedItem['price'] = selected.rate;
+                                                    _executeAddToCart(context, updatedItem, selected.rate);
+                                                    return;
+                                                  }
                                                 }
                                                 final duals = extractDualRates(item);
                                                 if (duals.length > 1) {
@@ -4336,11 +4366,11 @@ class _PosScreenState extends State<PosScreen> {
     });
   }
 
-  void _applyResolvedItemWithPrice(Map<String, dynamic> item, double chosenPrice) {
+  void _applyResolvedItemWithPrice(Map<String, dynamic> item, double chosenPrice, {String? newName, String? newCode}) {
     setState(() {
-      String code = (item['item_code'] ?? '').toString();
+      String code = newCode ?? (item['item_code'] ?? '').toString();
       rawItemCode = _parseToRaw(code);
-      activeItemName = (item['item_name'] ?? '').toString();
+      activeItemName = newName ?? (item['item_name'] ?? '').toString();
       final currentStock = (item['stock_qty'] as num?)?.toInt() ?? 10;
       final shelf = (item['shelf_location'] ?? '').toString();
       String stockBadge;
@@ -4376,8 +4406,14 @@ class _PosScreenState extends State<PosScreen> {
     if (matches.length == 1) {
       final item = matches.first;
       final dualRates = extractDualRates(item);
-      if (dualRates.length > 1) {
-        _showDualRateSelectionSheet(item, dualRates);
+      final variants = SizeVariantService.findVariantsForProduct(
+        itemName: (item['item_name'] ?? '').toString(),
+        currentRate: (item['price'] as num?)?.toDouble() ?? 0.0,
+        itemData: item,
+        inMemoryInventory: cloudInventory,
+      );
+      if (variants.length > 1 || dualRates.length > 1) {
+        _showDualRateSelectionSheet(item, dualRates, variants: variants);
         return;
       }
       _applyResolvedItem(item);
@@ -4549,11 +4585,12 @@ class _PosScreenState extends State<PosScreen> {
     }
   }
 
-  void _showDualRateSelectionSheet(Map<String, dynamic> item, List<double> dualRates) {
+  void _showDualRateSelectionSheet(Map<String, dynamic> item, List<double> dualRates, {List<SizeVariant>? variants}) {
     final itemName = (item['item_name'] ?? 'Product').toString();
     final itemCode = (item['item_code'] ?? '').toString();
-    final oldRate = dualRates.first;
-    final newRate = dualRates.last;
+    final oldRate = dualRates.isNotEmpty ? dualRates.first : 0.0;
+    final newRate = dualRates.isNotEmpty ? dualRates.last : 0.0;
+    final hasVariants = variants != null && variants.length > 1;
 
     showDialog(
       context: context,
@@ -4564,11 +4601,11 @@ class _PosScreenState extends State<PosScreen> {
           titlePadding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
           title: Row(
             children: [
-              const Icon(Icons.sell_outlined, color: Color(0xFFD97706), size: 20),
+              Icon(hasVariants ? Icons.straighten : Icons.sell_outlined, color: const Color(0xFFD97706), size: 20),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  itemName,
+                  hasVariants ? "Select Size / Variant" : itemName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
@@ -4582,66 +4619,142 @@ class _PosScreenState extends State<PosScreen> {
               ),
             ],
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text("Select batch price printed on pack:", style: TextStyle(fontSize: 12.5, color: Colors.black87)),
-              const SizedBox(height: 12),
-              Row(
-                children: dualRates.map((r) {
-                  final isOld = (r == oldRate && dualRates.length > 1);
-                  return Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: isOld ? Colors.grey.shade100 : const Color(0xFF10B981),
-                          foregroundColor: isOld ? Colors.black87 : Colors.white,
-                          side: BorderSide(color: isOld ? Colors.grey.shade400 : const Color(0xFF059669), width: 1.5),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                          elevation: 0,
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (hasVariants) ...[
+                  Text(
+                    itemName,
+                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text("Choose the size to apply corresponding rate:", style: TextStyle(fontSize: 11.5, color: Colors.black54)),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: variants.map((v) {
+                      final isCurrent = v.rate == (item['price'] as num?)?.toDouble();
+                      return SizedBox(
+                        width: 120,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: isCurrent ? const Color(0xFF10B981) : Colors.grey.shade100,
+                            foregroundColor: isCurrent ? Colors.white : Colors.black87,
+                            side: BorderSide(color: isCurrent ? const Color(0xFF059669) : Colors.grey.shade300, width: 1.5),
+                            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            elevation: 0,
+                          ),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            final chosenName = v.fullName ?? SizeVariantService.formatItemWithSize(itemName, v.sizeLabel);
+                            _applyResolvedItemWithPrice(item, v.rate, newName: chosenName, newCode: v.barcode);
+                          },
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                v.sizeLabel,
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isCurrent ? Colors.white : Colors.black87),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                "₹${v.rate % 1 == 0 ? v.rate.toInt() : v.rate}",
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: isCurrent ? Colors.white : const Color(0xFF059669)),
+                              ),
+                            ],
+                          ),
                         ),
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          _applyResolvedItemWithPrice(item, r);
-                        },
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text("₹${r % 1 == 0 ? r.toInt() : r}", style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
-                            Text(isOld ? "Old Batch" : "New Batch", style: TextStyle(fontSize: 11, color: isOld ? Colors.black54 : Colors.white70)),
-                          ],
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: Colors.grey.shade300),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    icon: const Icon(Icons.tune, size: 16, color: Color(0xFF4F46E5)),
+                    label: const Text("Custom Size & Rate...", style: TextStyle(fontSize: 12, color: Color(0xFF4F46E5))),
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      final selected = await SizeVariantService.showSizeSelectorModal(
+                        context,
+                        itemName: itemName,
+                        currentRate: (item['price'] as num?)?.toDouble() ?? 0.0,
+                        itemData: item,
+                        inMemoryInventory: cloudInventory,
+                      );
+                      if (selected != null) {
+                        final chosenName = selected.fullName ?? SizeVariantService.formatItemWithSize(itemName, selected.sizeLabel);
+                        _applyResolvedItemWithPrice(item, selected.rate, newName: chosenName, newCode: selected.barcode);
+                      }
+                    },
+                  ),
+                ],
+                if (dualRates.length > 1 && !hasVariants) ...[
+                  const Text("Select batch price printed on pack:", style: TextStyle(fontSize: 12.5, color: Colors.black87)),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: dualRates.map((r) {
+                      final isOld = (r == oldRate && dualRates.length > 1);
+                      return Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: isOld ? Colors.grey.shade100 : const Color(0xFF10B981),
+                              foregroundColor: isOld ? Colors.black87 : Colors.white,
+                              side: BorderSide(color: isOld ? Colors.grey.shade400 : const Color(0xFF059669), width: 1.5),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              elevation: 0,
+                            ),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              _applyResolvedItemWithPrice(item, r);
+                            },
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text("₹${r % 1 == 0 ? r.toInt() : r}", style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+                                Text(isOld ? "Old Batch" : "New Batch", style: TextStyle(fontSize: 11, color: isOld ? Colors.black54 : Colors.white70)),
+                              ],
+                            ),
+                          ),
                         ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 10),
+                  Center(
+                    child: TextButton(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      ),
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        await retireOldRate(
+                          itemCode: itemCode,
+                          oldRateToRemove: oldRate,
+                          newPrimaryRate: newRate,
+                        );
+                        _applyResolvedItemWithPrice(item, newRate);
+                      },
+                      child: Text(
+                        "Old ₹${oldRate % 1 == 0 ? oldRate.toInt() : oldRate} finished? Keep ₹${newRate % 1 == 0 ? newRate.toInt() : newRate} only",
+                        style: const TextStyle(fontSize: 11, color: Colors.redAccent),
                       ),
                     ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 10),
-              Center(
-                child: TextButton(
-                  style: TextButton.styleFrom(
-                    visualDensity: VisualDensity.compact,
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   ),
-                  onPressed: () async {
-                    Navigator.pop(ctx);
-                    await retireOldRate(
-                      itemCode: itemCode,
-                      oldRateToRemove: oldRate,
-                      newPrimaryRate: newRate,
-                    );
-                    _applyResolvedItemWithPrice(item, newRate);
-                  },
-                  child: Text(
-                    "Old ₹${oldRate % 1 == 0 ? oldRate.toInt() : oldRate} finished? Keep ₹${newRate % 1 == 0 ? newRate.toInt() : newRate} only",
-                    style: const TextStyle(fontSize: 11, color: Colors.redAccent),
-                  ),
-                ),
-              ),
-            ],
+                ],
+              ],
+            ),
           ),
         );
       },
@@ -5544,6 +5657,47 @@ class _PosScreenState extends State<PosScreen> {
       icon: Icons.check_circle,
       duration: const Duration(seconds: 3),
     );
+  }
+
+  Future<void> _showCartItemSizeSelector(int index) async {
+    if (index < 0 || index >= cart.length) return;
+    final item = cart[index];
+    final currentName = (item["itemName"] ?? item["item"] ?? "").toString().split("\n").first;
+    final currentRate = double.tryParse((item["rate"] ?? "0").toString()) ?? 0.0;
+
+    final selectedVariant = await SizeVariantService.showSizeSelectorModal(
+      context,
+      itemName: currentName,
+      currentRate: currentRate,
+      inMemoryInventory: cloudInventory,
+    );
+    if (selectedVariant != null) {
+      setState(() {
+        final newRateNum = selectedVariant.rate;
+        final newRateStr = newRateNum % 1 == 0 ? newRateNum.toInt().toString() : newRateNum.toString();
+        final newName = selectedVariant.fullName ?? SizeVariantService.formatItemWithSize(currentName, selectedVariant.sizeLabel);
+        final rawQty = double.tryParse((item["qty"] ?? "1").toString()) ?? 1.0;
+        final newPrice = (rawQty * newRateNum).round().toString();
+
+        cart[index]["rate"] = newRateStr;
+        cart[index]["price"] = newPrice;
+        cart[index]["itemName"] = newName;
+        cart[index]["item"] = (item["rawItemCode"] != null && item["rawItemCode"].toString().isNotEmpty && !item["rawItemCode"].toString().startsWith("OTHER-"))
+            ? "$newName\n${item["rawItemCode"]}"
+            : newName;
+
+        if (selectedVariant.barcode != null && selectedVariant.barcode!.isNotEmpty) {
+          cart[index]["rawItemCode"] = _parseToRaw(selectedVariant.barcode!);
+          cart[index]["item_code"] = selectedVariant.barcode!;
+          cart[index]["item"] = "$newName\n${selectedVariant.barcode!}";
+        }
+      });
+      _showPosNotification(
+        "Size updated to ${selectedVariant.sizeLabel} (₹${selectedVariant.rate % 1 == 0 ? selectedVariant.rate.toInt() : selectedVariant.rate})",
+        color: const Color(0xFF10B981),
+        icon: Icons.straighten,
+      );
+    }
   }
 
   void _showItemCodeLongPressMenu(BuildContext context) {
@@ -6875,11 +7029,6 @@ class _PosScreenState extends State<PosScreen> {
     );
   }
 
-  /// Backward compatibility alias
-  void _saveAndShareWhatsApp({ReceiptLanguage initialLanguage = ReceiptLanguage.hindi}) {
-    _saveAndPreviewBill(initialLanguage: initialLanguage);
-  }
-
   /// Save bill and print Hindi thermal receipt
   void _saveAndPrintBillHindi() async {
     final savedBillRecord = await _saveBillRecord();
@@ -6965,7 +7114,6 @@ class _PosScreenState extends State<PosScreen> {
     final billNumber = (savedBillRecord['bill_number'] ?? "").toString();
     final paidMoney = (savedBillRecord['amount_tendered'] as num?)?.toDouble() ?? 0.0;
     final finalChangeDue = (savedBillRecord['change_due'] as num?)?.toDouble() ?? 0.0;
-    final dbPaymentMethod = (savedBillRecord['payment_method'] ?? paymentMethod).toString();
 
     // 2. Try Printing if connected
     if (_printerConnected) {
@@ -7303,7 +7451,7 @@ class _PosScreenState extends State<PosScreen> {
                                         Container(
                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                           decoration: BoxDecoration(color: Colors.amber.shade100, borderRadius: BorderRadius.circular(4)),
-                                          child: const Text("EDITED", style: TextStyle(color: Colors.amber.shade900, fontWeight: FontWeight.bold, fontSize: 10)),
+                                          child: const Text("EDITED", style: TextStyle(color: Color(0xFF78350F), fontWeight: FontWeight.bold, fontSize: 10)),
                                         ),
                                       const Spacer(),
                                       Text(
@@ -7804,7 +7952,35 @@ class _PosScreenState extends State<PosScreen> {
                                 ],
                               ],
                             ),
-                            subtitle: Text("@ ₹${item["rate"]} (Tap to edit)", style: const TextStyle(fontSize: 13, color: Colors.black38, fontWeight: FontWeight.w500)),
+                            subtitle: Row(
+                              children: [
+                                Text("@ ₹${item["rate"]} (Tap to edit)", style: const TextStyle(fontSize: 13, color: Colors.black38, fontWeight: FontWeight.w500)),
+                                const SizedBox(width: 8),
+                                InkWell(
+                                  onTap: () => _showCartItemSizeSelector(index),
+                                  borderRadius: BorderRadius.circular(6),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF3E8FF),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: const Color(0xFFD8B4FE)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.straighten, size: 11, color: Color(0xFF7E22CE)),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          SizeVariantService.extractSizeLabel((item["itemName"] ?? item["item"] ?? "").toString()) ?? "Size",
+                                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF7E22CE)),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -7984,6 +8160,88 @@ class _PosScreenState extends State<PosScreen> {
                             ),
                           ),
                         ],
+                        // Inline Size Variants for active product
+                        if (activeItemName.isNotEmpty)
+                          Builder(
+                            builder: (context) {
+                              final curRate = double.tryParse(rate) ?? 0.0;
+                              final variants = SizeVariantService.findVariantsForProduct(
+                                itemName: activeItemName,
+                                currentRate: curRate,
+                                inMemoryInventory: cloudInventory,
+                              );
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 6.0),
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 6.0),
+                                        child: ActionChip(
+                                          avatar: const Icon(Icons.straighten, size: 14, color: Color(0xFF7C3AED)),
+                                          backgroundColor: const Color(0xFFF5F3FF),
+                                          side: const BorderSide(color: Color(0xFFDDD6FE)),
+                                          label: const Text(
+                                            "📏 Size & Rate",
+                                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF7C3AED)),
+                                          ),
+                                          onPressed: () async {
+                                            final selected = await SizeVariantService.showSizeSelectorModal(
+                                              context,
+                                              itemName: activeItemName,
+                                              currentRate: curRate,
+                                              inMemoryInventory: cloudInventory,
+                                            );
+                                            if (selected != null) {
+                                              setState(() {
+                                                rate = selected.rate % 1 == 0 ? selected.rate.toInt().toString() : selected.rate.toString();
+                                                activeItemName = selected.fullName ?? SizeVariantService.formatItemWithSize(activeItemName, selected.sizeLabel);
+                                                if (selected.barcode != null && selected.barcode!.isNotEmpty) {
+                                                  rawItemCode = _parseToRaw(selected.barcode!);
+                                                }
+                                                focusedField = 1;
+                                              });
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                      ...variants.map((v) {
+                                        final isCur = (v.rate == curRate);
+                                        return Padding(
+                                          padding: const EdgeInsets.only(right: 6.0),
+                                          child: ChoiceChip(
+                                            label: Text(
+                                              "${v.sizeLabel} • ₹${v.rate % 1 == 0 ? v.rate.toInt() : v.rate}",
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: isCur ? FontWeight.bold : FontWeight.normal,
+                                                color: isCur ? Colors.white : Colors.black87,
+                                              ),
+                                            ),
+                                            selected: isCur,
+                                            selectedColor: const Color(0xFF059669),
+                                            backgroundColor: Colors.grey.shade100,
+                                            side: BorderSide(color: isCur ? const Color(0xFF047857) : Colors.grey.shade300),
+                                            onSelected: (_) {
+                                              setState(() {
+                                                rate = v.rate % 1 == 0 ? v.rate.toInt().toString() : v.rate.toString();
+                                                activeItemName = v.fullName ?? SizeVariantService.formatItemWithSize(activeItemName, v.sizeLabel);
+                                                if (v.barcode != null && v.barcode!.isNotEmpty) {
+                                                  rawItemCode = _parseToRaw(v.barcode!);
+                                                }
+                                                focusedField = 1;
+                                              });
+                                            },
+                                          ),
+                                        );
+                                      }),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                       ],
                     ),
                   ),
