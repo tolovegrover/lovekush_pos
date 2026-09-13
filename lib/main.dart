@@ -20,6 +20,7 @@ import 'pdf_receipt_service.dart';
 import 'vedic_time_service.dart';
 import 'vedic_clock_screen.dart';
 import 'settings_screen.dart';
+import 'voice_recognition_service.dart';
 import 'package:printing/printing.dart';
 
 void main() async {
@@ -5037,11 +5038,25 @@ class _PosScreenState extends State<PosScreen> {
                 TextField(
                   controller: nameCtrl,
                   textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: "Item Name (Optional - or tap category below to add instantly)",
                     hintText: "e.g. Glass Bangles 2.4, Register 200pg...",
-                    prefixIcon: Icon(Icons.edit_note, size: 20),
-                    border: OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.edit_note, size: 20),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.mic, color: Color(0xFFEF4444)),
+                      tooltip: "Speak item name",
+                      onPressed: () async {
+                        final spoken = await VoiceRecognitionService.showVoiceInputSheet(
+                          context,
+                          currentText: nameCtrl.text,
+                          title: "Speak Item Name",
+                        );
+                        if (spoken != null && spoken.isNotEmpty) {
+                          nameCtrl.text = spoken;
+                        }
+                      },
+                    ),
+                    border: const OutlineInputBorder(),
                     isDense: true,
                   ),
                 ),
@@ -5238,6 +5253,20 @@ class _PosScreenState extends State<PosScreen> {
                   hintText: category != null ? "e.g. Red $category 2.4" : "Enter item name",
                   border: const OutlineInputBorder(),
                   prefixIcon: const Icon(Icons.label_outline),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.mic, color: Color(0xFFEF4444)),
+                    tooltip: "Speak name with mic",
+                    onPressed: () async {
+                      final spoken = await VoiceRecognitionService.showVoiceInputSheet(
+                        context,
+                        currentText: nameCtrl.text,
+                        title: category != null ? "Speak Name for $category" : "Speak Item Name",
+                      );
+                      if (spoken != null && spoken.isNotEmpty) {
+                        nameCtrl.text = spoken;
+                      }
+                    },
+                  ),
                 ),
                 onSubmitted: (val) {
                   _applyItemName(index, val, rawCode);
@@ -5250,6 +5279,25 @@ class _PosScreenState extends State<PosScreen> {
             TextButton(
               onPressed: () => Navigator.pop(dCtx),
               child: const Text("Skip / Keep Current"),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.mic, size: 16, color: Colors.white),
+              label: const Text("Speak", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEF4444),
+              ),
+              onPressed: () async {
+                final spoken = await VoiceRecognitionService.showVoiceInputSheet(
+                  context,
+                  currentText: nameCtrl.text,
+                  title: category != null ? "Speak Name for $category" : "Speak Item Name",
+                );
+                if (spoken != null && spoken.isNotEmpty) {
+                  nameCtrl.text = spoken;
+                  _applyItemName(index, spoken, rawCode);
+                  Navigator.pop(dCtx);
+                }
+              },
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -5510,10 +5558,24 @@ class _PosScreenState extends State<PosScreen> {
           controller: ctrl,
           autofocus: true,
           textCapitalization: TextCapitalization.words,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             hintText: "e.g. Hair Oil, Bangles, Register...",
             labelText: "Item Name (Optional)",
-            border: OutlineInputBorder(),
+            border: const OutlineInputBorder(),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.mic, color: Color(0xFFEF4444)),
+              tooltip: "Speak item name",
+              onPressed: () async {
+                final spoken = await VoiceRecognitionService.showVoiceInputSheet(
+                  context,
+                  currentText: ctrl.text,
+                  title: "Speak Next Item Name",
+                );
+                if (spoken != null && spoken.isNotEmpty) {
+                  ctrl.text = spoken;
+                }
+              },
+            ),
           ),
         ),
         actions: [
@@ -5523,6 +5585,25 @@ class _PosScreenState extends State<PosScreen> {
               Navigator.pop(dCtx);
             },
             child: const Text("Reset to Other"),
+          ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.mic, size: 16, color: Colors.white),
+            label: const Text("Speak", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+            ),
+            onPressed: () async {
+              final spoken = await VoiceRecognitionService.showVoiceInputSheet(
+                context,
+                currentText: ctrl.text,
+                title: "Speak Next Item Name",
+              );
+              if (spoken != null && spoken.isNotEmpty) {
+                ctrl.text = spoken;
+                setState(() => activeItemName = spoken);
+                Navigator.pop(dCtx);
+              }
+            },
           ),
           ElevatedButton(
             onPressed: () {
@@ -7497,7 +7578,7 @@ class _PosScreenState extends State<PosScreen> {
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (!isCalculatorMode)
+                          if (!isCalculatorMode) ...[
                             InkWell(
                               onTap: () {
                                 final p = double.tryParse(rate) ?? 0.0;
@@ -7531,11 +7612,51 @@ class _PosScreenState extends State<PosScreen> {
                                   children: const [
                                     Icon(Icons.category, size: 13, color: Color(0xFFB45309)),
                                     SizedBox(width: 4),
-                                    Text("+ Other (No Barcode)", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
+                                    Text("+ Other", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF92400E))),
                                   ],
                                 ),
                               ),
-                            )
+                            ),
+                            const SizedBox(width: 6),
+                            InkWell(
+                              onTap: () async {
+                                final spoken = await VoiceRecognitionService.showVoiceInputSheet(
+                                  context,
+                                  initialText: activeItemName,
+                                  title: "Speak Item Name",
+                                );
+                                if (spoken != null && spoken.trim().isNotEmpty) {
+                                  setState(() {
+                                    activeItemName = spoken.trim();
+                                    focusedField = 2; // Jump straight to rate
+                                  });
+                                  _showPosNotification(
+                                    "Set name: '${spoken.trim()}' - Now enter rate",
+                                    color: const Color(0xFF10B981),
+                                    icon: Icons.mic,
+                                    duration: const Duration(seconds: 3),
+                                  );
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(6),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEFF6FF),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: const Color(0xFF3B82F6).withOpacity(0.5)),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Icon(Icons.mic, size: 13, color: Color(0xFF2563EB)),
+                                    SizedBox(width: 4),
+                                    Text("Speak", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8))),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ]
                           else
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -7573,37 +7694,77 @@ class _PosScreenState extends State<PosScreen> {
                     if (isCalculatorMode)
                       Expanded(
                         flex: 6,
-                        child: GestureDetector(
-                          onTap: () => _showCalculatorRenameDialog(),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF0FDF4),
-                              border: Border.all(color: const Color(0xFF10B981), width: 1.5),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Text("MODE", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Color(0xFF059669))),
-                                const SizedBox(height: 4),
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(Icons.calculate, size: 14, color: Color(0xFF059669)),
-                                    const SizedBox(width: 4),
-                                    Flexible(
-                                      child: Text(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0FDF4),
+                            border: Border.all(color: const Color(0xFF10B981), width: 1.5),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () => _showCalculatorRenameDialog(),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Row(
+                                        children: const [
+                                          Text("ITEM NAME", style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: Color(0xFF059669))),
+                                          SizedBox(width: 3),
+                                          Icon(Icons.edit, size: 10, color: Color(0xFF059669)),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
                                         activeItemName.isNotEmpty ? activeItemName : "Other",
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF065F46)),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                          color: activeItemName.isNotEmpty ? const Color(0xFF065F46) : Colors.black87,
+                                        ),
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
-                              ],
-                            ),
+                              ),
+                              const SizedBox(width: 4),
+                              // 1-Tap Mic Button
+                              InkWell(
+                                onTap: () async {
+                                  final spoken = await VoiceRecognitionService.showVoiceInputSheet(
+                                    context,
+                                    initialText: activeItemName,
+                                    title: "Speak Item Name",
+                                  );
+                                  if (spoken != null && spoken.trim().isNotEmpty) {
+                                    setState(() {
+                                      activeItemName = spoken.trim();
+                                    });
+                                  }
+                                },
+                                borderRadius: BorderRadius.circular(20),
+                                child: Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF10B981),
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF10B981).withOpacity(0.35),
+                                        blurRadius: 4,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Icon(Icons.mic, size: 17, color: Colors.white),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       )
